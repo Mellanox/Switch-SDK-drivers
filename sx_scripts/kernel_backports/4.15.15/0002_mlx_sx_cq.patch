@@ -1,0 +1,30 @@
+diff --git a/sxd_kernel/drivers/net/mlx_sx/cq.c b/sxd_kernel/drivers/net/mlx_sx/cq.c
+index 31b7fbc..1627557 100644
+--- a/drivers/net/mlx_sx/cq.c
++++ b/drivers/net/mlx_sx/cq.c
+@@ -2072,11 +2072,9 @@ static int __low_priority_cq_handler_thread(void *arg)
+ }
+ 
+ 
+-static void __sampling_timer_fn(unsigned long data)
++static void __sampling_timer_fn(struct timer_list *t)
+ {
+-    struct sx_dev *dev = (struct sx_dev*) data;
+-    struct sx_priv *priv = sx_priv(dev);
+-    struct cpu_traffic_priority *cpu_traffic_prio = &priv->cq_table.cpu_traffic_prio;
++    struct cpu_traffic_priority *cpu_traffic_prio = from_timer(cpu_traffic_prio, t, sampling_timer);
+ 
+     atomic_set(&cpu_traffic_prio->high_prio_cq_in_load, 0);
+     mod_timer(&cpu_traffic_prio->sampling_timer, jiffies + HZ);
+@@ -2107,10 +2105,8 @@ int __cpu_traffic_priority_init(struct sx_dev *dev, struct cpu_traffic_priority
+     atomic_set(&cpu_traffic_prio->high_prio_cq_in_load, 0);
+     sema_init(&cpu_traffic_prio->low_prio_cq_thread_sem, 0);
+     sema_init(&cpu_traffic_prio->monitor_cq_thread_sem, 0);
+-    init_timer(&cpu_traffic_prio->sampling_timer);
++    timer_setup(&cpu_traffic_prio->sampling_timer, __sampling_timer_fn, 0);
+ 
+-    cpu_traffic_prio->sampling_timer.data = (unsigned long) dev;
+-    cpu_traffic_prio->sampling_timer.function = __sampling_timer_fn;
+     mod_timer(&cpu_traffic_prio->sampling_timer, jiffies + HZ);
+ 
+     atomic_inc(&sn);

@@ -1,0 +1,36 @@
+--- sxd_kernel_ofed_2.1/drivers/net/mlxfw/mlxfw_fsm.c
++++ sxd_kernel_ofed_2.1/drivers/net/mlxfw/mlxfw_fsm.c
+@@ -32,7 +32,9 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifndef pr_fmt
+ #define pr_fmt(fmt) "mlxfw: " fmt
++#endif
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+--- sxd_kernel_ofed_2.1/drivers/net/mlxfw/mlxfw_mfa2.c
++++ sxd_kernel_ofed_2.1/drivers/net/mlxfw/mlxfw_mfa2.c
+@@ -32,7 +32,9 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifndef pr_fmt
+ #define pr_fmt(fmt) "mlxfw_mfa2: " fmt
++#endif
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+--- sxd_kernel_ofed_2.1/drivers/net/mlxfw/mlxfw_mfa2_tlv_multi.c
++++ sxd_kernel_ofed_2.1/drivers/net/mlxfw/mlxfw_mfa2_tlv_multi.c
+@@ -32,7 +32,9 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#ifndef pr_fmt
+ #define pr_fmt(fmt) "MFA2: " fmt
++#endif
+ 
+ #include "mlxfw_mfa2_tlv_multi.h"
+ #include <uapi/linux/netlink.h>

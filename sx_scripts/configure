@@ -1,0 +1,340 @@
+#!/bin/bash
+#                 - Mellanox Confidential and Proprietary -
+#
+# Copyright (C) January 2010, Mellanox Technologies Ltd.  ALL RIGHTS RESERVED.
+#
+# Except as specifically permitted herein, no portion of the information,
+# including but not limited to object code and source code, may be reproduced,
+# modified, distributed, republished or otherwise exploited in any form or by
+# any means for any purpose without the prior written permission of Mellanox
+# Technologies Ltd. Use of software subject to the terms and conditions
+# detailed in the file "LICENSE.txt".
+#
+#
+usage()
+{
+cat << EOF
+\`configure' configures variables for kernel modules compilation
+
+Usage:  `basename $0` [options]
+
+    --prefix=PREFIX  for userspace components []
+    --build_root=BUILD_ROOT  root directory to build RPM packages
+    --kernel-version=VERSION  make for this kernel [$(uname -r)]
+    --modules-dir=DIR  modules directory [/lib/modules/$(uname -r)]
+    --kernel-sources=DIR  make for this kernel [/lib/modules/$(uname -r)/build]
+
+    Kernel modules configuration:
+
+    --with-memtrack  enable momory tracking [no]
+    --without-memtrack disable memory tracking [yes]
+
+    --with-debug-info  make CONFIG_DEBUG_INFO=y [yes]
+    --without-debug-info [no]
+
+    --help - print out options
+
+
+EOF
+
+}
+
+# Execute command w/ echo and exit if it fail
+ex()
+{
+        echo "$@"
+        if ! "$@"; then
+                printf "\nFailed executing $@\n\n"
+                exit 1
+        fi
+}
+
+# Compare 2 kernel versions
+check_kerver()
+{
+        local kver=$1
+        local min_kver=$2
+        shift 2
+
+        kver_a=$(echo -n ${kver} | cut -d '.' -f 1)
+        kver_b=$(echo -n ${kver} | cut -d '.' -f 2)
+        kver_c=$(echo -n ${kver} | cut -d '.' -f 3 | cut -d '-' -f 1 | tr -d [:alpha:][:punct:])
+
+        min_kver_a=$(echo -n ${min_kver} | cut -d '.' -f 1)
+        min_kver_b=$(echo -n ${min_kver} | cut -d '.' -f 2)
+        min_kver_c=$(echo -n ${min_kver} | cut -d '.' -f 3 | cut -d '-' -f 1 | tr -d [:alpha:][:punct:])
+
+        if [ ${kver_a} -lt ${min_kver_a} ] ||
+                [[ ${kver_a} -eq ${min_kver_a} && ${kver_b} -lt ${min_kver_b} ]] ||
+                [[ ${kver_a} -eq ${min_kver_a} && ${kver_b} -eq ${min_kver_b} && ${kver_c} -lt ${min_kver_c} ]]; then
+                return 1
+        fi
+
+        return 0
+}
+
+apply_mlxfw_patches()
+{
+    local patches_folder_name=drivers/net/local_mlxfw/patches/
+    if ( patch --follow-symlinks < /dev/null 2>&1 1>/dev/null ) ; then
+        mlxfw_extra_patch_configure_parameters="${mlxfw_extra_patch_configure_parameters} --follow-symlinks"
+    fi
+    for patch_file in ${patches_folder_name}/*
+    do
+        ex patch ${mlxfw_extra_patch_configure_parameters} -p1 -l -i ${patch_file}
+    done
+}
+
+apply_mlxfw_changes()
+{
+    cp -v drivers/net/local_mlxfw/mlxfw_main.c drivers/net/mlxfw
+    apply_mlxfw_patches
+}
+
+apply_backporting_patches()
+{
+	local patches_folder_name=sx_scripts/kernel_backports/$1
+	if ( patch --follow-symlinks < /dev/null 2>&1 1>/dev/null ) ; then
+		mlnx_extra_patch_configure_parameters="${mlnx_extra_patch_configure_parameters} --follow-symlinks"
+	fi
+	for patch_file in ${patches_folder_name}/*
+	do
+		ex patch ${mlnx_extra_patch_configure_parameters} -p1 -l -i ${patch_file}
+	done
+}
+
+main()
+{
+        # Parsing parameters
+        while [ ! -z "$1" ]
+        do
+                case $1 in
+                        -prefix | --prefix | --prefi | --pref | --pre | --pr | --p | -p)
+                                shift
+                                prefix=$1
+                                PREFIX="--prefix ${prefix}"
+                        ;;
+                        -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=* | -p=*)
+                                prefix=`expr "x$1" : 'x[^=]*=\(.*\)'`
+                                PREFIX="--prefix ${prefix}"
+                        ;;
+                        -modules-dir | --modules-dir | --mod-dir)
+                                shift
+                                MODULES_DIR=$1
+                        ;;
+                        -modules-dir=* | --modules-dir=* | --mod-dir=*)
+                                MODULES_DIR=`expr "x$1" : 'x[^=]*=\(.*\)'`
+                        ;;
+                        -kernel-sources | --kernel-sources | --kernel-src | --kern-src | --ker-src)
+                                shift
+                                KBLD=$1
+                        ;;
+                        -kernel-sources=* | --kernel-sources=* | --kernel-src=* | --kern-src=* | --ker-src=*)
+                                KBLD=`expr "x$1" : 'x[^=]*=\(.*\)'`
+                        ;;
+                        -kernel-version | --kernel-version | --kern-ver | --ker-ver)
+                                shift
+                                KVERSION=$1
+                        ;;
+                        -kernel-version=* | --kernel-version=* | --kern-ver=* | --ker-ver=*)
+                                KVERSION=`expr "x$1" : 'x[^=]*=\(.*\)'`
+                        ;;
+                        --with-memtrack)
+                            CONFIG_MEMTRACK="m"
+                        ;;
+                        --without-memtrack)
+                            CONFIG_MEMTRACK=
+                        ;;
+                        --with-debug-info)
+                            CONFIG_DEBUG_INFO="y"
+                        ;;
+                        --without-debug-info)
+                            CONFIG_DEBUG_INFO=
+                        ;;
+                       --with-modprobe|--without-modprobe)
+                        ;;
+                        --with-sx-core-debug)
+                            CONFIG_SX_CORE_DEBUG="y"
+                        ;;
+                        -h | --help)
+                                usage
+                                exit 0
+                        ;;
+                        --with*)
+                                echo
+                                echo "Unsupported or unused parameter: $1"
+                                echo
+                        ;;
+                        *)
+                                echo
+                                echo "Wrong parameter $1"
+                                echo
+                                usage
+                                exit 1
+                        ;;
+                esac
+                shift
+
+        done
+
+#Set default values
+CONFIG_SX_CORE="m"
+CONFIG_SX_NETDEV="m"
+CONFIG_SX_EMAD_DUMP="m"
+CONFIG_SX_BFD="m"
+CONFIG_MLXFW="m"
+KVERSION=${KVERSION:-$(uname -r)}
+MIN_KVERSION="2.6.27"
+MODULES_DIR=${MODULES_DIR:-/lib/modules/${KVERSION}/updates}
+KBLD=${KBLD:-/lib/modules/${KVERSION}/build}
+if [ -d "/lib/modules/${KVERSION}/source" ]; then
+	KSRC=${KSRC:-/lib/modules/${KVERSION}/source}
+fi
+ARCH=${ARCH:-$(uname -m)}
+
+# Additional parameters to be passed to configure command
+CWD=$(pwd)
+CONFIG="configure.mk.kernel"
+
+mkdir -p ${CWD}/include/linux
+AUTOCONF_H="${CWD}/include/linux/autoconf.h"
+
+CONFIG_SX_CORE_DEBUG=${CONFIG_SX_CORE_DEBUG:-''}
+CONFIG_MEMTRACK=${CONFIG_MEMTRACK:-''}
+CONFIG_DEBUG_INFO=${CONFIG_DEBUG_INFO:-'y'}
+
+kernel_patching_marker_file="config.${KVERSION}"
+
+if [ ! -e ${kernel_patching_marker_file} ]; then
+        # Check for minimal supported kernel version
+        if ! check_kerver ${KVERSION} ${MIN_KVERSION}; then
+                echo "Kernel version ${KVERSION} is less then supported kernel ${MIN_KVERSION}. Exiting..."
+                exit 1
+        fi
+
+	case ${KVERSION} in
+                3.10.* | 3.13.* | 3.14.* | 3.16.*)
+			echo "Kernel version ${KVERSION} - 3.10 kernel - no backporting patches required"
+		;;
+	    	4.9.*)
+			MODULES_DIR=/lib/modules/${KVERSION}/update
+		 	apply_backporting_patches "4.9.0"
+		;;
+  	    	4.15.*)
+                    	MODULES_DIR=/lib/modules/${KVERSION}/update
+                    	apply_backporting_patches "4.9.0"
+                    	apply_backporting_patches "4.15.15"
+            	;;
+	
+		*)
+			echo "Kernel version ${KVERSION} is not supported, supported versions are 3.10.*, 3.13.*, 3.14.*, 3.16.* and 4.9.0"
+			exit 1
+		;;
+	esac
+
+	apply_mlxfw_changes
+
+	touch ${kernel_patching_marker_file}
+fi
+
+        # Create configure.mk
+        /bin/rm -f ${CWD}/${CONFIG}
+        cat >> ${CWD}/${CONFIG} << EOFCONFIG
+# Current working directory
+CWD=${CWD}
+
+# Kernel level
+KVERSION=${KVERSION}
+ARCH=${ARCH}
+MODULES_DIR=${MODULES_DIR}
+KBLD=${KBLD}
+KSRC=${KSRC}
+
+AUTOCONF_H=${AUTOCONF_H}
+
+WITH_MAKE_PARAMS=${WITH_MAKE_PARAMS}
+
+CONFIG_MEMTRACK=${CONFIG_MEMTRACK}
+CONFIG_DEBUG_INFO=${CONFIG_DEBUG_INFO}
+CONFIG_SX_CORE=${CONFIG_SX_CORE}
+CONFIG_SX_CORE_DEBUG=${CONFIG_SX_CORE_DEBUG}
+CONFIG_SX_NETDEV=${CONFIG_SX_NETDEV}
+CONFIG_SX_EMAD_DUMP=${CONFIG_SX_EMAD_DUMP}
+CONFIG_SX_BFD=${CONFIG_SX_BFD}
+CONFIG_MLXFW=${CONFIG_MLXFW}
+
+EOFCONFIG
+        echo "Created ${CONFIG}:"
+        cat ${CWD}/${CONFIG}
+
+# Create autoconf.h
+if [ "X${CONFIG_MEMTRACK}" == "Xm" ]; then
+        DEFINE_MEMTRACK="#define CONFIG_MEMTRACK 1"
+else
+        DEFINE_MEMTRACK="#undef CONFIG_MEMTRACK"
+fi
+if [ "X${CONFIG_DEBUG_INFO}" == "Xy" ]; then
+        DEFINE_DEBUG_INFO="#define CONFIG_DEBUG_INFO 1"
+else
+        DEFINE_DEBUG_INFO="#undef CONFIG_DEBUG_INFO"
+fi
+if [ "X${CONFIG_SX_CORE}" == "Xm" ]; then
+        DEFINE_SX_CORE="#define CONFIG_SX_CORE 1"
+else
+        DEFINE_SX_CORE="#undef CONFIG_SX_CORE"
+fi
+if [ "X${CONFIG_SX_CORE_DEBUG}" == "Xy" ]; then
+        DEFINE_SX_CORE_DEBUG="#define SX_CORE_DEBUG 1"
+else
+        DEFINE_SX_CORE_DEBUG="#undef SX_CORE_DEBUG"
+fi
+if [ "X${CONFIG_SX_NETDEV}" == "Xm" ]; then
+        DEFINE_SX_NETDEV="#define CONFIG_SX_NETDEV 1"
+else
+        DEFINE_SX_NETDEV="#undef CONFIG_SX_NETDEV"
+fi
+if [ "X${CONFIG_SX_EMAD_DUMP}" == "Xm" ]; then
+        DEFINE_SX_EMAD_DUMP="#define CONFIG_SX_EMAD_DUMP 1"
+else
+        DEFINE_SX_EMAD_DUMP="#undef CONFIG_SX_EMAD_DUMP"
+fi
+if [ "X${CONFIG_SX_BFD}" == "Xm" ]; then
+        DEFINE_SX_BFD="#define CONFIG_SX_BFD 1"
+else
+        DEFINE_SX_BFD="#undef CONFIG_SX_BFD"
+fi
+if [ "X${CONFIG_MLXFW}" == "Xm" ]; then
+        DEFINE_MLXFW="#define CONFIG_MLXFW 1"
+else
+        DEFINE_MLXFW="#undef CONFIG_MLXFW"
+fi
+
+cat >> ${AUTOCONF_H} << EOFAUTOCONF
+#undef CONFIG_MEMTRACK
+#undef CONFIG_DEBUG_INFO
+
+#undef CONFIG_SX_CORE
+#undef SX_CORE_DEBUG
+#undef CONFIG_SX_NETDEV
+#undef CONFIG_SX_EMAD_DUMP
+#undef CONFIG_SX_BFD
+#undef CONFIG_MLXFW
+
+${DEFINE_SX_CORE}
+
+${DEFINE_SX_CORE_DEBUG}
+
+${DEFINE_SX_NETDEV}
+
+${DEFINE_DEBUG_INFO}
+
+${DEFINE_MEMTRACK}
+
+EOFAUTOCONF
+
+        echo "Created ${AUTOCONF_H}:"
+        cat ${AUTOCONF_H}
+}
+
+main $@
+

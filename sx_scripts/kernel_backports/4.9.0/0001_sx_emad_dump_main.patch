@@ -1,0 +1,14 @@
+--- a/drivers/net/sx_emad_dump/sx_emad_dump_main.c	2017-08-16 06:19:55.000000000 -0400
++++ b/drivers/net/sx_emad_dump/sx_emad_dump_main.c	2017-08-30 21:41:45.468000000 -0400
+@@ -261,7 +261,11 @@
+         goto nl_create_failed;
+     }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
++    __nl_dev = alloc_netdev(0, "emad_dump", NET_NAME_UNKNOWN, __emad_dump_setup);
++#else
+     __nl_dev = alloc_netdev(0, "emad_dump", __emad_dump_setup);
++#endif
+     if (!__nl_dev) {
+         printk(KERN_ERR "failed to create netlink monitor device\n");
+         err = -ENOMEM;

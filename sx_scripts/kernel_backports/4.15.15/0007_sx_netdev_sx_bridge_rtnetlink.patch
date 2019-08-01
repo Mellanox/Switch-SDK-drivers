@@ -1,0 +1,22 @@
+--- a/drivers/net/sx_netdev/sx_bridge_rtnetlink.c	2018-04-13 09:33:44.574948000 +0300
++++ b/drivers/net/sx_netdev/sx_bridge_rtnetlink.c	2018-04-13 09:35:20.701635000 +0300
+@@ -67,7 +67,8 @@
+ 	net_priv->netdev = dev;
+ }
+ 
+-static int sx_bridge_validate(struct nlattr *tb[], struct nlattr *data[])
++static int sx_bridge_validate(struct nlattr *tb[], struct nlattr *data[],
++				struct netlink_ext_ack *extack)
+ {
+ 	__u16 id;
+ 	
+@@ -126,7 +127,8 @@
+ }
+ 
+ static int sx_bridge_newlink(struct net *net, struct net_device *dev,
+-			struct nlattr *tb[], struct nlattr *data[])
++			struct nlattr *tb[], struct nlattr *data[],
++			struct netlink_ext_ack *extack)
+ {
+ 	struct sx_net_priv *net_priv = netdev_priv(dev);
+ 	int swid = 0;

@@ -1,0 +1,20 @@
+--- a/drivers/net/sx_netdev/sx_netdev_main.c	2017-08-16 06:19:55.000000000 -0400
++++ b/drivers/net/sx_netdev/sx_netdev_main.c	2017-08-31 13:19:22.540000000 -0400
+@@ -991,7 +1025,7 @@
+     if (sx_netdev_tx_debug) {
+         printk(KERN_DEBUG PFX "%s called for (%s)\n", __func__, netdev->name);
+     }
+-    netdev->trans_start = jiffies; /* save the timestamp */
++    netif_trans_update(netdev); /* save the timestamp */
+ 
+     memset(&meta, 0, sizeof(meta));
+     meta.dev_id = net_priv->dev->device_id;
+@@ -1351,7 +1470,7 @@
+ 		return NULL;
+ 
+ 	sprintf(name,"swid%d_eth", swid);
+-	netdev = alloc_netdev(sizeof(*net_priv), name, ether_setup);
++	netdev = alloc_netdev(sizeof(*net_priv), name, NET_NAME_UNKNOWN, ether_setup);
+ 	if (!netdev) {
+ 		printk(KERN_ERR PFX  "Net Device struct %s alloc failed, "
+ 			"aborting.\n", name);

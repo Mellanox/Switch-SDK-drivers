@@ -1,0 +1,418 @@
+#!/bin/bash 
+#
+# Bring up/down sxdkernel
+#
+# chkconfig: 2345 05 95
+# description: Activates/Deactivates SwitchX Driver to \
+#              start at boot time.
+#
+### BEGIN INIT INFO
+# Provides:       sxdkernel
+# Required-Start: 
+# Required-Stop:  
+# Default-Start:  3 5
+# Default-Stop:   0 1 2 6
+# Short-Description: SwitchX driver service
+# Description:    Activates/Deactivates SwitchX Driver
+### END INIT INFO
+
+# Therefore determine the base, follow a runlevel link name ...
+base=${0##*/}
+link=${base#*[SK][0-9][0-9]}
+# ... and compare them
+if [ $link == $base ] ; then
+	RUNMODE=manual
+else
+	RUNMODE=auto    
+fi
+            
+ACTION=$1
+CHIP_TYPE=$2
+shift
+
+if [ -z $RESET_TRIGGER ]; then
+    RESET_TRIGGER=1
+fi
+
+if [ -z $FAST_BOOT ]; then
+    export FAST_BOOT=0
+fi
+
+if [ "x$RESUME_SDK" == "x1" ]; then
+    FAST_BOOT=1
+fi
+
+RESTART=0
+
+UNLOAD_MODULES=""
+STATUS_MODULES="sx_core sx_netdev 8021q"
+
+#########################################################################
+# Get a sane screen width
+[ -z "${COLUMNS:-}" ] && COLUMNS=80
+
+[ -z "${CONSOLETYPE:-}" ] && [ -x /sbin/consoletype ] && CONSOLETYPE="`/sbin/consoletype`"
+
+if [ -f /etc/sysconfig/i18n -a -z "${NOLOCALE:-}" ] ; then
+	. /etc/sysconfig/i18n
+	if [ "$CONSOLETYPE" != "pty" ]; then
+		case "${LANG:-}" in
+			ja_JP*|ko_KR*|zh_CN*|zh_TW*)
+				export LC_MESSAGES=en_US
+				;;
+			*)
+				export LANG
+				;;
+		esac
+	else
+		export LANG
+	fi
+fi
+
+echo_success() {
+	echo -n $@
+
+	[ "$BOOTUP" = "color" ] && $MOVE_TO_COL
+	echo -n "[  "
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_SUCCESS
+	echo -n $"OK"
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_NORMAL
+	echo -n "  ]"
+	echo -e "\r"
+	return 0
+}
+
+echo_done() {
+	echo -n $@
+	[ "$BOOTUP" = "color" ] && $MOVE_TO_COL
+	echo -n "[  "
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_NORMAL
+	echo -n $"done"
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_NORMAL
+	echo -n "  ]"
+	echo -e "\r"
+	return 0
+}
+
+echo_failure() {
+	echo -n $@
+	[ "$BOOTUP" = "color" ] && $MOVE_TO_COL
+	echo -n "["
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_FAILURE
+	echo -n $"FAILED" 
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_NORMAL
+	echo -n "]"
+	echo -e "\r"
+	return 1
+}
+
+echo_warning() {
+	echo -n $@
+	[ "$BOOTUP" = "color" ] && $MOVE_TO_COL
+	echo -n "["
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_WARNING
+	echo -n $"WARNING"
+	[ "$BOOTUP" = "color" ] && $SETCOLOR_NORMAL
+	echo -n "]"
+	echo -e "\r"
+	return 1
+}
+
+# If module $1 is loaded return - 0 else - 1
+is_module()
+{
+	local RC
+
+	/sbin/lsmod | grep -w "$1" > /dev/null
+	RC=$?
+    
+	return $RC        
+}
+
+# Return module's refcnt
+is_ref()
+{
+	local refcnt
+	refcnt=`cat /sys/module/"$1"/refcnt 2> /dev/nill`
+	return $refcnt
+}
+
+start()
+{
+	/sbin/modprobe 8021q
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo_failure $"Loading 8021q: "
+		return $RC
+	fi
+
+	if [ -z $CHIP_TYPE ]; then
+		/sbin/modprobe sx_core cq_thread_sched_priority=98 g_chip_type=1 fast_boot=$FAST_BOOT reset_trigger=$RESET_TRIGGER
+	else
+		/sbin/modprobe sx_core cq_thread_sched_priority=98 g_chip_type=$CHIP_TYPE fast_boot=$FAST_BOOT reset_trigger=$RESET_TRIGGER
+	fi
+
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo_failure $"Loading SX core: "
+		return $RC
+	fi
+
+	if [ "x$udevd_restart" != "xno" ]; then
+		if [ -x /sbin/udevtrigger ]; then
+			echo "Reloading udev:"
+			/sbin/udevtrigger
+			RC=$?
+			if [ $RC = 1 ]; then
+				echo "Failed to run udevtrigger."
+				return $RC
+			fi
+		fi
+		if [ -x /sbin/udevadm ]; then
+			echo "Reloading udev:"
+			/sbin/udevadm trigger
+			RC=$?
+			if [ $RC = 1 ]; then
+				echo "Failed to run udevadm."
+				return $RC
+			fi
+		fi
+	fi
+
+       /sbin/modprobe sx_netdev
+        RC=$?
+        if [ $RC -ne 0 ]; then
+                echo_failure $"Loading sx_netdev: "
+                return $RC
+        fi
+        
+	rm -rf /dev/sxdevs
+	mkdir /dev/sxdevs
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo_failure $"Preparing /dev/sxdevs folder, has service been already started?"
+		return $RC
+	fi
+
+	major=$(awk -F ' ' '$2 == "sxcdev" { print $1}' /proc/devices)
+	mknod -m 666 /dev/sxdevs/sxcdev c $major 193
+
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo_failure $"Preparing /dev/sxdevs/sxcdev device"
+		return $RC
+	fi
+
+       /sbin/modprobe sx_bfd
+        RC=$?
+        if [ $RC -ne 0 ]; then
+                echo_failure $"Loading sx_bfd: "
+                return $RC
+        fi
+
+    major=$(awk -F ' ' '$2 == "bfdcdev" { print $1}' /proc/devices)
+    mknod -m 666 /dev/sxdevs/bfdcdev c $major 193
+
+    RC=$?
+    if [ $RC -ne 0 ]; then
+        echo_failure $"Preparing /dev/sxdevs/bfdcdev device"
+        return $RC
+    fi
+
+	echo_success $"Loading SX driver: "
+
+	return $RC
+}
+
+rm_mod()
+{
+	local mod=$1
+	shift
+
+	unload_log=`/sbin/rmmod $mod 2>&1`
+	if [ $? -ne 0 ]; then
+		echo_failure $"Unloading $mod"
+		if [ ! -z "${unload_log}" ]; then
+			echo $unload_log
+		fi
+		[ ! -z $2 ] && echo $2
+		exit 1
+	fi
+}
+
+unload()
+{
+	# Unload module $1
+	local mod=$1
+	local unload_log
+
+	if is_module $mod; then
+		case $mod in
+			*)
+			/sbin/modprobe -r $mod
+			if [ $? -ne 0 ] || is_module $mod; then
+				# Try rmmod if modprobe failed.
+				rm_mod $mod
+			fi
+			;;
+		esac
+	fi
+}
+
+stop()
+{
+    local NEED_UNLOAD=0
+    
+    if ! is_module sx_netdev ; then
+        if [ $RESTART -eq 0 ]; then
+            echo
+            echo_warning $"SX NETDEV driver is not loaded or loaded with errors"
+            echo
+        fi
+    else
+        NEED_UNLOAD=1
+    fi
+
+
+    if ! is_module sx_core ; then
+        if [ $RESTART -eq 0 ]; then
+            echo
+            echo_warning $"SX driver is not loaded or loaded with errors"
+            echo
+        fi                        
+    else
+        NEED_UNLOAD=1
+    fi
+
+    if ! is_module 8021q ; then
+        if [ $RESTART -eq 0 ]; then
+            echo
+            echo_warning $"8021q is not loaded or loaded with errors"
+            echo
+        fi                        
+    else
+        NEED_UNLOAD=1
+    fi
+
+    if [ $NEED_UNLOAD -eq 0 ]; then
+        return 0
+    fi
+
+	# Unload modules
+	if [ "$UNLOAD_MODULES" != "" ]; then
+		for mod in  $UNLOAD_MODULES
+		do
+			unload $mod
+		done
+	fi
+
+	local done=0
+
+    # Unload sx_bfd
+    if is_module sx_bfd; then
+        is_ref sx_bfd
+        unload sx_bfd
+        done=1
+    fi
+
+        # Unload mlx_sx_netdev
+	if is_module sx_netdev; then
+		is_ref sx_netdev
+		unload sx_netdev
+	fi
+
+	# Unload mlx_sx_core
+	if is_module sx_core; then
+		is_ref sx_core
+		unload sx_core
+		rm -rf /dev/sxdevs
+		done=1
+	fi
+
+	if is_module 8021q; then
+		is_ref 8021q
+		unload 8021q
+		done=1
+	fi
+
+
+	if [ $done -eq 1 ]; then
+		echo_success $"Unloading SX driver: "
+	fi
+	sleep 1
+}
+
+status()
+{
+	local RC=0
+ 
+	if is_module sx_core; then
+		echo
+		echo "  SX driver loaded"
+		echo
+	else
+		echo
+		echo $"SX driver is not loaded"
+		echo
+	fi
+
+	local cnt=0
+    
+	for mod in  $STATUS_MODULES
+	do
+		if is_module $mod; then
+			[ $cnt -eq 0 ] && echo "The following SX modules are loaded:" && echo
+			let cnt++
+			echo "  $mod"
+		fi
+	done
+     
+	echo
+    
+	return $RC
+}
+
+
+RC=0
+start_time=$(date +%s | tr -d '[:space:]')
+
+trap_handler()
+{
+	let run_time=$(date +%s | tr -d '[:space:]')-${start_time}
+
+	# Ask to wait for 5 seconds if trying to stop sx
+	if [ $run_time -gt 5 ] && [ "$ACTION" == "stop" ]; then
+		printf "\nProbably some application are still using SX modules...\n"
+	else
+		printf "\nPlease wait ...\n"
+	fi
+	return 0
+}
+
+trap 'trap_handler' 2 9 15
+
+case $ACTION in
+	start)
+		start
+	;;
+	stop)
+		stop    
+	;;
+	restart)
+		RESTART=1
+		stop
+		start
+	;;
+	status)
+		status
+	;;
+	*)
+		echo 
+		echo "Usage: `basename $0` {start|stop|restart|status}"
+		echo
+		exit 1
+	;;
+esac
+
+RC=$?
+exit $RC

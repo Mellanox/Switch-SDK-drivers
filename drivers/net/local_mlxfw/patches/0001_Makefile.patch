@@ -1,0 +1,6 @@
+--- a/drivers/net/mlxfw/Makefile	2018-09-25 11:36:16.517790000 +0300
++++ b/drivers/net/mlxfw/Makefile	2018-10-03 13:32:14.249701000 +0300
+@@ -1,2 +1,2 @@
+ obj-$(CONFIG_MLXFW)	+= mlxfw.o
+-mlxfw-objs		:= mlxfw_fsm.o mlxfw_mfa2_tlv_multi.o mlxfw_mfa2.o
++mlxfw-objs		:= mlxfw_main.o mlxfw_fsm.o mlxfw_mfa2_tlv_multi.o mlxfw_mfa2.o

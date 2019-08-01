@@ -1,0 +1,11 @@
+--- a/drivers/net/mlxfw/mlxfw.h	2018-09-25 11:36:16.519786000 +0300
++++ b/drivers/net/mlxfw/mlxfw.h	2018-10-28 11:45:42.037913000 +0200
+@@ -96,7 +96,7 @@
+ 	u16 psid_size;
+ };
+ 
+-#if IS_REACHABLE(CONFIG_MLXFW)
++#if 1
+ int mlxfw_firmware_flash(struct mlxfw_dev *mlxfw_dev,
+ 			 const struct firmware *firmware);
+ #else

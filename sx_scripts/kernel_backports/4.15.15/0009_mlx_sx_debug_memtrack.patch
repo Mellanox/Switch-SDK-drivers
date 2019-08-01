@@ -1,0 +1,13 @@
+--- a/drivers/net/mlx_sx/debug/memtrack/mtrack.h	2018-05-08 03:13:14.232128000 +0300
++++ b/drivers/net/mlx_sx/debug/memtrack/mtrack.h	2018-05-08 03:19:06.836819000 +0300
+@@ -50,6 +50,10 @@
+ #include <linux/skbuff.h>       /* For skbufs handling */
+ #include <asm/uaccess.h>	/* For copy from/to user */
+ 
++#undef ioremap
++#undef iounmap
++#undef ioremap_nocache
++
+ #define MEMTRACK_ERROR_INJECTION_MESSAGE(file, line, func) ({ \
+ 	printk(KERN_ERR "%s failure injected at %s:%d\n", func, file, line);	\
+ 	dump_stack();								\

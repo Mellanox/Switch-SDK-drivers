@@ -1,0 +1,19 @@
+Source: sx-kernel
+Priority: extra
+Maintainer: Adir Atias <adira@dev-r-vrt-128-008>
+Build-Depends:
+Standards-Version:
+Section: net
+Homepage: http://www.mellanox.com
+
+Package: sx-kernel
+Architecture: any
+Section: kernel
+Depends: ${misc:Depends}, adduser
+Description: SwitchX/Spectrum low level drivers
+
+Package: sx-kernel-dev
+Section: devel
+Architecture: any
+Depends: ${misc:Depends}, sx-kernel (= ${binary:Version})
+Description: Development files for the sx-kernel

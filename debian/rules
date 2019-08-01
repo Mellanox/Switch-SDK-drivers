@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+
+_prefix          ?= /usr
+
+KVERSION       ?= $(shell uname -r)
+K_SRC          ?= "/lib/modules/$(KVERSION)/build"
+LIB_MOD_DIR    ?= "/lib/modules/$(KVERSION)/updates"
+
+# Disable debugging
+debug_package=""
+__check_files=""
+
+pname:=sx-kernel
+pdev:=$(pname)-dev
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	rm -rf debian/$(pname)
+	rm -rf debian/$(pdev)
+
+override_dh_auto_configure:
+	@echo Configuring $(pname) for  $(KVERSION)
+	./configure --prefix=$(_prefix) --kernel-version $(KVERSION) --kernel-sources $(K_SRC) --modules-dir $(LIB_MOD_DIR) $(configure_options)
+
+override_dh_auto_build:
+	@echo Building for $(pname) for  $(KVERSION)
+	make kernel ${extra_make_options}
+
+override_dh_auto_install:
+	make install_kernel $(extra_make_options) MODULES_DIR=$(LIB_MOD_DIR) DESTDIR=debian/$(pname)
+	install -d  debian/$(pdev)/$(_prefix)/src/$(pname)
+	for modsym in `find debian/$(pname) -name Module.symvers -o -name Modules.symvers` ; do cat $(modsym) >> debian/$(pname)/$(_prefix)/src/$(pname)/Module.symvers ;done

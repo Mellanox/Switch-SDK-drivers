@@ -1,0 +1,11 @@
+--- a/drivers/net/sx_emad_dump/sx_emad_dump_main.c	2018-04-13 09:12:23.400533000 +0300
++++ b/drivers/net/sx_emad_dump/sx_emad_dump_main.c	2018-04-13 09:12:52.568747000 +0300
+@@ -135,7 +135,7 @@
+ {
+     dev->type = ARPHRD_NETLINK;
+     dev->netdev_ops	= &__emad_dump_ops;
+-    dev->destructor	= free_netdev;
++    dev->priv_destructor	= free_netdev;
+     dev->features = NETIF_F_SG | NETIF_F_FRAGLIST;
+     dev->flags = IFF_NOARP;
+     dev->mtu = 8 * 1024;

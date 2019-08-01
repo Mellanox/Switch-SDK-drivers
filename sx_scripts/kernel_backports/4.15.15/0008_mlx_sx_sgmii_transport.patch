@@ -1,0 +1,31 @@
+--- a/drivers/net/mlx_sx/sgmii_transport.c	2018-05-02 04:16:15.569156000 +0300
++++ b/drivers/net/mlx_sx/sgmii_transport.c	2018-05-02 04:22:43.371105000 +0300
+@@ -47,8 +47,8 @@ static struct net_device *__sgmii_netdev = NULL;
+ static char __sgmii_netdev_name[SX_IFNAMSIZ] = "";
+
+ static atomic_t __sgmii_rx_budget;
+-static void __sgmii_rate_limiter_cb(unsigned long data);
+-static DEFINE_TIMER(__sgmii_rate_limiter_timer, __sgmii_rate_limiter_cb, 0, 0);
++static void __sgmii_rate_limiter_cb(struct timer_list *t);
++static DEFINE_TIMER(__sgmii_rate_limiter_timer, __sgmii_rate_limiter_cb);
+
+ static struct sx_priv *__sgmii_priv = NULL;
+ static void (*handle_rx_by_cqe_version_cb)(struct sgmii_dev *sgmii_dev,
+@@ -588,7 +588,7 @@ drop_skb:
+ }
+
+
+-static void __sgmii_rate_limiter_cb(unsigned long data)
++static void __sgmii_rate_limiter_cb(struct timer_list *t)
+ {
+     atomic_set(&__sgmii_rx_budget, sgmii_get_rx_pps());
+     mod_timer(&__sgmii_rate_limiter_timer, jiffies + HZ);
+@@ -751,7 +751,7 @@ int sgmii_transport_init(const char *netdev_name,
+     __sgmii_netdev = netdev;
+     write_unlock_bh(&__sgmii_netdev_lock);
+
+-    __sgmii_rate_limiter_cb(0);
++    __sgmii_rate_limiter_cb(NULL);
+     strncpy(__sgmii_netdev_name, netdev_name, sizeof(__sgmii_netdev_name));
+     return 0;
+

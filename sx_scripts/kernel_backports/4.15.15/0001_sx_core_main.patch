@@ -1,0 +1,22 @@
+--- a/drivers/net/mlx_sx/sx_core_main.c	2018-04-13 04:11:34.177413000 +0300
++++ b/drivers/net/mlx_sx/sx_core_main.c 2018-04-13 04:12:36.043892000 +0300
+@@ -8694,16 +8694,10 @@
+
+     if (msi_x) {
+         entry.entry = 0;
+-        err = pci_enable_msix(dev->pdev, &entry, 1);
+-        if (err) {
+-            if (err > 0) {
+-                printk(KERN_INFO PFX "Only %d MSI-X vectors available, "
+-                       "not using MSI-X\n", err);
+-            } else {
+-                printk(KERN_DEBUG PFX "Failed enabling MSI-X interrupts. "
++        err = pci_enable_msix_range(dev->pdev, &entry, 1, 1);
++        if (err < 0) {
++            printk(KERN_DEBUG PFX "Failed enabling MSI-X interrupts. "
+                        "Going to use standard interrupts instead\n");
+-            }
+-
+             goto no_msi;
+         }
+

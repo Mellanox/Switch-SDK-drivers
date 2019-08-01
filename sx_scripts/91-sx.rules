@@ -1,0 +1,2 @@
+KERNEL=="sxcdev*", NAME="sxdevs/%k", MODE="0660", GROUP="500"
+ACTION=="add", SUBSYSTEM=="pci" , ATTRS{device}=="0xc738", OPTIONS="ignore_device", OPTIONS+="last_rule", ENV{MODALIAS}:=""

@@ -1,0 +1,22 @@
+--- a/drivers/net/sx_netdev/sx_netdev_rtnetlink.c	2018-04-13 09:24:56.981042000 +0300
++++ b/drivers/net/sx_netdev/sx_netdev_rtnetlink.c	2018-04-13 09:29:28.240071000 +0300
+@@ -69,7 +69,8 @@
+ 	INIT_DELAYED_WORK(&net_priv->pude_dwork, sx_netdev_dwork_func);
+ }
+ 
+-static int sx_netdev_validate(struct nlattr *tb[], struct nlattr *data[])
++static int sx_netdev_validate(struct nlattr *tb[], struct nlattr *data[],
++			      struct netlink_ext_ack *extack)
+ {
+ 	__u32 id;
+ 	int is_lag;
+@@ -183,7 +184,8 @@
+ }
+ 
+ static int sx_netdev_newlink(struct net *net, struct net_device *dev,
+-			struct nlattr *tb[], struct nlattr *data[])
++			struct nlattr *tb[], struct nlattr *data[], 
++			struct netlink_ext_ack *extack)
+ {
+ 	struct ku_access_paos_reg paos_reg_data;
+ 	struct ku_access_ppad_reg ppad_reg_data;

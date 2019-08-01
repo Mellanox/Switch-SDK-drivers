@@ -1,0 +1,34 @@
+--- a/drivers/net/mlx_sx/catas.c	2018-04-13 04:59:35.632100000 +0300
++++ b/drivers/net/mlx_sx/catas.c	2018-04-13 08:42:24.613043000 +0300
+@@ -74,10 +74,10 @@
+ 			 i, swab32(__raw_readl(priv->catas_err.map + i)));
+ }
+ 
+-static void poll_catas(unsigned long dev_ptr)
++static void poll_catas(struct timer_list *t)
+ {
+-	struct sx_dev *dev = (struct sx_dev *) dev_ptr;
+-	struct sx_priv *priv = sx_priv(dev);
++	struct sx_priv *priv = from_timer(priv, t, catas_err.timer);
++	struct sx_dev *dev = &priv->dev;	
+ 
+ 	if (__raw_readl(priv->catas_err.map)) {
+ 		dump_err_buf(dev);
+@@ -128,7 +128,7 @@
+ 		return;
+ 
+ 	INIT_LIST_HEAD(&priv->catas_err.list);
+-	init_timer(&priv->catas_err.timer);
++	timer_setup(&priv->catas_err.timer, poll_catas, 0);
+ 	priv->catas_err.map = NULL;
+ 
+ 	if (!priv->fw.catas_size)
+@@ -144,8 +144,6 @@
+ 		return;
+ 	}
+ 
+-	priv->catas_err.timer.data     = (unsigned long) dev;
+-	priv->catas_err.timer.function = poll_catas;
+ 	priv->catas_err.timer.expires  =
+ 			round_jiffies(jiffies + SX_CATAS_POLL_INTERVAL);
+ 	add_timer(&priv->catas_err.timer);
