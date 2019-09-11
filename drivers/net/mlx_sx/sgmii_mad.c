@@ -40,38 +40,39 @@
 #define INFINIBAND_QP1_TRAP_ID       (0xf1)
 #define INFINIBAND_OTHER_QPS_TRAP_ID (0xf2)
 
-#define MAD_HDR_LEN                  (0x18) /* length of MAD header */
+#define MAD_HDR_LEN (0x18)                  /* length of MAD header */
 
 #define UNRELIABLE_DATAGRAM_MAD_HDR_OFFSET (0x1c) /* LRH + BTH + DETH */
-#define LRH_SLID_OFFSET              (0x6)
-#define MAD_HDR_TR_ID_OFFSET         (0x8)
-#define MAD_HDR_STATUS_OFFSET        (0x4)
-#define MAD_HDR_ATTR_ID_OFFSET       (0x10)
+#define LRH_SLID_OFFSET                    (0x6)
+#define MAD_HDR_TR_ID_OFFSET               (0x8)
+#define MAD_HDR_STATUS_OFFSET              (0x4)
+#define MAD_HDR_ATTR_ID_OFFSET             (0x10)
 
 static struct sgmii_transaction_db __mad_tr_db;
-static atomic_t __sgmii_mad_transactions_in_progress = ATOMIC_INIT(0);
-static struct mutex __mad_ifc_mutex;
-
-extern uint64_t sx_system_mkey;
+static atomic_t                    __sgmii_mad_transactions_in_progress = ATOMIC_INIT(0);
+static struct mutex                __mad_ifc_mutex;
+extern uint64_t                    sx_system_mkey;
 
 int sgmii_get_mad_header_info(const uint8_t *buff,
-                              uint32_t buff_len,
-                              uint32_t *mad_hdr_offset,
-                              uint64_t *tr_id,
-                              uint16_t *attr_id)
+                              uint32_t       buff_len,
+                              uint32_t      *mad_hdr_offset,
+                              uint64_t      *tr_id,
+                              uint16_t      *attr_id)
 {
     const uint8_t* lrh = buff; /* local route header */
     const uint8_t* bth = NULL; /* base transport header */
     const uint8_t* grh = NULL; /* global route header */
-    uint32_t offset = 0;
+    uint32_t       offset = 0;
 
     switch (lrh[1] & 3) { /* 2bit of next-header */
     case 3: /* GRH header */
         grh = lrh + 8; /* length of LRH header */
         break;
+
     case 2: /* BTH header */
         bth = lrh + 8; /* length of LRH header */
         break;
+
     default:
         return -ENOENT;
     }
@@ -93,9 +94,11 @@ int sgmii_get_mad_header_info(const uint8_t *buff,
     case 2: /* reliable datagram (RD) */
         offset += 4 + 8; /* RDETH + DETH headers length */
         break;
+
     case 3: /* unreliable datagram (UD) */
         offset += 8; /* DETH header length */
         break;
+
     default:
         return -ENOENT;
     }
@@ -150,21 +153,19 @@ static void __sgmii_rx_mad(struct completion_info* ci, void *context)
 
 
 struct send_mad_info {
-    struct sgmii_dev *sgmii_dev;
-    struct sk_buff *skb;
-    struct isx_meta meta;
-    uint8_t is_transaction;
-    sgmii_transaction_id_t tr_id;
+    struct sgmii_dev                      *sgmii_dev;
+    struct sk_buff                        *skb;
+    struct isx_meta                        meta;
+    uint8_t                                is_transaction;
+    sgmii_transaction_id_t                 tr_id;
     struct sgmii_sync_transaction_context *sync_context;
 };
-
-
 static void __sgmii_send_mad_deferred(void *task_param)
 {
     struct send_mad_info *info;
-    int ret = 0, should_free_skb = 1;
+    int                   ret = 0, should_free_skb = 1;
 
-    info = (struct send_mad_info*) task_param;
+    info = (struct send_mad_info*)task_param;
 
     SGMII_DEV_INC_COUNTER(info->sgmii_dev, mad_tx);
 
@@ -213,7 +214,7 @@ dec_ref:
      * just release the reference taken in sgmii_send_mad().
      * for sure it will not actually delete the skb and not call its destructor
      * the other reference is from sgmii_send() or sgmii_send_transaction() */
-    kfree_skb(info->skb); 
+    kfree_skb(info->skb);
 
     if (should_free_skb) {
         /* we free original skb so it will activate its destructor (just like with PCI) */
@@ -224,12 +225,12 @@ dec_ref:
 }
 
 
-static int __sgmii_send_mad(struct sgmii_dev *sgmii_dev,
-                            struct sk_buff *skb,
-                            const struct isx_meta *meta,
+static int __sgmii_send_mad(struct sgmii_dev                      *sgmii_dev,
+                            struct sk_buff                        *skb,
+                            const struct isx_meta                 *meta,
                             struct sgmii_sync_transaction_context *sync_context,
-                            sgmii_transaction_id_t mad_tr_id,
-                            uint8_t is_transaction)
+                            sgmii_transaction_id_t                 mad_tr_id,
+                            uint8_t                                is_transaction)
 {
     /*
      * we may get here from IB flow where in its layers it sends a packet within a scope of
@@ -240,7 +241,7 @@ static int __sgmii_send_mad(struct sgmii_dev *sgmii_dev,
      */
 
     struct send_mad_info info;
-    int ret;
+    int                  ret;
 
     memset(&info, 0, sizeof(info));
 
@@ -277,11 +278,11 @@ static int __sgmii_send_mad(struct sgmii_dev *sgmii_dev,
 
 int sgmii_send_mad(int dev_id, struct sk_buff *skb, const struct isx_meta *meta)
 {
-    struct sgmii_dev *sgmii_dev;
+    struct sgmii_dev      *sgmii_dev;
     sgmii_transaction_id_t mad_tr_id = 0;
-    uint16_t mad_attr_id = 0;
-    uint8_t is_transaction = 0;
-    int ret;
+    uint16_t               mad_attr_id = 0;
+    uint8_t                is_transaction = 0;
+    int                    ret;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -303,14 +304,14 @@ int sgmii_send_mad(int dev_id, struct sk_buff *skb, const struct isx_meta *meta)
 }
 
 
-static int __sgmii_send_mad_ifc_cb(int dev_id,
-                                   struct sk_buff *skb,
-                                   const struct isx_meta *meta,
+static int __sgmii_send_mad_ifc_cb(int                                    dev_id,
+                                   struct sk_buff                        *skb,
+                                   const struct isx_meta                 *meta,
                                    struct sgmii_sync_transaction_context *sync_context)
 {
-    struct sgmii_dev *sgmii_dev;
+    struct sgmii_dev      *sgmii_dev;
     sgmii_transaction_id_t mad_tr_id;
-    int ret;
+    int                    ret;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -323,33 +324,30 @@ static int __sgmii_send_mad_ifc_cb(int dev_id,
 
 
 int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
-                                int dev_id,
-                                u32 in_modifier,
-                                void *in_mad,
-                                int in_size,
-                                void *out_mad,
-                                int out_size)
+                                int            dev_id,
+                                u32            in_modifier,
+                                void          *in_mad,
+                                int            in_size,
+                                void          *out_mad,
+                                int            out_size)
 {
-    static const uint8_t ib_headers[] = { /* arr_size = UNRELIABLE_DATAGRAM_MAD_HDR_OFFSET = LRH + BTH + DETH */
+    static const uint8_t  ib_headers[] = { /* arr_size = UNRELIABLE_DATAGRAM_MAD_HDR_OFFSET = LRH + BTH + DETH */
         0xf0, 0x02, 0xff, 0xff, 0x00, 0x48, 0xff, 0xff, /* LRH */
         0x64, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* BTH */
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 /* DETH */
     };
-
     static const uint32_t tid_high = cpu_to_be32(SGMII_TR_ID_PREFIX);
-    static uint32_t packet_seq_number = 0;
-    uint64_t orig_tr_id;
-    uint32_t tid_low;
-
-    u8 port = in_modifier & 0xff;
-    u8 swid = (in_modifier >> 8) & 0xff;
-    u16 slid = (in_modifier >> 16) & 0xffff;
-
-    struct isx_meta meta;
-    struct sk_buff *skb;
-    struct sk_buff *rx_skb;
-    uint32_t psn, mad_hdr_offset;
-    int err;
+    static uint32_t       packet_seq_number = 0;
+    uint64_t              orig_tr_id;
+    uint32_t              tid_low;
+    u8                    port = in_modifier & 0xff;
+    u8                    swid = (in_modifier >> 8) & 0xff;
+    u16                   slid = (in_modifier >> 16) & 0xffff;
+    struct isx_meta       meta;
+    struct sk_buff       *skb;
+    struct sk_buff       *rx_skb;
+    uint32_t              psn, mad_hdr_offset;
+    int                   err;
 
     memset(&meta, 0, sizeof(meta));
     meta.swid = swid;
@@ -386,10 +384,10 @@ int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
 
     tid_low = cpu_to_be32(tid_low);
     psn = tid_low;
-    memcpy(skb->data + 17 /* psn offset */, &((char *) &psn)[1], 3);
-    memcpy(&orig_tr_id, (char*) in_mad + MAD_HDR_TR_ID_OFFSET, 8);
-    memcpy((char*) in_mad + MAD_HDR_TR_ID_OFFSET, &tid_high, 4);
-    memcpy((char*) in_mad + MAD_HDR_TR_ID_OFFSET + 4, &tid_low, 4);
+    memcpy(skb->data + 17 /* psn offset */, &((char*)&psn)[1], 3);
+    memcpy(&orig_tr_id, (char*)in_mad + MAD_HDR_TR_ID_OFFSET, 8);
+    memcpy((char*)in_mad + MAD_HDR_TR_ID_OFFSET, &tid_high, 4);
+    memcpy((char*)in_mad + MAD_HDR_TR_ID_OFFSET + 4, &tid_low, 4);
 
     /* encode MAD header */
     memcpy(skb->data + UNRELIABLE_DATAGRAM_MAD_HDR_OFFSET, in_mad, in_size);
@@ -411,7 +409,7 @@ int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
     }
 
     memcpy(out_mad, rx_skb->data, out_size);
-    memcpy((char*) out_mad + MAD_HDR_TR_ID_OFFSET, &orig_tr_id, 8);
+    memcpy((char*)out_mad + MAD_HDR_TR_ID_OFFSET, &orig_tr_id, 8);
 
 out:
     kfree_skb(rx_skb);
@@ -422,30 +420,34 @@ unlock:
 }
 
 
-static void __sgmii_mad_transaction_completion(struct sk_buff *rx_skb,
+static void __sgmii_mad_transaction_completion(struct sk_buff                          *rx_skb,
                                                enum sgmii_transaction_completion_status status,
-                                               struct sgmii_transaction_info *tr_info,
-                                               void *context)
+                                               struct sgmii_transaction_info           *tr_info,
+                                               void                                    *context)
 {
     switch (status) {
     case SGMII_TR_COMP_ST_COMPLETED:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_transaction_completed);
         break;
+
     case SGMII_TR_COMP_ST_RX_DEV_MISMATCH:
         SGMII_DEV_INC_COUNTER(tr_info->rx_dev, mad_dev_mismatch);
         break;
+
     case SGMII_TR_COMP_ST_TIMEDOUT:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_timeout);
         break;
+
     case SGMII_TR_COMP_ST_TERMINATED:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_terminated);
         break;
+
     default:
         break;
-    };
+    }
 
     if (context) { /* only in sync transaction */
-        struct sgmii_sync_transaction_context *tr_ctx = (struct sgmii_sync_transaction_context*) context;
+        struct sgmii_sync_transaction_context *tr_ctx = (struct sgmii_sync_transaction_context*)context;
         sgmii_sync_transaction_complete(tr_ctx, rx_skb, status);
     }
 
@@ -462,7 +464,7 @@ int sgmii_mad_get_transactions_in_progress(void)
 int sgmii_mad_init(void)
 {
     union ku_filter_critireas crit;
-    int ret;
+    int                       ret;
 
     memset(&crit, 0, sizeof(crit));
     crit.ib.is_oob_originated_mad = 255; /* don't care */

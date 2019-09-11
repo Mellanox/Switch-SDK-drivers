@@ -36,18 +36,17 @@
 #include <net/sock.h>
 
 struct metadata {
-        union {
-                struct sockaddr_in peer_in;
-                struct sockaddr_in6 peer_in6;
-        } peer_addr;
-        union {
-                struct sockaddr_in local_in;
-                struct sockaddr_in6 local_in6;
-        } local_addr;
-        int inbound_id;
-        int ttl;
+    union {
+        struct sockaddr_in  peer_in;
+        struct sockaddr_in6 peer_in6;
+    } peer_addr;
+    union {
+        struct sockaddr_in  local_in;
+        struct sockaddr_in6 local_in6;
+    } local_addr;
+    int inbound_id;
+    int ttl;
 };
-
 enum sx_bfd_sock_type {
     sx_bfd_SOCK_SINGLEHOP = 0,
     sx_bfd_SOCK_MULTIHOP,
@@ -55,12 +54,15 @@ enum sx_bfd_sock_type {
 };
 
 
-
 bool sx_bfd_socket_send(struct socket * sock, char* buf, size_t buf_len, struct sockaddr *peer);
 int sx_bfd_socket_recv(struct socket *sock,
                        char* buf, size_t buf_len, struct metadata* metadata);
 
-int sx_bfd_tx_socket_create(struct sockaddr * local_addr, uint8_t ttl, uint8_t dscp, struct socket ** sock, uint16_t sa_family);
+int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
+                            uint8_t           ttl,
+                            uint8_t           dscp,
+                            struct socket  ** sock,
+                            uint16_t          sa_family);
 int sx_bfd_rx_socket_init(uint16_t port, struct socket ** sock, uint32_t vrf_id, unsigned long bfd_user_space_pid);
 
 void sx_bfd_tx_socket_destroy(struct socket * sock);
@@ -76,11 +78,6 @@ void sx_bfd_rx_vrf_entry_free_if_needed(void *rx_vrf_entry);
 void * sx_bfd_rx_vrf_entry_lkp_by_vrf_id(uint32_t vrf_id);
 void sx_bfd_rx_vrf_hash_add(void *rx_vrf_entry);
 int sx_bfd_rx_vrf_is_sock_same(uint32_t vrf_id, struct socket *sock);
-
-
-
-
-
 
 
 #endif /* __SX_BFD_SOCKET_H_ */

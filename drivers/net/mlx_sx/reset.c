@@ -43,114 +43,113 @@ static int reset_trigger = 1;
 module_param_named(reset_trigger, reset_trigger, int, 0644);
 MODULE_PARM_DESC(reset_trigger, "a trigger to perform chip reset");
 
-#define RESET_TRIGGER_TIMEOUT                           (10 * HZ)
-#define SX_RESET_TIMEOUT_JIFFIES			(2 * HZ)
-#define SX_SYSTEM_STATUS_REG_OFFSET 			0xA1844
-#define SX_SYSTEM_STATUS_REG_SIZE			4 /* byte */
-#define SX_SYSTEM_STATUS_REG_MASK			0xFF
-#define SX_SYSTEM_STATUS_ENABLED			0x5E
+#define RESET_TRIGGER_TIMEOUT       (10 * HZ)
+#define SX_RESET_TIMEOUT_JIFFIES    (2 * HZ)
+#define SX_SYSTEM_STATUS_REG_OFFSET 0xA1844
+#define SX_SYSTEM_STATUS_REG_SIZE   4         /* byte */
+#define SX_SYSTEM_STATUS_REG_MASK   0xFF
+#define SX_SYSTEM_STATUS_ENABLED    0x5E
 #ifdef INCREASED_TIMEOUT
-	#define SX_SW_RESET_TIMEOUT_MSECS			(25 * 60 * 1000) /* 15 minutes */
+    #define SX_SW_RESET_TIMEOUT_MSECS (25 * 60 * 1000)           /* 15 minutes */
 #else
-	#define SX_SW_RESET_TIMEOUT_MSECS			(5 * 1000) /* 5 seconds */
+    #define SX_SW_RESET_TIMEOUT_MSECS (5 * 1000)           /* 5 seconds */
 #endif
-#define SX_HCA_HEADERS_SIZE			        256
+#define SX_HCA_HEADERS_SIZE 256
 
 static int legacy_sx_reset(struct sx_dev *dev);
 static int reset_dev_by_mrsr_reg(struct sx_dev *dev);
 static int sdk_sx_reset(struct sx_dev *dev);
 
 /* wait for device to come up after reset, depending on device type.
- * SwitchX 							- 3 seconds timeout.
+ * SwitchX                                                      - 3 seconds timeout.
  * Spectrum, SwitchIB, SwitchIB2	- wait for FW ready control register.
  */
-static int perform_dev_sw_reset(struct sx_dev *dev) 
+static int perform_dev_sw_reset(struct sx_dev *dev)
 {
-	int err = 0;
+    int err = 0;
 
-	if (!dev) {		
-	    sx_err(dev, "%s: dev argument is null, err [%d]\n", __func__, err);
-		return -EINVAL;
-	}
-	
-	switch (dev->pdev->device) {
-		/* SwitchX */
-		case SWITCHX_PCI_DEV_ID:			
-		    err = legacy_sx_reset(dev);
-		    if (err) {
-		        sx_err(dev, "legacy_sx_reset failed, err [%d]\n", err);
-                goto out;
-            }
-		    
-			break;
+    if (!dev) {
+        sx_err(dev, "%s: dev argument is null, err [%d]\n", __func__, err);
+        return -EINVAL;
+    }
 
-		/* Spectrum, SwitchIB */
-        case SPECTRUM_PCI_DEV_ID: /* no break */
-        case SPECTRUM2_PCI_DEV_ID: /* no break */
-		case SWITCH_IB_PCI_DEV_ID: /* no break */
-		case SWITCH_IB2_PCI_DEV_ID:
-		case QUANTUM_PCI_DEV_ID:
-            err = sdk_sx_reset(dev);
-            if (err) {             
-				sx_err(dev, "%s: sdk_sx_reset failed, err [%d]\n", __func__, err);
-				err = legacy_sx_reset(dev);
-				goto out;
-			}
-			
-			break;
+    switch (dev->pdev->device) {
+    /* SwitchX */
+    case SWITCHX_PCI_DEV_ID:
+        err = legacy_sx_reset(dev);
+        if (err) {
+            sx_err(dev, "legacy_sx_reset failed, err [%d]\n", err);
+            goto out;
+        }
 
-		default:
-			err = -ENODEV;
-			sx_err(dev, "%s: unsupported device type [%d], err [%d]\n", __func__, 
-			       dev->pdev->device, err);
-			goto out;
-			break;
+        break;
 
-	}
+    /* Spectrum, SwitchIB */
+    case SPECTRUM_PCI_DEV_ID:     /* no break */
+    case SPECTRUM2_PCI_DEV_ID:     /* no break */
+    case SWITCH_IB_PCI_DEV_ID:     /* no break */
+    case SWITCH_IB2_PCI_DEV_ID:
+    case QUANTUM_PCI_DEV_ID:
+        err = sdk_sx_reset(dev);
+        if (err) {
+            sx_err(dev, "%s: sdk_sx_reset failed, err [%d]\n", __func__, err);
+            err = legacy_sx_reset(dev);
+            goto out;
+        }
+
+        break;
+
+    default:
+        err = -ENODEV;
+        sx_err(dev, "%s: unsupported device type [%d], err [%d]\n", __func__,
+               dev->pdev->device, err);
+        goto out;
+        break;
+    }
 
 out:
-	return err;
+    return err;
 }
 
 static int reset_dev_by_mrsr_reg(struct sx_dev *dev)
 {
-	int err = 0;
-	struct ku_access_mrsr_reg reg_data;
+    int                       err = 0;
+    struct ku_access_mrsr_reg reg_data;
 
-	memset(&reg_data, 0, sizeof(reg_data));
+    memset(&reg_data, 0, sizeof(reg_data));
 
-	reg_data.dev_id = dev->device_id;
-	reg_data.op_tlv.type = TLV_TYPE_OPERATION_E;
-	reg_data.op_tlv.length = TLV_LEN;
-	reg_data.op_tlv.dr = 0;
-	reg_data.op_tlv.status = 0;
-	reg_data.op_tlv.register_id = MRSR_REG_ID;
-	reg_data.op_tlv.r = TLV_REQUEST;
-	reg_data.op_tlv.method = EMAD_METHOD_WRITE;
-	reg_data.op_tlv.op_class = EMAD_CLASS_REG_ACCESS;
-	reg_data.op_tlv.tid = 0;
+    reg_data.dev_id = dev->device_id;
+    reg_data.op_tlv.type = TLV_TYPE_OPERATION_E;
+    reg_data.op_tlv.length = TLV_LEN;
+    reg_data.op_tlv.dr = 0;
+    reg_data.op_tlv.status = 0;
+    reg_data.op_tlv.register_id = MRSR_REG_ID;
+    reg_data.op_tlv.r = TLV_REQUEST;
+    reg_data.op_tlv.method = EMAD_METHOD_WRITE;
+    reg_data.op_tlv.op_class = EMAD_CLASS_REG_ACCESS;
+    reg_data.op_tlv.tid = 0;
 
-	reg_data.mrsr_reg.command = SXD_MRSR_CMD_SW_RESET;
-	
-	err = sx_ACCESS_REG_MRSR(dev, &reg_data);
+    reg_data.mrsr_reg.command = SXD_MRSR_CMD_SW_RESET;
+
+    err = sx_ACCESS_REG_MRSR(dev, &reg_data);
     if (err) {
         printk(KERN_ERR "Failed accessing MRSR for SW reset command, err [%d]\n", err);
         goto out;
     }
 
 out:
-	return err;
+    return err;
 }
 
-static int sdk_sx_reset(struct sx_dev *dev) 
+static int sdk_sx_reset(struct sx_dev *dev)
 {
-    int err = 0;
+    int           err = 0;
     unsigned long end = 0, start = 0;
     void __iomem *sys_status = NULL;
-    bool system_enabled = false;
-    u32 val = 0;
-    u32 wait_for_reset = 0;    
-    
+    bool          system_enabled = false;
+    u32           val = 0;
+    u32           wait_for_reset = 0;
+
     printk(KERN_INFO PFX "performing SW reset\n");
 
     /* actually hit reset */
@@ -160,14 +159,14 @@ static int sdk_sx_reset(struct sx_dev *dev)
         printk(KERN_ERR "Failed filling MRSR data, err [%d]\n", err);
         goto out;
     }
-        
+
     sys_status = ioremap(pci_resource_start(dev->pdev, 0) + SX_SYSTEM_STATUS_REG_OFFSET, SX_SYSTEM_STATUS_REG_SIZE);
     if (!sys_status) {
         err = -ENOMEM;
         sx_err(dev, "%s: Couldn't map HCA reset register, err [%d]\n", __func__, err);
         goto out;
     }
-    
+
     /* first, verify system status is not enabled, due to MRSR emad */
     system_enabled = true;
     val = ioread32be(sys_status);
@@ -178,7 +177,7 @@ static int sdk_sx_reset(struct sx_dev *dev)
     if (system_enabled) {
         err = -ETIME;
         sx_err(dev, "%s: system is still enabled after sending MRSR SW reset emad, err [%d]\n", __func__, err);
-        iounmap(sys_status);                
+        iounmap(sys_status);
         goto out;
     }
 
@@ -193,9 +192,9 @@ static int sdk_sx_reset(struct sx_dev *dev)
 #endif
 
     if (dev->pdev->device == QUANTUM_PCI_DEV_ID) {
-        wait_for_reset = 12000; /* Timeout for Quantum was increased to 12s until FW stablizes its flow. */
+        wait_for_reset = 12000; /* Timeout for Quantum was increased to 12s until FW stabilizes its flow. */
     } else if (dev->pdev->device == SPECTRUM2_PCI_DEV_ID) {
-        wait_for_reset = 15000; /* Timeout for Phoenix was increased to 15s until FW stablizes its flow. */
+        wait_for_reset = 15000; /* Timeout for Phoenix was increased to 15s until FW stabilizes its flow. */
     } else {
         wait_for_reset = SX_SW_RESET_TIMEOUT_MSECS;
     }
@@ -205,19 +204,19 @@ static int sdk_sx_reset(struct sx_dev *dev)
     do {
         val = ioread32be(sys_status);
         if (SX_SYSTEM_STATUS_ENABLED == (val & SX_SYSTEM_STATUS_REG_MASK)) {
-            system_enabled = true;            
-            printk(KERN_INFO "reset: system_enabled change to [%s], time: %u[ms]\n", 
-                   system_enabled?"true":"false", jiffies_to_msecs(jiffies - start) );
+            system_enabled = true;
+            printk(KERN_INFO "reset: system_enabled change to [%s], time: %u[ms]\n",
+                   system_enabled ? "true" : "false", jiffies_to_msecs(jiffies - start));
             break;
         }
         cond_resched();
     } while (time_before(jiffies, end));
 
-    if(system_enabled == false){
-       err = -ETIME;
-       sx_err(dev, "%s: system status timeout, err [%d]\n", __func__, err);
+    if (system_enabled == false) {
+        err = -ETIME;
+        sx_err(dev, "%s: system status timeout, err [%d]\n", __func__, err);
     }
-        
+
     iounmap(sys_status);
 
 out:
@@ -227,7 +226,7 @@ out:
 
 /* This function saves PCI headers for restoration after SW reset,
  * using __restore_headers_data, according to device type.
- * SwitchX 							- Saves and restores PCI headers.
+ * SwitchX                                                      - Saves and restores PCI headers.
  * Spectrum, SwitchIB, SwitchIB2	- Doesn't save PCI headers.
  *
  *
@@ -236,16 +235,16 @@ out:
  */
 static int __save_headers_data(struct sx_dev *dev, u32* hca_header_p)
 {
-	int err = 0;
-	int i = 0;
-	int pcie_cap = 0;
+    int err = 0;
+    int i = 0;
+    int pcie_cap = 0;
 
-	if (!dev) {
-		return -EINVAL;
-		printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
-	}
+    if (!dev) {
+        return -EINVAL;
+        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
+    }
 
-	/* SwitchX */
+    /* SwitchX */
     if (!hca_header_p) {
         return -EINVAL;
         printk(KERN_ERR "%s: hca_header_p argument is null, err [%d]\n", __func__, err);
@@ -258,8 +257,9 @@ static int __save_headers_data(struct sx_dev *dev, u32* hca_header_p)
      * and 23 since those have a special meaning.
      */
     for (i = 0; i < 64; ++i) {
-        if (i == 22 || i == 23)
+        if ((i == 22) || (i == 23)) {
             continue;
+        }
         if (pci_read_config_dword(dev->pdev, i * 4, hca_header_p + i)) {
             err = -ENODEV;
             sx_err(dev, "%s: Couldn't save HCA PCI header, aborting, err[%d]\n", __func__, err);
@@ -268,13 +268,13 @@ static int __save_headers_data(struct sx_dev *dev, u32* hca_header_p)
     }
 
 out:
-	return err;
+    return err;
 }
 
 
 /* This function restores PCI headers after SW reset, according to
  * headers as saved by __save_headers_data, according to device type.
- * SwitchX 							- Restores and restores PCI headers.
+ * SwitchX                                                      - Restores and restores PCI headers.
  * Spectrum, SwitchIB, SwitchIB2	- Doesn't restore PCI headers.
  *
  *
@@ -283,23 +283,23 @@ out:
  */
 static int __restore_headers_data(struct sx_dev *dev, u32* hca_header_p)
 {
-	int err = 0;
-	int pcie_cap;
-	int i = 0;
-	u16 devctl = 0;
-	u16 linkctl = 0;
+    int err = 0;
+    int pcie_cap;
+    int i = 0;
+    u16 devctl = 0;
+    u16 linkctl = 0;
 
-	if (!dev) {
-		return -EINVAL;
-		printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
-	}
+    if (!dev) {
+        return -EINVAL;
+        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
+    }
 
     /* SwitchX */
     if (!hca_header_p) {
         return -EINVAL;
         printk(KERN_ERR "%s: hca_header_p argument is null, err [%d]\n", __func__, err);
     }
-    
+
     /* restore PCIE headers to restore after reset from hca_header_p */
     /* Now restore the PCI headers */
     pcie_cap = pci_find_capability(dev->pdev, PCI_CAP_ID_EXP);
@@ -308,23 +308,24 @@ static int __restore_headers_data(struct sx_dev *dev, u32* hca_header_p)
         if (pci_write_config_word(dev->pdev, pcie_cap + PCI_EXP_DEVCTL, devctl)) {
             err = -ENODEV;
             sx_err(dev, "%s: Couldn't restore HCA PCI Express "
-                     "Device Control register, aborting, err[%d]\n", __func__, err);
+                   "Device Control register, aborting, err[%d]\n", __func__, err);
             goto out;
         }
 
         linkctl = hca_header_p[(pcie_cap + PCI_EXP_LNKCTL) / 4];
         if (pci_write_config_word(dev->pdev, pcie_cap + PCI_EXP_LNKCTL,
-                       linkctl)) {
+                                  linkctl)) {
             err = -ENODEV;
             sx_err(dev, "%s: Couldn't restore HCA PCI Express "
-                 "Link control register, aborting, err[%d]\n", __func__, err);
+                   "Link control register, aborting, err[%d]\n", __func__, err);
             goto out;
         }
     }
 
     for (i = 0; i < 16; ++i) {
-        if (i * 4 == PCI_COMMAND)
+        if (i * 4 == PCI_COMMAND) {
             continue;
+        }
 
         if (pci_write_config_dword(dev->pdev, i * 4, hca_header_p[i])) {
             err = -ENODEV;
@@ -334,14 +335,14 @@ static int __restore_headers_data(struct sx_dev *dev, u32* hca_header_p)
     }
 
     if (pci_write_config_dword(dev->pdev, PCI_COMMAND,
-                   hca_header_p[PCI_COMMAND / 4])) {
+                               hca_header_p[PCI_COMMAND / 4])) {
         err = -ENODEV;
         sx_err(dev, "%s: Couldn't restore HCA COMMAND, aborting, err[%d]\n", __func__, err);
         goto out;
     }
 
 out:
-	return err;
+    return err;
 }
 
 
@@ -351,36 +352,38 @@ out:
  * @param system_status[out]	- system status.
  */
 
-int get_system_status(struct sx_dev *dev, u16 *system_status) {
-	int err = 0;
-	u32 val = 0;
-	void __iomem *sys_status_addr = NULL;
+int get_system_status(struct sx_dev *dev, u16 *system_status)
+{
+    int           err = 0;
+    u32           val = 0;
+    void __iomem *sys_status_addr = NULL;
 
-	if (!dev) {
-		err = -EINVAL;
-		printk(KERN_ERR "%s: Given null device parameter, err [%d]\n", __func__, err);
-		goto out;
-	}
-	if (!system_status) {
-		err = -EINVAL;
-		sx_err(dev, "%s: Given null system status device parameter, err [%d]\n", __func__, err);
-		goto out;
-	}
+    if (!dev) {
+        err = -EINVAL;
+        printk(KERN_ERR "%s: Given null device parameter, err [%d]\n", __func__, err);
+        goto out;
+    }
+    if (!system_status) {
+        err = -EINVAL;
+        sx_err(dev, "%s: Given null system status device parameter, err [%d]\n", __func__, err);
+        goto out;
+    }
 
-	sys_status_addr = ioremap(pci_resource_start(dev->pdev, 0) + SX_SYSTEM_STATUS_REG_OFFSET, SX_SYSTEM_STATUS_REG_SIZE);
-	if (!sys_status_addr) {
-		err = -ENOMEM;
-		sx_err(dev, "%s: Couldn't map HCA reset register, err [%d]\n", __func__, err);
-		goto out;
-	}
+    sys_status_addr =
+        ioremap(pci_resource_start(dev->pdev, 0) + SX_SYSTEM_STATUS_REG_OFFSET, SX_SYSTEM_STATUS_REG_SIZE);
+    if (!sys_status_addr) {
+        err = -ENOMEM;
+        sx_err(dev, "%s: Couldn't map HCA reset register, err [%d]\n", __func__, err);
+        goto out;
+    }
 
-	val = ioread32be(sys_status_addr);
-	*system_status = val & SX_SYSTEM_STATUS_REG_MASK;
+    val = ioread32be(sys_status_addr);
+    *system_status = val & SX_SYSTEM_STATUS_REG_MASK;
 
-	iounmap(sys_status_addr);
+    iounmap(sys_status_addr);
 
 out:
-	return err;
+    return err;
 }
 
 /* taken as is from the IS4 driver, we might need to remove the part where we
@@ -389,9 +392,9 @@ out:
 int legacy_sx_reset(struct sx_dev *dev)
 {
     void __iomem *reset;
-    u16 vendor = 0xffff;
+    u16           vendor = 0xffff;
     unsigned long end;
-    int err = 0;
+    int           err = 0;
 
     printk(KERN_INFO PFX "performing legacy SW reset\n");
 
@@ -402,16 +405,16 @@ int legacy_sx_reset(struct sx_dev *dev)
 #define SX_RESET_BASE   0xf0000
 #define SX_RESET_SIZE   0x404
 #define SX_SEM_OFFSET   0x400
-#define SX_SEM_BIT  (1 << 31)
+#define SX_SEM_BIT      (1 << 31)
 #define SX_RESET_OFFSET 0x10
 #define SX_RESET_VALUE  swab32(1)
 
 #ifndef INCREASED_TIMEOUT
-#define SX_SEM_TIMEOUT_JIFFIES      (10 * HZ)
+#define SX_SEM_TIMEOUT_JIFFIES (10 * HZ)
 #else
-#define SX_SEM_TIMEOUT_JIFFIES      (100 * HZ)
+#define SX_SEM_TIMEOUT_JIFFIES (100 * HZ)
 #endif
-#define SX_RESET_TIMEOUT_JIFFIES    (2 * HZ)
+#define SX_RESET_TIMEOUT_JIFFIES (2 * HZ)
 
     /*
      * Reset the chip.  This is somewhat ugly because we have to
@@ -420,7 +423,7 @@ int legacy_sx_reset(struct sx_dev *dev)
      * and 23 since those have a special meaning.
      */
     reset = ioremap(pci_resource_start(dev->pdev, 0) + SX_RESET_BASE,
-            SX_RESET_SIZE);
+                    SX_RESET_SIZE);
     if (!reset) {
         err = -ENOMEM;
         sx_err(dev, "Couldn't map HCA reset register, aborting.\n");
@@ -441,8 +444,9 @@ int legacy_sx_reset(struct sx_dev *dev)
     end = jiffies + SX_RESET_TIMEOUT_JIFFIES;
     do {
         if (!pci_read_config_word(dev->pdev, PCI_VENDOR_ID, &vendor) &&
-            vendor != 0xffff)
+            (vendor != 0xffff)) {
             break;
+        }
 
         msleep(1);
     } while (time_before(jiffies, end));
@@ -459,40 +463,39 @@ out:
 
 int sx_reset(struct sx_dev *dev, u8 perform_chip_reset)
 {
-	u32 *hca_header = NULL;
-	u16 vendor = 0xffff;
-	unsigned long end;
-	int err = 0;
-	
-	if (dev == NULL || !dev->pdev) {
-		sx_err(dev, "SW reset will not be executed since PCI device is not present");
-		err = -ENODEV;
-		goto out;
-	}
+    u32          *hca_header = NULL;
+    u16           vendor = 0xffff;
+    unsigned long end;
+    int           err = 0;
 
-	if (SWITCHX_PCI_DEV_ID == dev->pdev->device) {
-		hca_header = kmalloc(SX_HCA_HEADERS_SIZE, GFP_KERNEL);
-		if (!hca_header) {
-			err = -ENOMEM;
-			sx_err(dev, "%s: Couldn't allocate memory to save HCA "
-				  "PCI header, aborting, err[%d]\n", __func__, err);
-			goto out;
-		}
-		
-		err = __save_headers_data(dev, hca_header);
+    if ((dev == NULL) || !dev->pdev) {
+        sx_err(dev, "SW reset will not be executed since PCI device is not present");
+        err = -ENODEV;
+        goto out;
+    }
+
+    if (SWITCHX_PCI_DEV_ID == dev->pdev->device) {
+        hca_header = kmalloc(SX_HCA_HEADERS_SIZE, GFP_KERNEL);
+        if (!hca_header) {
+            err = -ENOMEM;
+            sx_err(dev, "%s: Couldn't allocate memory to save HCA "
+                   "PCI header, aborting, err[%d]\n", __func__, err);
+            goto out;
+        }
+
+        err = __save_headers_data(dev, hca_header);
         if (err) {
             sx_err(dev, "PCI device reset failed saving PCI headers data, err [%d].\n", err);
             goto out;
         }
-	}
+    }
 
     /* return device to use polling */
-	sx_cmd_use_polling(dev);
+    sx_cmd_use_polling(dev);
 
     if (reset_trigger) {
         sx_info(dev, "reset trigger is already set\n");
-    }
-    else {
+    } else {
         sx_info(dev, "waiting for reset trigger\n");
 
         end = jiffies + RESET_TRIGGER_TIMEOUT;
@@ -503,8 +506,7 @@ int sx_reset(struct sx_dev *dev, u8 perform_chip_reset)
 
         if (reset_trigger) {
             sx_info(dev, "reset trigger is set\n");
-        }
-        else {
+        } else {
             sx_err(dev, "reset trigger timeout. self triggering.\n");
             reset_trigger = 1;
         }
@@ -521,8 +523,9 @@ int sx_reset(struct sx_dev *dev, u8 perform_chip_reset)
         end = jiffies + SX_RESET_TIMEOUT_JIFFIES;
         do {
             if (!pci_read_config_word(dev->pdev, PCI_VENDOR_ID, &vendor) &&
-                vendor != 0xffff)
+                (vendor != 0xffff)) {
                 break;
+            }
 
             msleep(1);
         } while (time_before(jiffies, end));
@@ -532,23 +535,22 @@ int sx_reset(struct sx_dev *dev, u8 perform_chip_reset)
             sx_err(dev, "PCI device did not come back after reset, aborting.\n");
             goto out;
         }
-    }
-    else {
+    } else {
         printk(KERN_DEBUG "Did not perform chip reset in this phase\n");
     }
 
-	if (SWITCHX_PCI_DEV_ID == dev->pdev->device) {
+    if (SWITCHX_PCI_DEV_ID == dev->pdev->device) {
         /* Now restore the PCI headers */
         err = __restore_headers_data(dev, hca_header);
         if (err) {
             sx_err(dev, "PCI device reset failed restoring PCI headers data, err [%d].\n", err);
             goto out;
         }
-	}
+    }
 
 out:
-	if (hca_header) {
-		kfree(hca_header);
-	}
-	return err;
+    if (hca_header) {
+        kfree(hca_header);
+    }
+    return err;
 }

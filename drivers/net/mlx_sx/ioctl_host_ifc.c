@@ -137,7 +137,7 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
 
     /* monitor packet handling - case of trap double registration */
     if (file->bound_monitor_rdq->sw_dup_evlist_cnt == SX_SW_EVENT_LIST_SIZE_MAX) {
-        /* if numebr of entries equals to the max - remove element from head */
+        /* if number of entries equals to the max - remove element from head */
 
         head_edata_p = list_first_entry(&file->bound_monitor_rdq->sw_dup_evlist_p->list, struct event_data, list);
         list_del(&head_edata_p->list);
@@ -149,7 +149,7 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     }
 
     /* Make sure that for WJH we will be able to see timestamp for this packet (if it was enabled there) */
-    if (sx_bitmap_test( &sx_priv(sx_dev)->cq_table.ts_bitmap, file->bound_monitor_rdq->cq->cqn)) {
+    if (sx_bitmap_test(&sx_priv(sx_dev)->cq_table.ts_bitmap, file->bound_monitor_rdq->cq->cqn)) {
         edata->has_timestamp = true;
         getnstimeofday(&edata->timestamp);
     } else {
@@ -220,7 +220,10 @@ int check_valid_ku_synd(struct ku_synd_ioctl *ku)
 }
 
 
-static int sx_core_remove_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
+static int sx_core_remove_synd_phy(u8                          swid,
+                                   u16                         hw_synd,
+                                   struct sx_dev              *dev,
+                                   struct ku_port_vlan_params *port_vlan_params)
 {
     union sx_event_data *event_data;
 
@@ -231,22 +234,25 @@ static int sx_core_remove_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, str
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
-    switch(port_vlan_params->port_vlan_type){
-        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
-            event_data->eth_l3_synd.port = port_vlan_params->sysport;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
-            event_data->eth_l3_synd.port = port_vlan_params->lag_id;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
-            event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
-            break;
+    switch (port_vlan_params->port_vlan_type) {
+    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
+        event_data->eth_l3_synd.port = port_vlan_params->sysport;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
+        event_data->eth_l3_synd.port = port_vlan_params->lag_id;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
+        event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
     }
 
     sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_PHY_NETDEV, event_data);
@@ -258,73 +264,79 @@ static int sx_core_remove_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, str
 
 int sx_core_remove_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
 {
-	union sx_event_data *event_data;
+    union sx_event_data *event_data;
 
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
         return -ENOMEM;
     }
 
-	event_data->eth_l3_synd.swid = swid;
-	event_data->eth_l3_synd.hw_synd = hw_synd;
-    switch(port_vlan_params->port_vlan_type){
-        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
-            event_data->eth_l3_synd.port = port_vlan_params->sysport;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
-            event_data->eth_l3_synd.port = port_vlan_params->lag_id;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
-            event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
-            break;
+    event_data->eth_l3_synd.swid = swid;
+    event_data->eth_l3_synd.hw_synd = hw_synd;
+    switch (port_vlan_params->port_vlan_type) {
+    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
+        event_data->eth_l3_synd.port = port_vlan_params->sysport;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
+        event_data->eth_l3_synd.port = port_vlan_params->lag_id;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
+        event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
     }
 
-	sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_L2_NETDEV, event_data);
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_L2_NETDEV, event_data);
     kfree(event_data);
 
-	return 0;
+    return 0;
 }
 
 
 int sx_core_remove_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
 {
-	union sx_event_data *event_data;
+    union sx_event_data *event_data;
 
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
         return -ENOMEM;
     }
 
-	event_data->eth_l3_synd.swid = swid;
-	event_data->eth_l3_synd.hw_synd = hw_synd;
-    switch(port_vlan_params->port_vlan_type){
-        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
-            event_data->eth_l3_synd.port = port_vlan_params->sysport;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
-            event_data->eth_l3_synd.port = port_vlan_params->lag_id;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
-            event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
-            break;
+    event_data->eth_l3_synd.swid = swid;
+    event_data->eth_l3_synd.hw_synd = hw_synd;
+    switch (port_vlan_params->port_vlan_type) {
+    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
+        event_data->eth_l3_synd.port = port_vlan_params->sysport;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
+        event_data->eth_l3_synd.port = port_vlan_params->lag_id;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
+        event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
     }
 
-	sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_NETDEV, event_data);
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_NETDEV, event_data);
     kfree(event_data);
 
-	return 0;
+    return 0;
 }
 
 
@@ -365,13 +377,14 @@ static int sx_core_remove_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev)
 
 static uint32_t sx_monitor_count_get(struct sx_dq *bound_monitor_rdq)
 {
-	uint32_t		mon_rx_count;
-	mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
+    uint32_t mon_rx_count;
+
+    mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
 
     /* take also counter of discarded packets which we have in the SW buffer  */
     mon_rx_count += bound_monitor_rdq->sw_dup_evlist_cnt;
 
-	return mon_rx_count;
+    return mon_rx_count;
 }
 
 
@@ -425,169 +438,181 @@ out_ok:
 }
 
 
-static int sx_monitor_simulate_rx_skb(struct sx_dq *bound_monitor_rdq, size_t buffers_count, size_t *buf_len_list,
-		size_t *total_packet_cnt_p, struct listener_entry *force_listener)
+static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
+                                      size_t                 buffers_count,
+                                      size_t                *buf_len_list,
+                                      size_t                *total_packet_cnt_p,
+                                      struct listener_entry *force_listener)
 {
-	int 					err = 0;
-	struct sx_cq      		*cq = bound_monitor_rdq->cq;
-	struct sx_priv 			*priv = sx_priv(cq->sx_dev);
-	uint32_t				mon_rx_count = bound_monitor_rdq->mon_rx_count;
-	uint32_t				mon_rx_start = bound_monitor_rdq->mon_rx_start;
-	uint32_t				i, idx;
-	struct sk_buff*			skb;
-	union sx_cqe			u_cqe;
-	struct timespec* 		timestamp = NULL;
-	u8 dqn = 0;
-	u8 is_send = 0;
-	u8 is_err = 0;
-	u16 trap_id = 0;
-	u16 byte_count = 0;
-	u16 wqe_counter = 0;
-	struct sx_dq *dq;
-	uint32_t	packets_sent_to_fd_count = 0;
-	uint32_t	packets_sent_to_fd_total_size = 0;
+    int              err = 0;
+    struct sx_cq    *cq = bound_monitor_rdq->cq;
+    struct sx_priv  *priv = sx_priv(cq->sx_dev);
+    uint32_t         mon_rx_count = bound_monitor_rdq->mon_rx_count;
+    uint32_t         mon_rx_start = bound_monitor_rdq->mon_rx_start;
+    uint32_t         i, idx;
+    struct sk_buff * skb;
+    union sx_cqe     u_cqe;
+    struct timespec* timestamp = NULL;
+    u8               dqn = 0;
+    u8               is_send = 0;
+    u8               is_err = 0;
+    u16              trap_id = 0;
+    u16              byte_count = 0;
+    u16              wqe_counter = 0;
+    struct sx_dq    *dq;
+    uint32_t         packets_sent_to_fd_count = 0;
+    uint32_t         packets_sent_to_fd_total_size = 0;
 
-	mon_rx_start = bound_monitor_rdq->mon_rx_start;
-	mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
+    mon_rx_start = bound_monitor_rdq->mon_rx_start;
+    mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
 
 #ifdef SX_DEBUG
-	printk(KERN_DEBUG PFX "Debug mon_rx_count:%d , mon_rx_start:%d, mon_rx_count_total:%d, buffers_count: %d \n",
-			mon_rx_count, mon_rx_start, bound_monitor_rdq->mon_rx_count, (int)buffers_count );
+    printk(KERN_DEBUG PFX "Debug mon_rx_count:%d , mon_rx_start:%d, mon_rx_count_total:%d, buffers_count: %d \n",
+           mon_rx_count, mon_rx_start, bound_monitor_rdq->mon_rx_count, (int)buffers_count);
 #endif
 
-	for (i = 0; i < mon_rx_count && i < buffers_count; /* i incremented inside loop */) {
+    for (i = 0; i < mon_rx_count && i < buffers_count; /* i incremented inside loop */) {
+        /* get the cqe from CQ by index */
+        sx_get_cqe_all_versions(cq, (mon_rx_start + i), &u_cqe);
 
-		/* get the cqe from CQ by index */
-		sx_get_cqe_all_versions(cq, (mon_rx_start + i), &u_cqe);
-
-		if (u_cqe.v2 == NULL ) {
+        if (u_cqe.v2 == NULL) {
 #ifdef SX_DEBUG
-			printk(KERN_DEBUG PFX "%s():%d u_cqe_v2 == NULL, rx_start:%d, i:%d, start+i:%d, rx_cnt:%d,r:tc:c:%d:%d:%d\n",
-					__func__, __LINE__,  mon_rx_start, i,(mon_rx_start + i), mon_rx_count,
-					bound_monitor_rdq->mon_rx_start,bound_monitor_rdq->mon_rx_count,
-					bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start);
+            printk(
+                KERN_DEBUG PFX "%s():%d u_cqe_v2 == NULL, rx_start:%d, i:%d, start+i:%d, rx_cnt:%d,r:tc:c:%d:%d:%d\n",
+                __func__,
+                __LINE__,
+                mon_rx_start,
+                i,
+                (mon_rx_start + i),
+                mon_rx_count,
+                bound_monitor_rdq->mon_rx_start,
+                bound_monitor_rdq->mon_rx_count,
+                bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start);
 #endif
 
-			i++;
-			continue;
-		}
+            i++;
+            continue;
+        }
 
-		/* extract cqe from cq */
-		cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-													&is_send, &dqn, &wqe_counter, &byte_count);
+        /* extract cqe from cq */
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
+                                                &is_send, &dqn, &wqe_counter, &byte_count);
 
-		if (is_send) {
-			printk(KERN_ERR "%s(): Error SDQ %d was provided when only RDQ is supported.\n",
-					__func__,dqn);
-			err = -EINVAL;
-			goto out;
-		}
+        if (is_send) {
+            printk(KERN_ERR "%s(): Error SDQ %d was provided when only RDQ is supported.\n",
+                   __func__, dqn);
+            err = -EINVAL;
+            goto out;
+        }
 
-		/* ETH packet always contains CRC. Driver doesn't copy the CRC to the user ,
-		 * so we need to remove it from byte_count */
+        /* ETH packet always contains CRC. Driver doesn't copy the CRC to the user ,
+         * so we need to remove it from byte_count */
         byte_count -= ETH_CRC_LENGTH;
 
-		/*
-		 * Calculate if there enough space in the buffer for the packet
-		 * Need to verify that there is enough space for ku_read , packet , last ku_read
-		 */
-		if (byte_count + sizeof(struct ku_read) > buf_len_list[i]) {
-			/* There isn't enough space to this packet */
-			printk(KERN_ERR "%s(): i=%d , not enough space %d for packet size %d \n",
-					__func__, i, (int)buf_len_list[i], (int)(byte_count + sizeof(struct ku_read)));
-			goto out;
-		}
+        /*
+         * Calculate if there enough space in the buffer for the packet
+         * Need to verify that there is enough space for ku_read , packet , last ku_read
+         */
+        if (byte_count + sizeof(struct ku_read) > buf_len_list[i]) {
+            /* There isn't enough space to this packet */
+            printk(KERN_ERR "%s(): i=%d , not enough space %d for packet size %d \n",
+                   __func__, i, (int)buf_len_list[i], (int)(byte_count + sizeof(struct ku_read)));
+            goto out;
+        }
 
 #ifdef SX_DEBUG
-		printk(KERN_DEBUG PFX "%s(): i=%d , packet size:%d , buffer_size:%d \n",
-				__func__, i, (int)(byte_count + sizeof(struct ku_read)), (int)buf_len_list[i]);
+        printk(KERN_DEBUG PFX "%s(): i=%d , packet size:%d , buffer_size:%d \n",
+               __func__, i, (int)(byte_count + sizeof(struct ku_read)), (int)buf_len_list[i]);
 #endif
 
-		dq = priv->rdq_table.dq[dqn];
-		if (!dq) {
-			if (printk_ratelimit()) {
-				sx_warn(cq->sx_dev, "could not find dq context for %s "
-						"dqn = %d\n",
-						is_send ? "send" : "recv", dqn);
-			}
-			goto out;
-		}
-		idx = (mon_rx_start+i) % dq->wqe_cnt;
+        dq = priv->rdq_table.dq[dqn];
+        if (!dq) {
+            if (printk_ratelimit()) {
+                sx_warn(cq->sx_dev, "could not find dq context for %s "
+                        "dqn = %d\n",
+                        is_send ? "send" : "recv", dqn);
+            }
+            goto out;
+        }
+        idx = (mon_rx_start + i) % dq->wqe_cnt;
 
-		skb = dq->sge[idx].skb;
-		if (sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn))
-			timestamp = &cq->cqe_ts_arr[idx];
-		err = rx_skb(cq->sx_dev, skb, &u_cqe, timestamp, 1, force_listener);
-		if (err) {
-			printk(KERN_WARNING PFX "rx_skb error %d . Aborting\n", err );
-			goto out;
-		}
+        skb = dq->sge[idx].skb;
+        if (sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn)) {
+            timestamp = &cq->cqe_ts_arr[idx];
+        }
+        err = rx_skb(cq->sx_dev, skb, &u_cqe, timestamp, 1, force_listener);
+        if (err) {
+            printk(KERN_WARNING PFX "rx_skb error %d . Aborting\n", err);
+            goto out;
+        }
 
-		/* after reading from the buffer we need to invalidate this buffer
-		 * so next read will bring to cache new data from memory */
-		pci_dma_sync_single_for_device(dq->dev->pdev,
-		                               dq->sge[idx].hdr_pld_sg.dma_addr,
-		                               dq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
+        /* after reading from the buffer we need to invalidate this buffer
+         * so next read will bring to cache new data from memory */
+        pci_dma_sync_single_for_device(dq->dev->pdev,
+                                       dq->sge[idx].hdr_pld_sg.dma_addr,
+                                       dq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
 
 
-		packets_sent_to_fd_total_size += byte_count + sizeof(struct ku_read);
-		packets_sent_to_fd_count++;
-		i++;
-	}
+        packets_sent_to_fd_total_size += byte_count + sizeof(struct ku_read);
+        packets_sent_to_fd_count++;
+        i++;
+    }
 
-	/* update mon_start */
-	bound_monitor_rdq->mon_rx_start += packets_sent_to_fd_count;
-	*total_packet_cnt_p = packets_sent_to_fd_count;
+    /* update mon_start */
+    bound_monitor_rdq->mon_rx_start += packets_sent_to_fd_count;
+    *total_packet_cnt_p = packets_sent_to_fd_count;
 
 out:
-	return err;
+    return err;
 }
 
 
 static int sx_trap_group_path_set(struct sx_dq *bound_monitor_rdq, uint8_t cpu_path_type)
 {
-	int 					err;
-	struct ku_access_htgt_reg reg_data;
-	struct sx_dev 			*dev = bound_monitor_rdq->dev;
+    int                       err;
+    struct ku_access_htgt_reg reg_data;
+    struct sx_dev            *dev = bound_monitor_rdq->dev;
 
-	/* Read the current HTGT value (to get policer ID if any) */
-	memset(&reg_data, 0, sizeof(reg_data));
-	reg_data.dev_id = 255;
-	sx_cmd_set_op_tlv(&reg_data.op_tlv, HTGT_REG_ID, 1);/* 1 - query */
-	reg_data.htgt_reg.swid = 0;
-	reg_data.htgt_reg.trap_group = bound_monitor_rdq->dqn;
-	err = sx_ACCESS_REG_HTGT(dev, &reg_data);
-	if (err){
-		printk(KERN_ERR PFX "failed to disconnect trap group %d \n",reg_data.htgt_reg.trap_group);
-		goto out;
-	}
+    /* Read the current HTGT value (to get policer ID if any) */
+    memset(&reg_data, 0, sizeof(reg_data));
+    reg_data.dev_id = 255;
+    sx_cmd_set_op_tlv(&reg_data.op_tlv, HTGT_REG_ID, 1); /* 1 - query */
+    reg_data.htgt_reg.swid = 0;
+    reg_data.htgt_reg.trap_group = bound_monitor_rdq->dqn;
+    err = sx_ACCESS_REG_HTGT(dev, &reg_data);
+    if (err) {
+        printk(KERN_ERR PFX "failed to disconnect trap group %d \n", reg_data.htgt_reg.trap_group);
+        goto out;
+    }
 
-	/* Stop the RDQ */
-	sx_cmd_set_op_tlv(&reg_data.op_tlv, HTGT_REG_ID, 2);/* 2 - write */
-	switch(cpu_path_type){
-	case HTGT_NULL_PATH:
-		reg_data.htgt_reg.type = HTGT_NULL_PATH;
-		reg_data.htgt_reg.trap_group = bound_monitor_rdq->dqn;
-		break;
-	case HTGT_LOCAL_PATH:
-		reg_data.htgt_reg.type = HTGT_LOCAL_PATH;
-		reg_data.htgt_reg.trap_group = bound_monitor_rdq->dqn; /* trap group num = dqn */
-		reg_data.htgt_reg.path.local_path.rdq = bound_monitor_rdq->dqn;
-		reg_data.htgt_reg.path.local_path.cpu_tclass = bound_monitor_rdq->cpu_tclass;
-		break;
-	default:
-		printk(KERN_ERR PFX "invalid path type %d \n",cpu_path_type);
-		err = -EINVAL;
-		goto out;
-	}
-	err = sx_ACCESS_REG_HTGT(dev, &reg_data);
-	if (err){
-		printk(KERN_ERR PFX "failed to disconnect trap group %d \n",reg_data.htgt_reg.trap_group);
-		goto out;
-	}
+    /* Stop the RDQ */
+    sx_cmd_set_op_tlv(&reg_data.op_tlv, HTGT_REG_ID, 2); /* 2 - write */
+    switch (cpu_path_type) {
+    case HTGT_NULL_PATH:
+        reg_data.htgt_reg.type = HTGT_NULL_PATH;
+        reg_data.htgt_reg.trap_group = bound_monitor_rdq->dqn;
+        break;
+
+    case HTGT_LOCAL_PATH:
+        reg_data.htgt_reg.type = HTGT_LOCAL_PATH;
+        reg_data.htgt_reg.trap_group = bound_monitor_rdq->dqn; /* trap group num = dqn */
+        reg_data.htgt_reg.path.local_path.rdq = bound_monitor_rdq->dqn;
+        reg_data.htgt_reg.path.local_path.cpu_tclass = bound_monitor_rdq->cpu_tclass;
+        break;
+
+    default:
+        printk(KERN_ERR PFX "invalid path type %d \n", cpu_path_type);
+        err = -EINVAL;
+        goto out;
+    }
+    err = sx_ACCESS_REG_HTGT(dev, &reg_data);
+    if (err) {
+        printk(KERN_ERR PFX "failed to disconnect trap group %d \n", reg_data.htgt_reg.trap_group);
+        goto out;
+    }
 
 out:
-	return err;
+    return err;
 }
 
 
@@ -696,21 +721,21 @@ out_free:
  * for regular RDQ and for monitor SW queue
  */
 static int __monitor_buff_data_handle(struct list_head *list_p,
-                                      int *list_size_p,
-                                      uint8_t __user **user_buffer_list_p,
-                                      size_t *user_buffer_size_list_p,
-                                      size_t start_idx,
-                                      size_t end_idx,
-                                      size_t user_requested_num)
+                                      int              *list_size_p,
+                                      uint8_t __user  **user_buffer_list_p,
+                                      size_t           *user_buffer_size_list_p,
+                                      size_t            start_idx,
+                                      size_t            end_idx,
+                                      size_t            user_requested_num)
 {
-    int err = 0;
-    int copied_size = 0;
+    int               err = 0;
+    int               copied_size = 0;
     struct event_data edata_list;
-    size_t i = 0;
+    size_t            i = 0;
 
     INIT_LIST_HEAD(&edata_list.list);
 
-    for (i = start_idx; i < end_idx && i < user_requested_num; i++){
+    for (i = start_idx; i < end_idx && i < user_requested_num; i++) {
         err = get_edata_from_elist(list_size_p, &edata_list,
                                    list_p, user_buffer_size_list_p[i], false);
         if (err) {
@@ -720,7 +745,7 @@ static int __monitor_buff_data_handle(struct list_head *list_p,
         }
 
         copied_size = copy_edata(&edata_list, user_buffer_list_p[i]);
-        if (copied_size < 0){
+        if (copied_size < 0) {
             err = copied_size;
             printk(KERN_ERR "%s(): copy_edata failed. err: %d \n",
                    __func__, err);
@@ -735,79 +760,79 @@ out:
 }
 
 
-static ssize_t __monitor_file_read(struct file *filp,
-								enum SX_FILE_OP file_op,
-								int *buffers_count_p,
-								uint8_t __user **buffer_list_p,
-								size_t *buffer_size_list_p)
+static ssize_t __monitor_file_read(struct file     *filp,
+                                   enum SX_FILE_OP  file_op,
+                                   int             *buffers_count_p,
+                                   uint8_t __user **buffer_list_p,
+                                   size_t          *buffer_size_list_p)
 {
-	unsigned long     flags;
-	struct sx_rsc    *file = filp->private_data;
-	int               err = 0;
-	size_t			  total_packets_cnt = 0;
-    size_t            sw_total_packets_cnt = 0;
-	size_t 			  buffers_count = 0;
-	struct listener_entry force_listener;
-    uint8_t         **tmp_buff_pp = NULL;
-    size_t            i = 0, j = 0;
-    uint8_t           release_tmp_buff = false;
+    unsigned long         flags;
+    struct sx_rsc        *file = filp->private_data;
+    int                   err = 0;
+    size_t                total_packets_cnt = 0;
+    size_t                sw_total_packets_cnt = 0;
+    size_t                buffers_count = 0;
+    struct listener_entry force_listener;
+    uint8_t             **tmp_buff_pp = NULL;
+    size_t                i = 0, j = 0;
+    uint8_t               release_tmp_buff = false;
 
-	if (buffers_count_p == NULL && file_op != SX_FILE_OP_FLUSH){
-		printk(KERN_ERR "%s(): buffers_count_p is  NULL \n",__func__);
-		return -EINVAL;
-	}
-	buffers_count = *buffers_count_p;
+    if ((buffers_count_p == NULL) && (file_op != SX_FILE_OP_FLUSH)) {
+        printk(KERN_ERR "%s(): buffers_count_p is  NULL \n", __func__);
+        return -EINVAL;
+    }
+    buffers_count = *buffers_count_p;
 
-	if (file_op == SX_FILE_OP_COUNT) {
-		*buffers_count_p = sx_monitor_count_get(file->bound_monitor_rdq);
-		goto out;
-	}
+    if (file_op == SX_FILE_OP_COUNT) {
+        *buffers_count_p = sx_monitor_count_get(file->bound_monitor_rdq);
+        goto out;
+    }
 
-	if (file_op == SX_FILE_OP_FLUSH) {
-		sx_monitor_flush(file, file->bound_monitor_rdq);
-		goto out;
-	}
+    if (file_op == SX_FILE_OP_FLUSH) {
+        sx_monitor_flush(file, file->bound_monitor_rdq);
+        goto out;
+    }
 
-	force_listener.context = filp;
-	force_listener.handler = sx_cq_handler;
+    force_listener.context = filp;
+    force_listener.handler = sx_cq_handler;
 
-	/* The next flow is for multi packet reading */
-	if ((buffers_count == 0) || (buffer_list_p == NULL) || (buffer_size_list_p == NULL)) {
-		return -EINVAL;
-	}
+    /* The next flow is for multi packet reading */
+    if ((buffers_count == 0) || (buffer_list_p == NULL) || (buffer_size_list_p == NULL)) {
+        return -EINVAL;
+    }
 
-	/* disconnect trap group from rdq */
-	err = sx_trap_group_path_set(file->bound_monitor_rdq, HTGT_NULL_PATH);
-	if (err) {
-		printk(KERN_ERR "%s(): disconnect rdq %d from TG failed. err: %d \n",
-							__func__, file->bound_monitor_rdq->dqn, err);
-		goto out;
-	}
-
-    err  = sx_monitor_simulate_rx_skb(file->bound_monitor_rdq,
-                                      buffers_count,
-                                      buffer_size_list_p,
-                                      &total_packets_cnt, &force_listener);
+    /* disconnect trap group from rdq */
+    err = sx_trap_group_path_set(file->bound_monitor_rdq, HTGT_NULL_PATH);
     if (err) {
-		printk(KERN_ERR "%s(): simulate_monitor_data_rx_skb for rdq %d failed. err: %d \n",
-							__func__, file->bound_monitor_rdq->dqn, err);
-		goto out;
-	}
+        printk(KERN_ERR "%s(): disconnect rdq %d from TG failed. err: %d \n",
+               __func__, file->bound_monitor_rdq->dqn, err);
+        goto out;
+    }
+
+    err = sx_monitor_simulate_rx_skb(file->bound_monitor_rdq,
+                                     buffers_count,
+                                     buffer_size_list_p,
+                                     &total_packets_cnt, &force_listener);
+    if (err) {
+        printk(KERN_ERR "%s(): simulate_monitor_data_rx_skb for rdq %d failed. err: %d \n",
+               __func__, file->bound_monitor_rdq->dqn, err);
+        goto out;
+    }
 
     /* store the number of packets in SW buffer */
     sw_total_packets_cnt = file->bound_monitor_rdq->sw_dup_evlist_cnt;
 
-    tmp_buff_pp = (uint8_t **) kzalloc(buffers_count * sizeof(uint8_t *), GFP_KERNEL);
+    tmp_buff_pp = (uint8_t**)kzalloc(buffers_count * sizeof(uint8_t *), GFP_KERNEL);
     if (tmp_buff_pp == NULL) {
-        printk(KERN_ERR " Failed to allocate memeory for local buffer tmp_buff_pp. \n");
+        printk(KERN_ERR " Failed to allocate memory for local buffer tmp_buff_pp. \n");
         err = -ENOMEM;
         goto out;
     }
 
     for (i = 0; i < buffers_count; i++) {
-        tmp_buff_pp[i] = (uint8_t *) kzalloc(buffer_size_list_p[i], GFP_KERNEL);
+        tmp_buff_pp[i] = (uint8_t*)kzalloc(buffer_size_list_p[i], GFP_KERNEL);
         if (tmp_buff_pp[i] == NULL) {
-            printk(KERN_ERR " Failed to allocate memeory for local buffer tmp_buff_pp, index=%zu. \n", i);
+            printk(KERN_ERR " Failed to allocate memory for local buffer tmp_buff_pp, index=%zu. \n", i);
 
             /* release those indexes which were already allocated */
             for (j = i - 1; j >= 0; j--) {
@@ -820,7 +845,7 @@ static ssize_t __monitor_file_read(struct file *filp,
     }
     release_tmp_buff = true;
 
-	spin_lock_irqsave(&file->lock, flags);
+    spin_lock_irqsave(&file->lock, flags);
 
     /*
      * Read the data from the specified evlist which belongs to HW cyclic RDQ and
@@ -858,7 +883,7 @@ static ssize_t __monitor_file_read(struct file *filp,
         goto out;
     }
 
-	spin_unlock_irqrestore(&file->lock, flags);
+    spin_unlock_irqrestore(&file->lock, flags);
 
     if (buffers_count > total_packets_cnt + sw_total_packets_cnt) {
         /* User may requests more packets than we have in the buffers,
@@ -887,15 +912,15 @@ out:
         kfree(tmp_buff_pp);
     }
 
-	/* connect trap group to rdq */
-	err = sx_trap_group_path_set(file->bound_monitor_rdq, HTGT_LOCAL_PATH);
-	if (err) {
-		printk(KERN_ERR "%s(): connect rdq %d to TG failed. err: %d \n",
-							__func__, file->bound_monitor_rdq->dqn, err);
-		goto out;
-	}
+    /* connect trap group to rdq */
+    err = sx_trap_group_path_set(file->bound_monitor_rdq, HTGT_LOCAL_PATH);
+    if (err) {
+        printk(KERN_ERR "%s(): connect rdq %d to TG failed. err: %d \n",
+               __func__, file->bound_monitor_rdq->dqn, err);
+        goto out;
+    }
 
-	return err;
+    return err;
 }
 
 
@@ -915,9 +940,9 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
 {
     struct ku_synd_ioctl      ku;
     union ku_filter_critireas critireas;
-    struct sx_dev *dev;
+    struct sx_dev            *dev;
     enum l2_type              listener_type = L2_TYPE_DONT_CARE;
-    int err;
+    int                       err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -939,133 +964,131 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
     }
 
     switch (ku.channel_type) {
-        case SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV:
-            if (dev->profile.swid_type[ku.swid] != SX_KU_L2_TYPE_ETH) {
-                printk("%s: Adding phy netdev on non ethernet device is not implemented\n", __func__);
-                err = -EFAULT;
-                goto out;
-            }
-
-            if (cmd == CTRL_CMD_ADD_SYND) {
-                printk("%s: Adding SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV\n", __func__);
-                err = sx_core_add_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
-            }
-            else {
-                printk("%s: Removing SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV\n", __func__);
-                err = sx_core_remove_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
-            }
-
-            if (err) {
-                goto out;
-            }
-
-            break;
-
-        case SX_KU_USER_CHANNEL_TYPE_L2_NETDEV:
-            if (dev->profile.swid_type[ku.swid] != SX_KU_L2_TYPE_ETH) {
-                printk("%s: Adding L2 netdev on non ethernet device is not implemented\n", __func__);
-                err = -EFAULT;
-                goto out;
-            }
-
-            if (cmd == CTRL_CMD_ADD_SYND) {
-                printk("%s: Adding SX_KU_USER_CHANNEL_TYPE_L2_NETDEV\n", __func__);
-                err = sx_core_add_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
-            }
-            else {
-                printk("%s: Removing SX_KU_USER_CHANNEL_TYPE_L2_NETDEV\n", __func__);
-                err = sx_core_remove_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
-            }
-
-            if (err) {
-                goto out;
-            }
-
-            break;
-
-        case SX_KU_USER_CHANNEL_TYPE_L3_NETDEV:
-            if (dev->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) {
-                /* L3 traps registration */
-                if (cmd == CTRL_CMD_ADD_SYND) {
-                    err = sx_core_add_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
-                } else {
-                    err = sx_core_remove_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
-                }
-
-                if (err) {
-                    goto out;
-                }
-            } else {
-                /* IPoIB traps registration */
-                if (cmd == CTRL_CMD_ADD_SYND) {
-                    err = sx_core_add_synd_ipoib(ku.swid, ku.syndrome_num, dev);
-                } else {
-                    err = sx_core_remove_synd_ipoib(ku.swid, ku.syndrome_num, dev);
-                }
-
-                if (err) {
-                    goto out;
-                }
-            }
-
-            break;
-
-        case SX_KU_USER_CHANNEL_TYPE_FD:
-            if ((ku.type == SX_KU_L2_TYPE_ETH) &&
-                ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
-                 (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT))) {
-                ku.swid = SWID_NUM_DONT_CARE;
-            } else if ((ku.type == SX_KU_L2_TYPE_DONT_CARE) &&
-                       (ku.critireas.dont_care.sysport == SYSPORT_DONT_CARE_VALUE)) {
-                if ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
-                    (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT)) {
-                    ku.swid = SWID_NUM_DONT_CARE;
-                    ku.type = SX_KU_L2_TYPE_ETH;
-                } else if (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_IB) {
-                    ku.type = SX_KU_L2_TYPE_IB;
-                }
-            }
-
-            if (cmd == CTRL_CMD_ADD_SYND) {
-                err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                                       listener_type, ku.is_default,
-                                       critireas, sx_cq_handler, filp,
-                                       CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params);
-            } else {
-                err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
-                                          listener_type, ku.is_default,
-                                          critireas, filp, dev, NULL, &ku.port_vlan_params);
-            }
-
-            if (err) {
-                goto out;
-            }
-
-            break;
-
-        case SX_KU_USER_CHANNEL_TYPE_L2_TUNNEL:
-            if (cmd == CTRL_CMD_ADD_SYND) {
-                sx_priv(dev)->l2_tunnel_params = ku.l2_tunnel_params;
-                err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                                       listener_type, ku.is_default,
-                                       critireas, sx_l2_tunnel_handler, dev,
-                                       CHECK_DUP_DISABLED_E, dev, &ku.port_vlan_params);
-            } else {
-                err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
-                                          listener_type, ku.is_default,
-                                          critireas, dev, dev, NULL, &ku.port_vlan_params);
-            }
-
-            if (err) {
-                goto out;
-            }
-
-            break;
-
-        default:
-            printk(KERN_ERR PFX "Err: invalid channel type : %d \n", ku.channel_type);
-            err = -EINVAL;
+    case SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV:
+        if (dev->profile.swid_type[ku.swid] != SX_KU_L2_TYPE_ETH) {
+            printk("%s: Adding phy netdev on non ethernet device is not implemented\n", __func__);
+            err = -EFAULT;
             goto out;
+        }
+
+        if (cmd == CTRL_CMD_ADD_SYND) {
+            printk("%s: Adding SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV\n", __func__);
+            err = sx_core_add_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+        } else {
+            printk("%s: Removing SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV\n", __func__);
+            err = sx_core_remove_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+        }
+
+        if (err) {
+            goto out;
+        }
+
+        break;
+
+    case SX_KU_USER_CHANNEL_TYPE_L2_NETDEV:
+        if (dev->profile.swid_type[ku.swid] != SX_KU_L2_TYPE_ETH) {
+            printk("%s: Adding L2 netdev on non ethernet device is not implemented\n", __func__);
+            err = -EFAULT;
+            goto out;
+        }
+
+        if (cmd == CTRL_CMD_ADD_SYND) {
+            printk("%s: Adding SX_KU_USER_CHANNEL_TYPE_L2_NETDEV\n", __func__);
+            err = sx_core_add_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+        } else {
+            printk("%s: Removing SX_KU_USER_CHANNEL_TYPE_L2_NETDEV\n", __func__);
+            err = sx_core_remove_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+        }
+
+        if (err) {
+            goto out;
+        }
+
+        break;
+
+    case SX_KU_USER_CHANNEL_TYPE_L3_NETDEV:
+        if (dev->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) {
+            /* L3 traps registration */
+            if (cmd == CTRL_CMD_ADD_SYND) {
+                err = sx_core_add_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+            } else {
+                err = sx_core_remove_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+            }
+
+            if (err) {
+                goto out;
+            }
+        } else {
+            /* IPoIB traps registration */
+            if (cmd == CTRL_CMD_ADD_SYND) {
+                err = sx_core_add_synd_ipoib(ku.swid, ku.syndrome_num, dev);
+            } else {
+                err = sx_core_remove_synd_ipoib(ku.swid, ku.syndrome_num, dev);
+            }
+
+            if (err) {
+                goto out;
+            }
+        }
+
+        break;
+
+    case SX_KU_USER_CHANNEL_TYPE_FD:
+        if ((ku.type == SX_KU_L2_TYPE_ETH) &&
+            ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
+             (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT))) {
+            ku.swid = SWID_NUM_DONT_CARE;
+        } else if ((ku.type == SX_KU_L2_TYPE_DONT_CARE) &&
+                   (ku.critireas.dont_care.sysport == SYSPORT_DONT_CARE_VALUE)) {
+            if ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
+                (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT)) {
+                ku.swid = SWID_NUM_DONT_CARE;
+                ku.type = SX_KU_L2_TYPE_ETH;
+            } else if (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_IB) {
+                ku.type = SX_KU_L2_TYPE_IB;
+            }
+        }
+
+        if (cmd == CTRL_CMD_ADD_SYND) {
+            err = sx_core_add_synd(ku.swid, ku.syndrome_num,
+                                   listener_type, ku.is_default,
+                                   critireas, sx_cq_handler, filp,
+                                   CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params);
+        } else {
+            err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
+                                      listener_type, ku.is_default,
+                                      critireas, filp, dev, NULL, &ku.port_vlan_params);
+        }
+
+        if (err) {
+            goto out;
+        }
+
+        break;
+
+    case SX_KU_USER_CHANNEL_TYPE_L2_TUNNEL:
+        if (cmd == CTRL_CMD_ADD_SYND) {
+            sx_priv(dev)->l2_tunnel_params = ku.l2_tunnel_params;
+            err = sx_core_add_synd(ku.swid, ku.syndrome_num,
+                                   listener_type, ku.is_default,
+                                   critireas, sx_l2_tunnel_handler, dev,
+                                   CHECK_DUP_DISABLED_E, dev, &ku.port_vlan_params);
+        } else {
+            err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
+                                      listener_type, ku.is_default,
+                                      critireas, dev, dev, NULL, &ku.port_vlan_params);
+        }
+
+        if (err) {
+            goto out;
+        }
+
+        break;
+
+    default:
+        printk(KERN_ERR PFX "Err: invalid channel type : %d \n", ku.channel_type);
+        err = -EINVAL;
+        goto out;
     }
 
 out:
@@ -1097,11 +1120,11 @@ long ctrl_cmd_remove_synd(struct file *file, unsigned int cmd, unsigned long dat
 
 long ctrl_cmd_monitor_sw_queue_synd(struct file *file, unsigned int cmd, unsigned long data)
 {
-    int err = 0;
-    struct ku_monitor_synd_ioctl  ku;
-    struct sx_dq                 *monitor_dq;
-    struct sx_dev *dev;
-    enum l2_type                  listener_type = L2_TYPE_DONT_CARE;
+    int                          err = 0;
+    struct ku_monitor_synd_ioctl ku;
+    struct sx_dq                *monitor_dq;
+    struct sx_dev               *dev;
+    enum l2_type                 listener_type = L2_TYPE_DONT_CARE;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1135,7 +1158,6 @@ long ctrl_cmd_monitor_sw_queue_synd(struct file *file, unsigned int cmd, unsigne
                                listener_type, false,
                                ku.critireas, sx_cq_monitor_sw_queue_handler,  monitor_dq->file_priv_p->owner, /* use required filp */
                                CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params);
-
     } else { /* remove listener */
         if (monitor_dq->file_priv_p) {
             err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
@@ -1193,7 +1215,7 @@ long ctrl_cmd_raise_event(struct file *file, unsigned int cmd, unsigned long dat
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
-    err = copy_from_user((void*)(&event_data), (void*) data, sizeof(event_data));
+    err = copy_from_user((void*)(&event_data), (void*)data, sizeof(event_data));
     if (err) {
         goto out_err;
     }
@@ -1255,9 +1277,9 @@ long ctrl_cmd_get_syndrome_status(struct file *file, unsigned int cmd, unsigned 
 {
     struct ku_synd_query_ioctl *synd_query = NULL;
     struct ku_synd_query_ioctl  tmp_synd_query;
-    unsigned long             flags;
+    unsigned long               flags;
     u8                          is_registered = 0;
-    int err = 0;
+    int                         err = 0;
 
     err = copy_from_user(&tmp_synd_query, (void*)data,
                          sizeof(tmp_synd_query));
@@ -1288,8 +1310,8 @@ out:
 long ctrl_cmd_get_swid_2_rdq(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_swid_2_rdq_query swid_2_rdq;
-    struct sx_dev *dev;
-    int err = 0;
+    struct sx_dev             *dev;
+    int                        err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1330,20 +1352,19 @@ long ctrl_cmd_set_rdq_timestamp_state(struct file *file, unsigned int cmd, unsig
 {
     struct ku_rdq_timestamp_state rdq_ts_state;
     int                           cqn;
-    struct sx_dev *dev;
-    int err = 0;
-    int rc = 0;
-    uint8_t rdq_num = 0;
+    struct sx_dev                *dev;
+    int                           err = 0;
+    int                           rc = 0;
+    uint8_t                       rdq_num = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     if (!dev->pdev) {
         printk(KERN_DEBUG PFX "will not set time stamp state since there's no PCI device\n");
-        err = -ENODEV;
         goto out;
     }
 
-    err = copy_from_user(&rdq_ts_state, (void*) data, sizeof(rdq_ts_state));
+    err = copy_from_user(&rdq_ts_state, (void*)data, sizeof(rdq_ts_state));
     if (err) {
         goto out;
     }
@@ -1354,7 +1375,7 @@ long ctrl_cmd_set_rdq_timestamp_state(struct file *file, unsigned int cmd, unsig
         goto out;
     }
 
-    if (rdq_ts_state.rdq < 0 || rdq_ts_state.rdq >= rdq_num) {
+    if ((rdq_ts_state.rdq < 0) || (rdq_ts_state.rdq >= rdq_num)) {
         printk(KERN_WARNING PFX "Cannot set time stamp state, RDQ value (%d) is not valid\n",
                rdq_ts_state.rdq);
         err = -EINVAL;
@@ -1364,8 +1385,7 @@ long ctrl_cmd_set_rdq_timestamp_state(struct file *file, unsigned int cmd, unsig
     cqn = rdq_ts_state.rdq + NUMBER_OF_SDQS;
     if (rdq_ts_state.enable) {
         sx_bitmap_set(&sx_priv(dev)->cq_table.ts_bitmap, cqn);
-    }
-    else {
+    } else {
         sx_bitmap_free(&sx_priv(dev)->cq_table.ts_bitmap, cqn);
     }
 
@@ -1377,21 +1397,20 @@ out:
 long ctrl_cmd_set_rdq_cpu_priority(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_rdq_cpu_priority rdq_cpu_prio;
-    int                           cqn;
-    struct sx_dev *dev;
-    int err = 0;
-    int rc = 0;
-    uint8_t rdq_num = 0;
+    int                        cqn;
+    struct sx_dev             *dev;
+    int                        err = 0;
+    int                        rc = 0;
+    uint8_t                    rdq_num = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     if (!dev->pdev) {
         printk(KERN_DEBUG PFX "will not set CPU priority since there's no PCI device\n");
-        err = -ENODEV;
         goto out;
     }
 
-    err = copy_from_user(&rdq_cpu_prio, (void*) data, sizeof(rdq_cpu_prio));
+    err = copy_from_user(&rdq_cpu_prio, (void*)data, sizeof(rdq_cpu_prio));
     if (err) {
         goto out;
     }
@@ -1402,7 +1421,7 @@ long ctrl_cmd_set_rdq_cpu_priority(struct file *file, unsigned int cmd, unsigned
         goto out;
     }
 
-    if (rdq_cpu_prio.rdq < 0 || rdq_cpu_prio.rdq >= rdq_num) {
+    if ((rdq_cpu_prio.rdq < 0) || (rdq_cpu_prio.rdq >= rdq_num)) {
         printk(KERN_WARNING PFX "Cannot set CPU priority, RDQ value (%d) is not valid\n",
                rdq_cpu_prio.rdq);
         err = -EINVAL;
@@ -1410,10 +1429,9 @@ long ctrl_cmd_set_rdq_cpu_priority(struct file *file, unsigned int cmd, unsigned
     }
 
     cqn = rdq_cpu_prio.rdq + NUMBER_OF_SDQS;
-    if (rdq_cpu_prio.high_prio || rdq_cpu_prio.rdq == dev->profile.emad_rdq) {
+    if (rdq_cpu_prio.high_prio || (rdq_cpu_prio.rdq == dev->profile.emad_rdq)) {
         sx_bitmap_set(&sx_priv(dev)->cq_table.cpu_traffic_prio.high_prio_cq_bitmap, cqn);
-    }
-    else {
+    } else {
         sx_bitmap_free(&sx_priv(dev)->cq_table.cpu_traffic_prio.high_prio_cq_bitmap, cqn);
     }
 
@@ -1424,16 +1442,15 @@ out:
 long ctrl_cmd_set_truncate_params(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_set_truncate_params truncate_params;
-    unsigned long             flags;
-    struct sx_dev *dev;
-    int err = 0;
+    unsigned long                 flags;
+    struct sx_dev                *dev;
+    int                           err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     if (!dev->pdev) {
         printk(KERN_DEBUG PFX "will not set truncate params since there's no "
                "PCI device\n");
-        err = -ENODEV;
         goto out;
     }
 
@@ -1474,11 +1491,11 @@ out:
 long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_get_counters *counters;
-    const int swid = 0; /* the only SWID on Spectrum */
-    int trap_id;
-    int err = 0;
+    const int               swid = 0; /* the only SWID on Spectrum */
+    int                     trap_id;
+    int                     err = 0;
 
-    counters = (struct ku_get_counters*) kzalloc(sizeof(*counters), GFP_KERNEL);
+    counters = (struct ku_get_counters*)kzalloc(sizeof(*counters), GFP_KERNEL);
     if (counters == NULL) {
         err = -ENOMEM;
         goto out;
@@ -1499,11 +1516,11 @@ long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long da
     }
 
     /* iterate SW trap_id-events (512-575) */
-    for (/* trap_id initialized */ ; trap_id < NUM_HW_SYNDROMES; trap_id++) { /* trap_id 512-575 (64) */
+    for (/* trap_id initialized */; trap_id < NUM_HW_SYNDROMES; trap_id++) {  /* trap_id 512-575 (64) */
         counters->trap_id_events[trap_id] = sx_glb.stats.rx_eventlist_by_synd[trap_id];
     }
 
-    err = copy_to_user((void*) data, counters, sizeof(*counters));
+    err = copy_to_user((void*)data, counters, sizeof(*counters));
     kfree(counters);
 
 out:
@@ -1514,17 +1531,16 @@ out:
 long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_set_monitor_rdq_params monitor_rdq_params;
-    struct sx_dq       *dq;
-    struct sx_dev *dev;
-    struct sx_rsc *rsc = file->private_data;
-    unsigned long             flags;
-    int err = 0;
+    struct sx_dq                    *dq;
+    struct sx_dev                   *dev;
+    struct sx_rsc                   *rsc = file->private_data;
+    unsigned long                    flags;
+    int                              err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     if (!dev->pdev) {
         printk(KERN_DEBUG PFX "will not set monitor rdq since there's no PCI device\n");
-        err = -ENODEV;
         goto out;
     }
 
@@ -1549,8 +1565,13 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
     }
 
     if (monitor_rdq_params.is_monitor) {
-        if (dq->is_monitor && dq->file_priv_p->owner != rsc->owner){
-            dq->file_priv_p->bound_monitor_rdq = NULL;
+        if (dq->is_monitor) {
+            if (dq->file_priv_p->owner == rsc->owner) { /* same owner, do nothing */
+                spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+                goto out;
+            }
+
+            unset_monitor_rdq(dq); /* remove old owner, here comes a new one */
         }
 
         dq->is_monitor = 1;
@@ -1561,10 +1582,11 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         /* allocate memory for SW buffer which will be used for SW buffer
          * which is used to simulate RDQ and store discarded packets which
          * were consumed by NOS (in case of trap double registration). */
-        dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p = kzalloc(sizeof(*dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p), GFP_KERNEL);
+        dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p =
+            kzalloc(sizeof(*dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p), GFP_KERNEL);
 
         if (dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p == NULL) {
-            printk(KERN_DEBUG PFX " Failed to allocate memeory for SW duplication queue. \n");
+            printk(KERN_DEBUG PFX " Failed to allocate memory for SW duplication queue. \n");
             spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
             return -ENOMEM;
         }
@@ -1573,9 +1595,12 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_total_cnt = 0;
 
         INIT_LIST_HEAD(&dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p->list);
+        dq->file_priv_p->bound_monitor_rdq->mon_rx_start = dq->file_priv_p->bound_monitor_rdq->cq->cons_index;
+        dq->file_priv_p->bound_monitor_rdq->mon_rx_count = dq->file_priv_p->bound_monitor_rdq->mon_rx_start;
+        dq->file_priv_p->bound_monitor_rdq->mon_rx_start_total = dq->file_priv_p->bound_monitor_rdq->mon_rx_count;
 
         err = sx_core_add_rdq_to_monitor_rdq_list(dq);
-        if (err){
+        if (err) {
             unset_monitor_rdq(dq);
             spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
             goto out;
@@ -1596,15 +1621,14 @@ out:
 long ctrl_cmd_read_multi(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_read_multi_params *read_multi_params_p = NULL;
-    struct sx_dev *dev;
-    struct sx_rsc *rsc = file->private_data;
-    int err;
+    struct sx_dev               *dev;
+    struct sx_rsc               *rsc = file->private_data;
+    int                          err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     if (!dev->pdev) {
         printk(KERN_DEBUG PFX "will not execute multi packets read since there's no PCI device\n");
-        err = -ENODEV;
         goto out;
     }
 
@@ -1622,22 +1646,21 @@ long ctrl_cmd_read_multi(struct file *file, unsigned int cmd, unsigned long data
         goto out;
     }
 
-    if(rsc->bound_monitor_rdq) {
+    if (rsc->bound_monitor_rdq) {
         err = __monitor_file_read(file, read_multi_params_p->file_op, &read_multi_params_p->buffer_count,
                                   read_multi_params_p->buffer_list, read_multi_params_p->buffer_size_list);
         if (err) {
             printk(KERN_ERR PFX "ioctl_read failed err:%d, buf_cnt:%d, buff_list:%p, buff_list_cnt:%p\n",
-                err,
-                read_multi_params_p->buffer_count,
-                read_multi_params_p->buffer_list,
-                read_multi_params_p->buffer_size_list);
+                   err,
+                   read_multi_params_p->buffer_count,
+                   read_multi_params_p->buffer_list,
+                   read_multi_params_p->buffer_size_list);
             vfree(read_multi_params_p);
             goto out;
         }
 
         err = copy_to_user((void*)data, read_multi_params_p, sizeof(*read_multi_params_p));
-    }
-    else {
+    } else {
         printk(KERN_ERR PFX "multi_read from fd which is not monitor isn't supported .\n");
         err = -EINVAL;
     }
@@ -1662,10 +1685,10 @@ out:
  */
 long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long data)
 {
-    struct sx_dev *dev;
-    int err = 0;
+    struct sx_dev                          *dev;
+    int                                     err = 0;
     struct ku_monitor_trap_group_stat_ioctl ku;
-    struct sx_dq                 *monitor_dq;
+    struct sx_dq                           *monitor_dq;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1690,7 +1713,8 @@ long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long da
         goto out;
     }
 
-    ku.discarded_pkts_total_num = monitor_dq->mon_rx_count - monitor_dq->mon_rx_start_total + monitor_dq->sw_dup_evlist_total_cnt;
+    ku.discarded_pkts_total_num = monitor_dq->mon_rx_count - monitor_dq->mon_rx_start_total +
+                                  monitor_dq->sw_dup_evlist_total_cnt;
 
     if (ku.clear_after_read == true) {
         monitor_dq->mon_rx_start_total = monitor_dq->mon_rx_count;
@@ -1711,7 +1735,7 @@ long ctrl_cmd_set_skb_offload_fwd_mark_en(struct file *file, unsigned int cmd, u
 {
 #ifdef CONFIG_NET_SWITCHDEV
     union sx_event_data *offload_mark_event_data = NULL;
-    u8 offload_fwd_mark_en;
+    u8                   offload_fwd_mark_en;
     err = copy_from_user((void*)&offload_fwd_mark_en,
                          (void*)data, sizeof(offload_fwd_mark_en));
     if (err) {
@@ -1763,11 +1787,11 @@ long ctrl_cmd_flush_evlist(struct file *file, unsigned int cmd, unsigned long da
 long ctrl_cmd_trap_filter_add(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_trap_filter_data filter_data;
-    struct sx_dev *dev;
-    unsigned long             flags;
+    struct sx_dev             *dev;
+    unsigned long              flags;
     int                        i, idx = -1;
-    uint16_t lag_max = 0, lag_member_max = 0;
-    int err = 0;
+    uint16_t                   lag_max = 0, lag_member_max = 0;
+    int                        err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1874,10 +1898,10 @@ out:
 long ctrl_cmd_trap_filter_remove(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_trap_filter_data filter_data;
-    uint16_t lag_max = 0, lag_member_max = 0;
-    unsigned long flags;
-    struct sx_dev *dev;
-    int i, err = 0;
+    uint16_t                   lag_max = 0, lag_member_max = 0;
+    unsigned long              flags;
+    struct sx_dev             *dev;
+    int                        i, err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1956,9 +1980,9 @@ out:
 long ctrl_cmd_trap_filter_remove_all(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_trap_filter_data filter_data;
-    unsigned long             flags;
-    struct sx_dev *dev;
-    int i, err = 0;
+    unsigned long              flags;
+    struct sx_dev             *dev;
+    int                        i, err = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 

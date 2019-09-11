@@ -43,12 +43,11 @@
 
 struct sgmii_control_segment;
 struct sgmii_tx_base_header_version_0;
-
 extern struct sx_globals sx_glb;
-extern int rx_debug;
-extern int rx_dump;
-extern int tx_debug;
-extern int tx_dump;
+extern int               rx_debug;
+extern int               rx_dump;
+extern int               tx_debug;
+extern int               tx_dump;
 
 /* *************************************************************************************** */
 /* SGMII misc                                                                              */
@@ -70,13 +69,14 @@ int sgmii_queue_task(sgmii_task_t task, const void *param_buff, int param_buff_s
 static inline void __sgmii_bit_field_set(u32 *target, u32 lsb, u32 msb, u32 val)
 {
     const u32 mask = (1 << (msb - lsb + 1)) - 1;
+
     (*target) |= (val & mask) << lsb;
 }
 
 static inline void __sgmii_64bit_field_set(u32 *_32bit_h, u32 *_32bit_l, u64 val)
 {
-    __sgmii_bit_field_set(_32bit_h, 0, 31, (u32) (val >> 32));
-    __sgmii_bit_field_set(_32bit_l, 0, 31, (u32) (val & 0xffffffff));
+    __sgmii_bit_field_set(_32bit_h, 0, 31, (u32)(val >> 32));
+    __sgmii_bit_field_set(_32bit_l, 0, 31, (u32)(val & 0xffffffff));
 }
 
 /* *************************************************************************************** */
@@ -85,74 +85,65 @@ static inline void __sgmii_64bit_field_set(u32 *_32bit_h, u32 *_32bit_l, u64 val
 
 struct sgmii_dev_counters {
     struct sx_core_counter_category category;
-
-    struct sx_core_counter emad_tx;
-    struct sx_core_counter emad_rx;
-    struct sx_core_counter emad_timeout;
-    struct sx_core_counter emad_terminated;
-    struct sx_core_counter emad_retransmission;
-    struct sx_core_counter emad_send_failed;
-    struct sx_core_counter emad_transaction_init_failed;
-    struct sx_core_counter emad_transaction_completed;
-    struct sx_core_counter emad_dev_mismatch;
-    struct sx_core_counter emad_unsolicited;
-
-    struct sx_core_counter mad_tx;
-    struct sx_core_counter mad_rx;
-    struct sx_core_counter mad_timeout;
-    struct sx_core_counter mad_terminated;
-    struct sx_core_counter mad_retransmission;
-    struct sx_core_counter mad_send_failed;
-    struct sx_core_counter mad_unrecognized_packet;
-    struct sx_core_counter mad_transaction_init_failed;
-    struct sx_core_counter mad_transaction_completed;
-    struct sx_core_counter mad_dev_mismatch;
-
-    struct sx_core_counter cr_space_invalid_size;
-    struct sx_core_counter cr_space_skb_alloc_failed;
-    struct sx_core_counter cr_space_read;
-    struct sx_core_counter cr_space_write;
-    struct sx_core_counter cr_space_rx;
-    struct sx_core_counter cr_space_timeout;
-    struct sx_core_counter cr_space_retransmission;
-    struct sx_core_counter cr_space_send_failed;
-    struct sx_core_counter cr_space_transaction_init_failed;
-    struct sx_core_counter cr_space_transaction_completed;
-    struct sx_core_counter cr_space_interrupted;
-
-    struct sx_core_counter misc_tx;
-    struct sx_core_counter misc_send_failed;
-
-    struct sx_core_counter tx_invalid_argument;
-    struct sx_core_counter tx_invalid_metadata;
-    struct sx_core_counter tx_sgmii_not_initialized;
-    struct sx_core_counter tx_skb_cow_failed;
-    struct sx_core_counter tx_skb_clone_failed;
-    struct sx_core_counter tx_skb_fragmented;
-    struct sx_core_counter tx_netdev_carrier_down;
-    struct sx_core_counter tx_exceeds_mtu;
-    struct sx_core_counter tx_dev_queue_xmit_failed;
-    struct sx_core_counter tx_ok;
-
-    struct sx_core_counter rx_untagged_frame;
-    struct sx_core_counter rx_warn_vlan_mismatch;
-    struct sx_core_counter rx_invalid_ethertype;
-    struct sx_core_counter rx_cqe_trimmed;
-    struct sx_core_counter rx_cqev0_handler_failed;
-    struct sx_core_counter rx_cqev2_handler_failed;
-    struct sx_core_counter rx_cqev0_ok;
-    struct sx_core_counter rx_cqev2_ok;
-
-    struct sx_core_counter cr_space_default_device_not_configured;
-    struct sx_core_counter cr_space_dev_mismatch;
-    struct sx_core_counter cr_space_invalid_oob_checks;
-    struct sx_core_counter cr_space_invalid_trap_id;
-    struct sx_core_counter cr_space_misc_failed;
-    struct sx_core_counter cr_space_unsolicited;
-    struct sx_core_counter cr_space_snipped_data;
+    struct sx_core_counter          emad_tx;
+    struct sx_core_counter          emad_rx;
+    struct sx_core_counter          emad_timeout;
+    struct sx_core_counter          emad_terminated;
+    struct sx_core_counter          emad_retransmission;
+    struct sx_core_counter          emad_send_failed;
+    struct sx_core_counter          emad_transaction_init_failed;
+    struct sx_core_counter          emad_transaction_completed;
+    struct sx_core_counter          emad_dev_mismatch;
+    struct sx_core_counter          emad_unsolicited;
+    struct sx_core_counter          mad_tx;
+    struct sx_core_counter          mad_rx;
+    struct sx_core_counter          mad_timeout;
+    struct sx_core_counter          mad_terminated;
+    struct sx_core_counter          mad_retransmission;
+    struct sx_core_counter          mad_send_failed;
+    struct sx_core_counter          mad_unrecognized_packet;
+    struct sx_core_counter          mad_transaction_init_failed;
+    struct sx_core_counter          mad_transaction_completed;
+    struct sx_core_counter          mad_dev_mismatch;
+    struct sx_core_counter          cr_space_invalid_size;
+    struct sx_core_counter          cr_space_skb_alloc_failed;
+    struct sx_core_counter          cr_space_read;
+    struct sx_core_counter          cr_space_write;
+    struct sx_core_counter          cr_space_rx;
+    struct sx_core_counter          cr_space_timeout;
+    struct sx_core_counter          cr_space_retransmission;
+    struct sx_core_counter          cr_space_send_failed;
+    struct sx_core_counter          cr_space_transaction_init_failed;
+    struct sx_core_counter          cr_space_transaction_completed;
+    struct sx_core_counter          cr_space_interrupted;
+    struct sx_core_counter          misc_tx;
+    struct sx_core_counter          misc_send_failed;
+    struct sx_core_counter          tx_invalid_argument;
+    struct sx_core_counter          tx_invalid_metadata;
+    struct sx_core_counter          tx_sgmii_not_initialized;
+    struct sx_core_counter          tx_skb_cow_failed;
+    struct sx_core_counter          tx_skb_clone_failed;
+    struct sx_core_counter          tx_skb_fragmented;
+    struct sx_core_counter          tx_netdev_carrier_down;
+    struct sx_core_counter          tx_exceeds_mtu;
+    struct sx_core_counter          tx_dev_queue_xmit_failed;
+    struct sx_core_counter          tx_ok;
+    struct sx_core_counter          rx_untagged_frame;
+    struct sx_core_counter          rx_warn_vlan_mismatch;
+    struct sx_core_counter          rx_invalid_ethertype;
+    struct sx_core_counter          rx_cqe_trimmed;
+    struct sx_core_counter          rx_cqev0_handler_failed;
+    struct sx_core_counter          rx_cqev2_handler_failed;
+    struct sx_core_counter          rx_cqev0_ok;
+    struct sx_core_counter          rx_cqev2_ok;
+    struct sx_core_counter          cr_space_default_device_not_configured;
+    struct sx_core_counter          cr_space_dev_mismatch;
+    struct sx_core_counter          cr_space_invalid_oob_checks;
+    struct sx_core_counter          cr_space_invalid_trap_id;
+    struct sx_core_counter          cr_space_misc_failed;
+    struct sx_core_counter          cr_space_unsolicited;
+    struct sx_core_counter          cr_space_snipped_data;
 };
-
-
 struct sgmii_global_counters {
     struct sx_core_counter_category category;
 
@@ -170,9 +161,7 @@ struct sgmii_global_counters {
     struct sx_core_counter rx_zero_src_mac;
     struct sx_core_counter rx_src_mac_not_found;
 };
-
 extern struct sgmii_global_counters __sgmii_global_counters;
-
 struct sgmii_dev;
 
 int sgmii_dev_db_init(void);
@@ -182,17 +171,17 @@ int sgmii_dev_get_by_id(int dev_id, struct sgmii_dev **sgmii_dev);
 void sgmii_dev_inc_ref(struct sgmii_dev *sgmii_dev);
 void sgmii_dev_dec_ref(struct sgmii_dev *sgmii_dev);
 
-struct sgmii_dev_counters *sgmii_dev_get_counters(struct sgmii_dev *sgmii_dev);
+struct sgmii_dev_counters * sgmii_dev_get_counters(struct sgmii_dev *sgmii_dev);
 #define SGMII_DEV_INC_COUNTER(dev, counter) COUNTER_INC(&sgmii_dev_get_counters(dev)->counter)
 
-const struct ku_dpt_sgmii_info *sgmii_dev_get_dpt_info(const struct sgmii_dev *sgmii_dev);
+const struct ku_dpt_sgmii_info * sgmii_dev_get_dpt_info(const struct sgmii_dev *sgmii_dev);
 int sgmii_dev_get_id(const struct sgmii_dev *sgmii_dev);
 
 /* *************************************************************************************** */
 /* SGMII transport                                                                         */
 /* *************************************************************************************** */
 
-#define ZERO_MAC(mac) (!((mac)[0] || (mac)[1] || (mac)[2] || (mac)[3] || (mac)[4] || (mac)[5]))
+#define ZERO_MAC(mac)               (!((mac)[0] || (mac)[1] || (mac)[2] || (mac)[3] || (mac)[4] || (mac)[5]))
 #define CONVERT_TO_NETWORK_ORDER(x) do { (x) = htonl(x); } while (0)
 
 enum {
@@ -203,26 +192,22 @@ enum {
     SGMII_PCP_FROM_METADATA = 255
 };
 
-typedef void (*sgmii_fill_control_segment_cb_t)(const struct isx_meta *meta,
+typedef void (*sgmii_fill_control_segment_cb_t)(const struct isx_meta        *meta,
                                                 struct sgmii_control_segment *control_segment);
-typedef void (*sgmii_fill_tx_base_header_cb_t)(const struct isx_meta *meta,
+typedef void (*sgmii_fill_tx_base_header_cb_t)(const struct isx_meta                 *meta,
                                                struct sgmii_tx_base_header_version_0 *tx_base_header);
 
 
 struct sgmii_encapsulation_header_tx {
     struct vlan_ethhdr eth_vlan_hdr;
-    u16 ver_reserved;
+    u16                ver_reserved;
 } __attribute__((packed));
-
-
 struct sgmii_control_segment {
     __be32 line_0; /* swid, ipcs, dmc, isx, dr_tq, type, send_flow, lp */
     __be32 line_1; /* cr_ver */
     __be32 line_2; /* reserved */
     __be32 line_3; /* reserved */
 } __attribute__((packed));
-
-
 struct sgmii_tx_base_header_version_0 {
     __be32 line_0; /* version, ctl, u/l, mc, protocol, etclass, drop precedence, swid */
     __be32 line_1; /* system_port_mid, ingress trap, ctclass3, rdq, cpu_signature */
@@ -231,32 +216,32 @@ struct sgmii_tx_base_header_version_0 {
 } __attribute__((packed));
 
 
-int sgmii_transport_init(const char *netdev_name,
-                         const uint8_t *netdev_mac,
+int sgmii_transport_init(const char       *netdev_name,
+                         const uint8_t    *netdev_mac,
                          ku_chassis_type_t chassis_type,
-                         uint8_t cqe_ver);
+                         uint8_t           cqe_ver);
 
 void sgmii_transport_deinit(void);
 
-const char *sgmii_get_netdev_name(void);
+const char * sgmii_get_netdev_name(void);
 int sgmii_get_netdev_mac(uint8_t *netdev_mac);
 
-void sgmii_fill_common_control_segment(const struct isx_meta *meta,
+void sgmii_fill_common_control_segment(const struct isx_meta        *meta,
                                        struct sgmii_control_segment *control_seg);
 
-void sgmii_fill_common_tx_base_header(const struct isx_meta *meta,
+void sgmii_fill_common_tx_base_header(const struct isx_meta                 *meta,
                                       struct sgmii_tx_base_header_version_0 *tx_base_header);
 
 int sgmii_rx_skb_cb_dev_id_get(struct sk_buff *skb, struct sgmii_dev **sgmii_dev);
 
 int sgmii_get_operational_rx_pps(void);
 
-int sgmii_send(struct sgmii_dev *sgmii_dev,
-               struct sk_buff *skb,
-               const struct isx_meta *meta,
-               u8 pcp,
+int sgmii_send(struct sgmii_dev               *sgmii_dev,
+               struct sk_buff                 *skb,
+               const struct isx_meta          *meta,
+               u8                              pcp,
                sgmii_fill_control_segment_cb_t fill_control_segment_cb,
-               sgmii_fill_tx_base_header_cb_t fill_tx_base_header_cb);
+               sgmii_fill_tx_base_header_cb_t  fill_tx_base_header_cb);
 
 /* *************************************************************************************** */
 /* SGMII transaction                                                                       */
@@ -272,75 +257,73 @@ enum sgmii_transaction_completion_status {
 typedef uint64_t sgmii_transaction_id_t;
 
 struct sgmii_sync_transaction_context {
-    struct sgmii_transaction_db *tr_db;
-    sgmii_transaction_id_t tr_id;
-    struct completion completion;
-    struct sk_buff *rx_skb; /* the skb that completed the transaction */
+    struct sgmii_transaction_db             *tr_db;
+    sgmii_transaction_id_t                   tr_id;
+    struct completion                        completion;
+    struct sk_buff                          *rx_skb; /* the skb that completed the transaction */
     enum sgmii_transaction_completion_status status;
 };
-
 struct sgmii_transaction_db;
 struct sgmii_transaction_info;
 
-typedef void (*sgmii_transaction_entry_handler_cb)(int err,
+typedef void (*sgmii_transaction_entry_handler_cb)(int                            err,
                                                    struct sgmii_transaction_info *tr_info,
-                                                   void *context);
-typedef void (*sgmii_transaction_completion_cb_t)(struct sk_buff *rx_skb,
+                                                   void                          *context);
+typedef void (*sgmii_transaction_completion_cb_t)(struct sk_buff                          *rx_skb,
                                                   enum sgmii_transaction_completion_status status,
-                                                  struct sgmii_transaction_info *tr_info,
-                                                  void *context);
+                                                  struct sgmii_transaction_info           *tr_info,
+                                                  void                                    *context);
 
-typedef int (*sgmii_transaction_sync_send_cb)(int dev_id,
-                                              struct sk_buff *skb,
-                                              const struct isx_meta *meta,
+typedef int (*sgmii_transaction_sync_send_cb)(int                                    dev_id,
+                                              struct sk_buff                        *skb,
+                                              const struct isx_meta                 *meta,
                                               struct sgmii_sync_transaction_context *context);
 
 struct sgmii_transaction_db {
-    struct sx_core_map db_map;
-    spinlock_t db_lock;
-    sgmii_fill_control_segment_cb_t fill_control_segment_cb;
-    sgmii_fill_tx_base_header_cb_t fill_tx_base_header_cb;
+    struct sx_core_map                 db_map;
+    spinlock_t                         db_lock;
+    sgmii_fill_control_segment_cb_t    fill_control_segment_cb;
+    sgmii_fill_tx_base_header_cb_t     fill_tx_base_header_cb;
     sgmii_transaction_entry_handler_cb entry_handler_cb;
-    sgmii_transaction_completion_cb_t transaction_completion_cb;
+    sgmii_transaction_completion_cb_t  transaction_completion_cb;
 };
-
 struct sgmii_transaction_info {
     struct sgmii_transaction_db *tr_db;
-    sgmii_transaction_id_t tr_id;
-    struct sgmii_dev *rx_dev;
-    struct sgmii_dev *orig_tx_dev;
-    int send_attempts_so_far;
+    sgmii_transaction_id_t       tr_id;
+    struct sgmii_dev            *rx_dev;
+    struct sgmii_dev            *orig_tx_dev;
+    int                          send_attempts_so_far;
 };
 
-int sgmii_transaction_db_init(struct sgmii_transaction_db *tr_db,
-                              sgmii_fill_control_segment_cb_t fill_control_segment_cb,
-                              sgmii_fill_tx_base_header_cb_t fill_tx_base_header_cb,
+int sgmii_transaction_db_init(struct sgmii_transaction_db       *tr_db,
+                              sgmii_fill_control_segment_cb_t    fill_control_segment_cb,
+                              sgmii_fill_tx_base_header_cb_t     fill_tx_base_header_cb,
                               sgmii_transaction_entry_handler_cb entry_handler_cb,
-                              sgmii_transaction_completion_cb_t transaction_completion_cb);
+                              sgmii_transaction_completion_cb_t  transaction_completion_cb);
 
 int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
-                                       struct sk_buff *rx_skb,
-                                       sgmii_transaction_id_t tr_id,
-                                       struct sgmii_dev *rx_dev);
+                                       struct sk_buff              *rx_skb,
+                                       sgmii_transaction_id_t       tr_id,
+                                       struct sgmii_dev            *rx_dev);
 
 int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db,
-                                sgmii_transaction_id_t tr_id);
+                                sgmii_transaction_id_t       tr_id);
 
 int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
-                           struct sk_buff *skb,
-                           sgmii_transaction_id_t tr_id,
-                           struct sgmii_dev *sgmii_dev,
-                           const struct isx_meta *meta,
-                           void *context);
+                           struct sk_buff              *skb,
+                           sgmii_transaction_id_t       tr_id,
+                           struct sgmii_dev            *sgmii_dev,
+                           const struct isx_meta       *meta,
+                           void                        *context);
 
-int sgmii_send_transaction_sync(int dev_id,
-                                struct sk_buff *skb,
-                                const struct isx_meta *meta,
+int sgmii_send_transaction_sync(int                            dev_id,
+                                struct sk_buff                *skb,
+                                const struct isx_meta         *meta,
                                 sgmii_transaction_sync_send_cb send_cb,
-                                struct sk_buff **rx_skb);
+                                struct sk_buff               **rx_skb);
 
-void sgmii_sync_transaction_complete(struct sgmii_sync_transaction_context *context,
-                                     struct sk_buff *rx_skb,
+void sgmii_sync_transaction_complete(struct sgmii_sync_transaction_context   *context,
+                                     struct sk_buff                          *rx_skb,
                                      enum sgmii_transaction_completion_status status);
 
 /* *************************************************************************************** */
@@ -374,4 +357,3 @@ uint8_t sgmii_cr_space_check_for_response(struct sgmii_dev *sgmii_dev, struct sk
 
 
 #endif /* __SGMII_INTERNAL_H__ */
-

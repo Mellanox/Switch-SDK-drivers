@@ -45,28 +45,26 @@
 #define MAX_OOB_CPU_INGRESS_TCLASS (24)
 
 struct sgmii_dev {
-    struct sx_core_map_info map_info;
-    int dev_id;
-    atomic_t refcnt;
-    struct completion delete_completion;
-    struct proc_dir_entry *proc_file;
-    struct ku_dpt_sgmii_info dpt_info;
-    struct ku_sgmii_mft_info mft_info;
+    struct sx_core_map_info   map_info;
+    int                       dev_id;
+    atomic_t                  refcnt;
+    struct completion         delete_completion;
+    struct proc_dir_entry    *proc_file;
+    struct ku_dpt_sgmii_info  dpt_info;
+    struct ku_sgmii_mft_info  mft_info;
     struct sgmii_dev_counters counters;
 };
 
 /* MAP: MAC/Vlan-id ==> dev_id */
 static struct sx_core_map __sgmii_dev_map;
-static rwlock_t __sgmii_dev_lock;
+static rwlock_t           __sgmii_dev_lock;
 static DEFINE_MUTEX(__sgmii_dev_lock_user);
 static int __sgmii_default_dev_id;
 
 #define FW_TOOL_PROC_DIR_NAME "mlnx-dev"
 static struct proc_dir_entry *__fw_tool_proc_dir = NULL;
-
-static struct sgmii_dev *__sgmii_devices[MAX_NUM_OF_REMOTE_SWITCHES + 1];
-struct sgmii_global_counters __sgmii_global_counters;
-
+static struct sgmii_dev      *__sgmii_devices[MAX_NUM_OF_REMOTE_SWITCHES + 1];
+struct sgmii_global_counters  __sgmii_global_counters;
 struct sgmii_dev_db_dump_context {
     struct seq_file *m;
 };
@@ -394,7 +392,7 @@ static uint8_t __is_sgmii_device_LOCKED(int dev_id)
 uint8_t is_sgmii_device(int dev_id)
 {
     unsigned long flags;
-    uint8_t ret;
+    uint8_t       ret;
 
     if (!is_sgmii_supported()) {
         return 0;
@@ -429,9 +427,9 @@ static int __sgmii_dev_get_by_id_LOCKED(int dev_id, struct sgmii_dev **sgmii_dev
 static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
 {
     struct ku_hopf_reg reg_hopf;
-    ku_mgmt_board_t mgmt_brd;
-    uint8_t cqe_ver;
-    int i, err = 0, ret = 0;
+    ku_mgmt_board_t    mgmt_brd;
+    uint8_t            cqe_ver;
+    int                i, err = 0, ret = 0;
 
     mgmt_brd = sgmii_get_management_board();
     cqe_ver = sgmii_get_cqe_ver();
@@ -446,7 +444,7 @@ static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
 
     reg_hopf.pcp = 0;
     reg_hopf.vid = sgmii_dev->dpt_info.vid;
-    reg_hopf.i_f = (mgmt_brd == KU_MGMT_BOARD_1)? 0: 1;
+    reg_hopf.i_f = (mgmt_brd == KU_MGMT_BOARD_1) ? 0 : 1;
 
     reg_hopf.sr = 1; /* send */
     reg_hopf.rcv_cpu_tclass = 0; /* reserved for SEND flows */
@@ -478,10 +476,10 @@ static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
 
 int sgmii_dev_init(int dev_id, uint8_t init_hopf)
 {
-    ku_mgmt_board_t mgmt_brd;
-    struct sgmii_dev *sgmii_dev;
+    ku_mgmt_board_t    mgmt_brd;
+    struct sgmii_dev  *sgmii_dev;
     struct ku_ppad_reg reg_ppad;
-    int err = 0;
+    int                err = 0;
 
     if (!is_sgmii_supported()) {
         printk(KERN_ERR "SGMII is disabled\n");
@@ -492,12 +490,12 @@ int sgmii_dev_init(int dev_id, uint8_t init_hopf)
 
     err = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (err) {
-       printk(KERN_ERR "Dev %d is not SGMII device\n", dev_id);
-       return err;
+        printk(KERN_ERR "Dev %d is not SGMII device\n", dev_id);
+        return err;
     }
 
     memset(&reg_ppad, 0, sizeof(reg_ppad));
-    reg_ppad.local_port = (mgmt_brd == KU_MGMT_BOARD_1)? 1: 2;
+    reg_ppad.local_port = (mgmt_brd == KU_MGMT_BOARD_1) ? 1 : 2;
     memcpy(reg_ppad.mac, sgmii_dev->dpt_info.dmac, 6);
     err = sgmii_emad_access_ppad(dev_id, &reg_ppad);
     if (err) {
@@ -521,7 +519,7 @@ out:
 int sgmii_default_dev_set(int dev_id)
 {
     struct sgmii_dev *new_default;
-    int err = 0;
+    int               err = 0;
 
     if (!is_sgmii_supported()) {
         printk(KERN_ERR "SGMII is disabled\n");
@@ -554,11 +552,11 @@ out:
 static int __sgmii_dev_proc_show(struct seq_file *m, void *v)
 {
     struct sgmii_dev *sgmii_dev;
-    const char *dev_type_name;
-    int dev_id;
-    int ret;
+    const char       *dev_type_name;
+    int               dev_id;
+    int               ret;
 
-    dev_id = (int) (long) m->private;
+    dev_id = (int)(long)m->private;
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
         return 0;
@@ -572,21 +570,27 @@ static int __sgmii_dev_proc_show(struct seq_file *m, void *v)
     case SXD_MGIR_HW_DEV_ID_SX:
         dev_type_name = "Switch-X";
         break;
+
     case SXD_MGIR_HW_DEV_ID_SWITCH_IB:
         dev_type_name = "Switch-IB";
         break;
+
     case SXD_MGIR_HW_DEV_ID_SPECTRUM:
         dev_type_name = "Switch-Spectrum";
         break;
+
     case SXD_MGIR_HW_DEV_ID_SWITCH_IB2:
         dev_type_name = "Switch-IB-2";
         break;
+
     case SXD_MGIR_HW_DEV_ID_SPECTRUM2:
         dev_type_name = "Switch-Spectrum-2";
         break;
+
     case SXD_MGIR_HW_DEV_ID_QUANTUM:
         dev_type_name = "Switch-IB-3";
         break;
+
     default:
         dev_type_name = "N/A";
         break;
@@ -608,8 +612,8 @@ static int __sgmii_dev_proc_open(struct inode *inode, struct file *file)
 {
     int dev_id;
 
-    dev_id = (int) (long) PDE_DATA(inode);
-    return single_open(file, __sgmii_dev_proc_show, (void*) (long) dev_id);
+    dev_id = (int)(long)PDE_DATA(inode);
+    return single_open(file, __sgmii_dev_proc_show, (void*)(long)dev_id);
 }
 
 
@@ -630,15 +634,14 @@ static void __sgmii_dev_create_proc_file(struct sgmii_dev *sgmii_dev)
         .llseek = seq_lseek,
         .release = single_release
     };
-
-    char proc_file_name[MAX_PROC_FILENAME_LEN];
+    char                                proc_file_name[MAX_PROC_FILENAME_LEN];
 
     __sgmii_dev_id_to_proc_file_name(sgmii_dev->dev_id, proc_file_name);
     sgmii_dev->proc_file = proc_create_data(proc_file_name,
-                           S_IFREG | S_IRUGO,
-                           __fw_tool_proc_dir,
-                           &__sgmii_dev_proc_handler,
-                           (void*) (long) sgmii_dev->dev_id);
+                                            S_IFREG | S_IRUGO,
+                                            __fw_tool_proc_dir,
+                                            &__sgmii_dev_proc_handler,
+                                            (void*)(long)sgmii_dev->dev_id);
 
     if (!sgmii_dev->proc_file) {
         printk(KERN_ERR "failed to create proc file for dev_id %d. ignoring\n", sgmii_dev->dev_id);
@@ -660,12 +663,12 @@ static void __sgmii_dev_delete_proc_file(struct sgmii_dev *sgmii_dev)
 int sgmii_dev_add(int dev_id, const struct ku_dpt_sgmii_info *dpt_sgmii_info)
 {
     struct sgmii_dev *sgmii_dev;
-    int ret = 0;
+    int               ret = 0;
 
     if (!DEV_ID_IS_VALID(dev_id) ||
         !dpt_sgmii_info ||
         ZERO_MAC(dpt_sgmii_info->dmac) ||
-        dpt_sgmii_info->vid > 0xfff) {
+        (dpt_sgmii_info->vid > 0xfff)) {
         printk(KERN_ERR "sgmii information has invalid data\n");
         return -EINVAL;
     }
@@ -724,9 +727,9 @@ out:
 
 int sgmii_dev_del(int dev_id)
 {
-    struct sgmii_dev *sgmii_dev = NULL;
+    struct sgmii_dev        *sgmii_dev = NULL;
     struct sx_core_map_info *map_info;
-    int ret = 0;
+    int                      ret = 0;
 
     mutex_lock(&__sgmii_dev_lock_user);
     write_lock_bh(&__sgmii_dev_lock);
@@ -776,7 +779,7 @@ out:
 int sgmii_dev_set_mft_info(const struct ku_sgmii_mft_info *mft_info)
 {
     struct sgmii_dev *sgmii_dev;
-    int ret = 0;
+    int               ret = 0;
 
     if (!mft_info || !DEV_ID_IS_VALID(mft_info->dev_id)) {
         printk(KERN_ERR "set_mft_info() invalid parameters\n");
@@ -806,7 +809,7 @@ out:
 int sgmii_dev_get_by_mac(const uint8_t *mac, struct sgmii_dev **sgmii_dev)
 {
     struct sx_core_map_info *map_info;
-    int ret;
+    int                      ret;
 
     read_lock_bh(&__sgmii_dev_lock);
 
@@ -854,7 +857,7 @@ out:
 int sgmii_default_dev_id_get(int *dev_id)
 {
     struct sgmii_dev *sgmii_dev;
-    int ret;
+    int               ret;
 
     ret = sgmii_dev_get_by_id(DEFAULT_DEVICE_ID, &sgmii_dev);
     if (ret == 0) {
@@ -869,13 +872,13 @@ int sgmii_default_dev_id_get(int *dev_id)
 static int __sgmii_dev_db_handler(struct seq_file *m, void *v)
 {
     struct sgmii_dev *sgmii_dev;
-    const uint8_t *dmac;
-    char is_default;
-    int i;
+    const uint8_t    *dmac;
+    char              is_default;
+    int               i;
 
     seq_printf(m, "----------------------------------------------------------------------\n");
     seq_printf(m, "%-1s   %-6s   %-17s   %-7s   %-6s\n",
-                  "D", "dev-id", "DMAC", "vlan-id", "RefCnt");
+               "D", "dev-id", "DMAC", "vlan-id", "RefCnt");
     seq_printf(m, "----------------------------------------------------------------------\n");
 
     read_lock_bh(&__sgmii_dev_lock);
@@ -891,8 +894,7 @@ static int __sgmii_dev_db_handler(struct seq_file *m, void *v)
 
         if (sgmii_dev->dev_id == __sgmii_default_dev_id) {
             is_default = '*';
-        }
-        else {
+        } else {
             is_default = ' ';
         }
 
@@ -932,13 +934,13 @@ void sgmii_dev_dec_ref(struct sgmii_dev *sgmii_dev)
 }
 
 
-struct sgmii_dev_counters *sgmii_dev_get_counters(struct sgmii_dev *sgmii_dev)
+struct sgmii_dev_counters * sgmii_dev_get_counters(struct sgmii_dev *sgmii_dev)
 {
     return &sgmii_dev->counters;
 }
 
 
-const struct ku_dpt_sgmii_info *sgmii_dev_get_dpt_info(const struct sgmii_dev *sgmii_dev)
+const struct ku_dpt_sgmii_info * sgmii_dev_get_dpt_info(const struct sgmii_dev *sgmii_dev)
 {
     return &sgmii_dev->dpt_info;
 }
