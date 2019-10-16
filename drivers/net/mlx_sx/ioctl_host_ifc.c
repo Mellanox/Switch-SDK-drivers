@@ -1734,8 +1734,13 @@ out:
 long ctrl_cmd_set_skb_offload_fwd_mark_en(struct file *file, unsigned int cmd, unsigned long data)
 {
 #ifdef CONFIG_NET_SWITCHDEV
+    struct sx_dev       *dev;
+    int                  err = 0;
     union sx_event_data *offload_mark_event_data = NULL;
     u8                   offload_fwd_mark_en;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
     err = copy_from_user((void*)&offload_fwd_mark_en,
                          (void*)data, sizeof(offload_fwd_mark_en));
     if (err) {

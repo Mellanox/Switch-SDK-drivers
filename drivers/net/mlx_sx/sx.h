@@ -286,7 +286,7 @@ struct tx_base_header_v1 {
 struct sx_bitmap {
     u32           max;
     spinlock_t    lock;   /* bitmap lock */
-    unsigned long table[2];
+    unsigned long table[4];
 };
 struct sx_buf_list {
     void      *buf;

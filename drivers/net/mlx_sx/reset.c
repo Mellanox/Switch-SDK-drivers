@@ -194,7 +194,11 @@ static int sdk_sx_reset(struct sx_dev *dev)
     if (dev->pdev->device == QUANTUM_PCI_DEV_ID) {
         wait_for_reset = 12000; /* Timeout for Quantum was increased to 12s until FW stabilizes its flow. */
     } else if (dev->pdev->device == SPECTRUM2_PCI_DEV_ID) {
-        wait_for_reset = 15000; /* Timeout for Phoenix was increased to 15s until FW stabilizes its flow. */
+        /* for now, until we do it in a proper way, always wait up to 15 minutes (!) for switch reset.
+         * we have a special case with Tigris, in which there is an upgrade for the gearbox FWs and it might take up to 10 minutes.
+         * here in the SDK, will give a grace of 5 more minutes for the switch to reset.
+         */
+        wait_for_reset = 15 * 60 * 1000; /* 15 minutes */
     } else {
         wait_for_reset = SX_SW_RESET_TIMEOUT_MSECS;
     }
