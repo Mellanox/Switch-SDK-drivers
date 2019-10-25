@@ -26,6 +26,9 @@ applibs-dev_1.mlnx.<SDK_VER>_amd64.deb
 iproute2_1.mlnx.<SDK_VER>_amd64.deb
 iproute2-dev_1.mlnx.<SDK_VER>_amd64.deb
 python-sdk-api_1.mlnx.<SDK_VER>_amd64.deb
+sx-acl-helper_1.mlnx.<SDK_VER>_amd64.deb
+sx-acl-helper-dev_1.mlnx.<SDK_VER>_amd64.deb
+sx-acl-helper-dev-static_1.mlnx.<SDK_VER>_amd64.deb
 sx-complib_1.mlnx.<SDK_VER>_amd64.deb
 sx-complib-dev_1.mlnx.<SDK_VER>_amd64.deb
 sx-complib-dev-static_1.mlnx.<SDK_VER>_amd64.deb
@@ -42,9 +45,6 @@ sx-scew-dev-static_1.mlnx.<SDK_VER>_amd64.deb
 wjh-libs_1.mlnx.<SDK_VER>_amd64.deb
 wjh-libs-dev_1.mlnx.<SDK_VER>_amd64.deb
 wjh-libs-dev-static_1.mlnx.<SDK_VER>_amd64.deb
-sx-acl-helper_1.mlnx.<SDK_VER>_amd64.deb
-sx-acl-helper-dev_1.mlnx.<SDK_VER>_amd64.deb
-sx-acl-helper-dev-static_1.mlnx.<SDK_VER>_amd64.deb
 ```
 
 #### FW
