@@ -34,28 +34,28 @@
 #define H_MEMTRACK_H
 
 enum memtrack_memtype_t {
-	MEMTRACK_KMALLOC,
-	MEMTRACK_VMALLOC,
-	MEMTRACK_KMEM_OBJ,
-	MEMTRACK_IOREMAP,       /* IO-RE/UN-MAP */
-	MEMTRACK_WORK_QUEUE,    /* Handle work-queue create & destroy */
-	MEMTRACK_PAGE_ALLOC,    /* Handle page allocation and free */
-	MEMTRACK_DMA_MAP_SINGLE,/* Handle ib_dma_single map and unmap */
-	MEMTRACK_DMA_MAP_PAGE,	/* Handle ib_dma_page map and unmap */
-	MEMTRACK_DMA_MAP_SG,	/* Handle ib_dma_sg map and unmap with and without attributes */
-	MEMTRACK_NUM_OF_MEMTYPES
+    MEMTRACK_KMALLOC,
+    MEMTRACK_VMALLOC,
+    MEMTRACK_KMEM_OBJ,
+    MEMTRACK_IOREMAP,       /* IO-RE/UN-MAP */
+    MEMTRACK_WORK_QUEUE,    /* Handle work-queue create & destroy */
+    MEMTRACK_PAGE_ALLOC,    /* Handle page allocation and free */
+    MEMTRACK_DMA_MAP_SINGLE, /* Handle ib_dma_single map and unmap */
+    MEMTRACK_DMA_MAP_PAGE,  /* Handle ib_dma_page map and unmap */
+    MEMTRACK_DMA_MAP_SG,    /* Handle ib_dma_sg map and unmap with and without attributes */
+    MEMTRACK_NUM_OF_MEMTYPES
 };
 
 /* Invoke on memory allocation */
 void memtrack_alloc(enum memtrack_memtype_t memtype, unsigned long dev,
-		    unsigned long addr, unsigned long size, unsigned long addr2,
-		    int direction, const char *filename,
-		    const unsigned long line_num, int alloc_flags);
+                    unsigned long addr, unsigned long size, unsigned long addr2,
+                    int direction, const char *filename,
+                    const unsigned long line_num, int alloc_flags);
 
 /* Invoke on memory free */
 void memtrack_free(enum memtrack_memtype_t memtype, unsigned long dev,
-		   unsigned long addr, unsigned long size, int direction,
-		   const char *filename, const unsigned long line_num);
+                   unsigned long addr, unsigned long size, int direction,
+                   const char *filename, const unsigned long line_num);
 
 /*
  * This function recognizes allocations which
@@ -75,31 +75,31 @@ int is_non_trackable_alloc_func(const char *func_name);
 int is_non_trackable_free_func(const char *func_name);
 
 /* WA - In this function handles confirm
-   the the function name is
-   '__ib_umem_release' or 'ib_umem_get'
-   In this case we won't track the
-   memory there because the kernel
-   was the one who allocated it.
-   Return value:
-     1 - if the function name is match, else 0    */
+ *  the the function name is
+ *  '__ib_umem_release' or 'ib_umem_get'
+ *  In this case we won't track the
+ *  memory there because the kernel
+ *  was the one who allocated it.
+ *  Return value:
+ *    1 - if the function name is match, else 0    */
 int is_umem_put_page(const char *func_name);
 
 /* Check page order size
-   When Freeing a page allocation it checks whether
-   we are trying to free the same amount of pages
-   we ask to allocate (In log2(order)).
-   In case an error if found it will print
-   an error msg                                    */
+ *  When Freeing a page allocation it checks whether
+ *  we are trying to free the same amount of pages
+ *  we ask to allocate (In log2(order)).
+ *  In case an error if found it will print
+ *  an error msg                                    */
 int memtrack_check_size(enum memtrack_memtype_t memtype, unsigned long addr,
-			 unsigned long size, const char *filename,
-			 const unsigned long line_num);
+                        unsigned long size, const char *filename,
+                        const unsigned long line_num);
 
 /* Search for a specific addr whether it exist in the
-   current data-base.
-   If not it will print an error msg,
-   Return value: 0 - if addr exist, else 1 */
+ *  current data-base.
+ *  If not it will print an error msg,
+ *  Return value: 0 - if addr exist, else 1 */
 int memtrack_is_new_addr(enum memtrack_memtype_t memtype, unsigned long addr, int expect_exist,
-			 const char *filename, const unsigned long line_num);
+                         const char *filename, const unsigned long line_num);
 
 /* Return current page reference counter */
 int memtrack_get_page_ref_count(unsigned long addr);
@@ -114,4 +114,4 @@ int memtrack_inject_error(void);
 /* randomize allocated memory */
 int memtrack_randomize_mem(void);
 
-#endif
+#endif /* ifndef H_MEMTRACK_H */

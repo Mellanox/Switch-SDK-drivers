@@ -39,26 +39,26 @@
 #include <linux/tracepoint.h>
 
 TRACE_EVENT(monitor_rdq_rx,
-	    TP_PROTO(const struct sk_buff *skb, uint16_t trap_id, const struct timespec *timestamp),
+            TP_PROTO(const struct sk_buff *skb, uint16_t trap_id, const struct timespec *timestamp),
 
-	    TP_ARGS(skb, trap_id, timestamp),
+            TP_ARGS(skb, trap_id, timestamp),
 
-	    TP_STRUCT__entry(
-		    __field(const void *, skb)
-		    __field(uint16_t,     trap_id)
-		    __field(const void *, timestamp)
-		    ),
+            TP_STRUCT__entry(
+                __field(const void *, skb)
+                __field(uint16_t,     trap_id)
+                __field(const void *, timestamp)
+                ),
 
-	    TP_fast_assign(
-		    __entry->skb       =  skb;
-		    __entry->trap_id   =  trap_id;
-		    __entry->timestamp =  timestamp;
-		    ),
+            TP_fast_assign(
+                __entry->skb = skb;
+                __entry->trap_id = trap_id;
+                __entry->timestamp = timestamp;
+                ),
 
-	    TP_printk("trap_id %u tv_sec %ld tv_nsec %ld", __entry->trap_id,
-		    (long)(((const struct timespec*)__entry->timestamp)->tv_sec),
-            ((const struct timespec*)__entry->timestamp)->tv_nsec)
- );
+            TP_printk("trap_id %u tv_sec %ld tv_nsec %ld", __entry->trap_id,
+                      (long)(((const struct timespec*)__entry->timestamp)->tv_sec),
+                      ((const struct timespec*)__entry->timestamp)->tv_nsec)
+            );
 
 #endif /* _SX_CORE_TRACE_H */
 
@@ -67,4 +67,3 @@ TRACE_EVENT(monitor_rdq_rx,
 #define TRACE_INCLUDE_PATH .
 #define TRACE_INCLUDE_FILE trace
 #include <trace/define_trace.h>
-

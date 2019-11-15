@@ -173,7 +173,7 @@ long ctrl_cmd_set_device_profile(struct file *file, unsigned int cmd, unsigned l
             }
 
             /* check the swid is IB in device profile */
-            if (swid_config_type_arr[swid].type != KU_SWID_TYPE_INFINIBAND) {
+            if (swid_config_type_arr->type != KU_SWID_TYPE_INFINIBAND) {
                 continue;
             }
 

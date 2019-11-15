@@ -39,25 +39,24 @@
 typedef int (*sx_core_map_compare_cb_t)(const void *key1, const void *key2);
 
 struct sx_core_map {
-    rwlock_t lock;
-    struct rb_root map;
+    rwlock_t                 lock;
+    struct rb_root           map;
     sx_core_map_compare_cb_t compare_cb;
-    size_t key_size;
-    uint8_t use_lock;
+    size_t                   key_size;
+    uint8_t                  use_lock;
 };
-
 struct sx_core_map_info {
     struct rb_node rb_node;
-    void *key;
+    void          *key;
 };
 
 /* returns 0 to continue traversing, otherwise traversing is stopped */
 typedef int (*sx_core_map_traverse_cb_t)(const void *key, struct sx_core_map_info *info, void *context);
 
-int sx_core_map_init(struct sx_core_map *map,
+int sx_core_map_init(struct sx_core_map      *map,
                      sx_core_map_compare_cb_t compare_cb,
-                     size_t key_size,
-                     uint8_t use_lock);
+                     size_t                   key_size,
+                     uint8_t                  use_lock);
 
 int sx_core_map_insert(struct sx_core_map *map, const void *key, struct sx_core_map_info *info, gfp_t flags);
 int sx_core_map_remove(struct sx_core_map *map, const void *key, struct sx_core_map_info **info);

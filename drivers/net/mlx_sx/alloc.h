@@ -44,10 +44,10 @@
  ***********************************************/
 u32 sx_bitmap_test(struct sx_bitmap *bitmap, u32 obj);
 u32 sx_bitmap_set(struct sx_bitmap *bitmap, u32 obj);
-u32  sx_bitmap_alloc(struct sx_bitmap *bitmap);
+u32 sx_bitmap_alloc(struct sx_bitmap *bitmap);
 void sx_bitmap_free(struct sx_bitmap *bitmap, u32 obj);
 int sx_buf_alloc(struct sx_dev *dev, int size, int max_direct,
-		 struct sx_buf *buf, int init_val);
+                 struct sx_buf *buf, int init_val);
 void sx_fill_page_list(__be64 *dma_addrs, struct sx_buf *buf);
 void sx_buf_free(struct sx_dev *dev, int size, struct sx_buf *buf);
 void sx_bitmap_free(struct sx_bitmap *bitmap, u32 obj);

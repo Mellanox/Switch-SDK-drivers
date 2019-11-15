@@ -41,9 +41,9 @@
 long ctrl_cmd_set_sgmii_system_cfg(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_sgmii_system_cfg sgmii_system_cfg;
-    int err;
+    int                        err;
 
-    err = copy_from_user(&sgmii_system_cfg, (void*) data, sizeof(sgmii_system_cfg));
+    err = copy_from_user(&sgmii_system_cfg, (void*)data, sizeof(sgmii_system_cfg));
     if (err) {
         goto out;
     }
@@ -63,9 +63,9 @@ out:
 long ctrl_cmd_init_sgmii_dev(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_sgmii_init_dev sgmii_init_dev;
-    int err;
+    int                      err;
 
-    err = copy_from_user(&sgmii_init_dev, (void*) data, sizeof(sgmii_init_dev));
+    err = copy_from_user(&sgmii_init_dev, (void*)data, sizeof(sgmii_init_dev));
     if (err) {
         goto out;
     }
@@ -80,9 +80,9 @@ out:
 long ctrl_cmd_set_sgmii_default_dev(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_sgmii_default_dev default_dev_cfg;
-    int err;
+    int                         err;
 
-    err = copy_from_user(&default_dev_cfg, (void*) data, sizeof(default_dev_cfg));
+    err = copy_from_user(&default_dev_cfg, (void*)data, sizeof(default_dev_cfg));
     if (err) {
         goto out;
     }
@@ -100,9 +100,9 @@ out:
 long ctrl_cmd_set_sgmii_mft_info(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_sgmii_mft_info mft_info;
-    int err;
+    int                      err;
 
-    err = copy_from_user(&mft_info, (void*) data, sizeof(mft_info));
+    err = copy_from_user(&mft_info, (void*)data, sizeof(mft_info));
     if (err) {
         goto out;
     }

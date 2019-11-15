@@ -39,23 +39,25 @@
 #include <linux/mlx_sx/auto_registers/cmd_auto.h>
 #include <linux/mlx_sx/auto_registers/reg.h>
 
-#define SX_MLXFW_MFA2_MAX_FILENAME  128
+#define SX_MLXFW_MFA2_MAX_FILENAME 128
 
 char mfa2_file[SX_MLXFW_MFA2_MAX_FILENAME] = "";
 module_param_string(mfa2_file, mfa2_file, SX_MLXFW_MFA2_MAX_FILENAME, 0444);
 MODULE_PARM_DESC(mfa2_file, "mfa2_file: FW file type mfa2");
 
 struct sx_dev *g_dev = NULL;
-
 static int sx_mlxfw_component_query(struct mlxfw_dev *mlxfw_dev,
-                    u16 component_index, u32 *p_max_size,
-                    u8 *p_align_bits, u16 *p_max_write_size)
+                                    u16               component_index,
+                                    u32              *p_max_size,
+                                    u8               *p_align_bits,
+                                    u16              *p_max_write_size)
 {
-    int ret = 0;
+    int                       ret = 0;
     struct ku_access_mcqi_reg reg_mcqi;
+
     memset(&reg_mcqi, 0, sizeof(struct ku_access_mcqi_reg));
 
-#define MLXSW_REG_MCQI_CAP_LEN 0x14
+#define MLXSW_REG_MCQI_CAP_LEN      0x14
 #define MLXSW_REG_MCDA_MAX_DATA_LEN 0x80
 
     reg_mcqi.dev_id = g_dev->device_id;
@@ -79,8 +81,9 @@ static int sx_mlxfw_component_query(struct mlxfw_dev *mlxfw_dev,
 
 static int sx_mlxfw_fsm_lock(struct mlxfw_dev *mlxfw_dev, u32 *fwhandle)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -113,11 +116,13 @@ static int sx_mlxfw_fsm_lock(struct mlxfw_dev *mlxfw_dev, u32 *fwhandle)
 }
 
 static int sx_mlxfw_fsm_component_update(struct mlxfw_dev *mlxfw_dev,
-                     u32 fwhandle, u16 component_index,
-                     u32 component_size)
+                                         u32               fwhandle,
+                                         u16               component_index,
+                                         u32               component_size)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -133,12 +138,11 @@ static int sx_mlxfw_fsm_component_update(struct mlxfw_dev *mlxfw_dev,
     return ret;
 }
 
-static int sx_mlxfw_fsm_block_download(struct mlxfw_dev *mlxfw_dev,
-                       u32 fwhandle, u8 *data, u16 size,
-                       u32 offset)
+static int sx_mlxfw_fsm_block_download(struct mlxfw_dev *mlxfw_dev, u32 fwhandle, u8 *data, u16 size, u32 offset)
 {
-    int ret = 0, i = 0;
+    int                       ret = 0, i = 0;
     struct ku_access_mcda_reg reg_mcda;
+
     memset(&reg_mcda, 0, sizeof(struct ku_access_mcda_reg));
 
     reg_mcda.dev_id = g_dev->device_id;
@@ -147,7 +151,7 @@ static int sx_mlxfw_fsm_block_download(struct mlxfw_dev *mlxfw_dev,
     reg_mcda.mcda_reg.offset = offset;
     reg_mcda.mcda_reg.size = size;
     for (i = 0; i < size / 4; i++) {
-        reg_mcda.mcda_reg.data[i] = *(u32 *) &data[i * 4];
+        reg_mcda.mcda_reg.data[i] = *(u32*)&data[i * 4];
     }
     ret = sx_ACCESS_REG_MCDA(g_dev, &reg_mcda);
     if (ret) {
@@ -156,11 +160,11 @@ static int sx_mlxfw_fsm_block_download(struct mlxfw_dev *mlxfw_dev,
     return ret;
 }
 
-static int sx_mlxfw_fsm_component_verify(struct mlxfw_dev *mlxfw_dev,
-                     u32 fwhandle, u16 component_index)
+static int sx_mlxfw_fsm_component_verify(struct mlxfw_dev *mlxfw_dev, u32 fwhandle, u16 component_index)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -178,8 +182,9 @@ static int sx_mlxfw_fsm_component_verify(struct mlxfw_dev *mlxfw_dev,
 
 static int sx_mlxfw_fsm_activate(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -195,12 +200,14 @@ static int sx_mlxfw_fsm_activate(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
     return ret;
 }
 
-static int sx_mlxfw_fsm_query_state(struct mlxfw_dev *mlxfw_dev, u32 fwhandle,
-                    enum mlxfw_fsm_state *fsm_state,
-                    enum mlxfw_fsm_state_err *fsm_state_err)
+static int sx_mlxfw_fsm_query_state(struct mlxfw_dev         *mlxfw_dev,
+                                    u32                       fwhandle,
+                                    enum mlxfw_fsm_state     *fsm_state,
+                                    enum mlxfw_fsm_state_err *fsm_state_err)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -214,14 +221,15 @@ static int sx_mlxfw_fsm_query_state(struct mlxfw_dev *mlxfw_dev, u32 fwhandle,
 
     *fsm_state = reg_mcc.mcc_reg.control_state;
     *fsm_state_err = min_t(enum mlxfw_fsm_state_err, reg_mcc.mcc_reg.error_code,
-                       MLXFW_FSM_STATE_ERR_MAX);
+                           MLXFW_FSM_STATE_ERR_MAX);
     return ret;
 }
 
 static void sx_mlxfw_fsm_cancel(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -238,8 +246,9 @@ static void sx_mlxfw_fsm_cancel(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
 
 static void sx_mlxfw_fsm_release(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
 {
-    int ret = 0;
+    int                      ret = 0;
     struct ku_access_mcc_reg reg_mcc;
+
     memset(&reg_mcc, 0, sizeof(struct ku_access_mcc_reg));
 
     reg_mcc.dev_id = g_dev->device_id;
@@ -255,22 +264,21 @@ static void sx_mlxfw_fsm_release(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
 }
 
 static const struct mlxfw_dev_ops sx_mlxfw_dev_ops = {
-    .component_query       = sx_mlxfw_component_query,
-    .fsm_lock              = sx_mlxfw_fsm_lock,
-    .fsm_component_update  = sx_mlxfw_fsm_component_update,
-    .fsm_block_download    = sx_mlxfw_fsm_block_download,
-    .fsm_component_verify  = sx_mlxfw_fsm_component_verify,
-    .fsm_activate          = sx_mlxfw_fsm_activate,
-    .fsm_query_state       = sx_mlxfw_fsm_query_state,
-    .fsm_cancel            = sx_mlxfw_fsm_cancel,
-    .fsm_release           = sx_mlxfw_fsm_release
+    .component_query = sx_mlxfw_component_query,
+    .fsm_lock = sx_mlxfw_fsm_lock,
+    .fsm_component_update = sx_mlxfw_fsm_component_update,
+    .fsm_block_download = sx_mlxfw_fsm_block_download,
+    .fsm_component_verify = sx_mlxfw_fsm_component_verify,
+    .fsm_activate = sx_mlxfw_fsm_activate,
+    .fsm_query_state = sx_mlxfw_fsm_query_state,
+    .fsm_cancel = sx_mlxfw_fsm_cancel,
+    .fsm_release = sx_mlxfw_fsm_release
 };
-
 static int __init sx_mlxfw_init(void)
 {
-    int ret = 0;
+    int                    ret = 0;
     const struct firmware *firmware;
-    struct mlxfw_dev mlxfw_dev;
+    struct mlxfw_dev       mlxfw_dev;
 
     pr_info("%s: input mfa2_file [%s]\n", __func__, mfa2_file);
 
@@ -308,4 +316,3 @@ static void __exit sx_mlxfw_cleanup(void)
 
 module_init(sx_mlxfw_init);
 module_exit(sx_mlxfw_cleanup);
-

@@ -44,31 +44,27 @@ extern void sx_core_remove_one(struct sx_priv *priv);
 
 static DEFINE_RWLOCK(__sgmii_netdev_lock);
 static struct net_device *__sgmii_netdev = NULL;
-static char __sgmii_netdev_name[SX_IFNAMSIZ] = "";
-
-static atomic_t __sgmii_rx_budget;
+static char               __sgmii_netdev_name[SX_IFNAMSIZ] = "";
+static atomic_t           __sgmii_rx_budget;
 static void __sgmii_rate_limiter_cb(unsigned long data);
 static DEFINE_TIMER(__sgmii_rate_limiter_timer, __sgmii_rate_limiter_cb, 0, 0);
 
 static struct sx_priv *__sgmii_priv = NULL;
-static void (*handle_rx_by_cqe_version_cb)(struct sgmii_dev *sgmii_dev,
-                                           struct sk_buff *skb,
-                                           struct timespec *timestamp);
+static void            (*handle_rx_by_cqe_version_cb)(struct sgmii_dev *sgmii_dev,
+                                                      struct sk_buff   *skb,
+                                                      struct timespec  *timestamp);
 static u16 __sgmii_cqe_size;
-
 struct sgmii_encapsulation_header_rx { /* Linux strips VLAN tag from frame before getting to RX handler */
     struct ethhdr eth_hdr;
-    u16 ver_reserved;
+    u16           ver_reserved;
 } __attribute__((packed));
-
-
 struct sgmii_rx_skb_cb {
 #define SGMII_RX_SKB_CB_MAGIC (0xfee1600d)
-    int magic;
+    int               magic;
     struct sgmii_dev *sgmii_dev;
 };
 
-#define SGMII_RX_SKB_CB(skb) ((struct sgmii_rx_skb_cb*) (skb)->cb)
+#define SGMII_RX_SKB_CB(skb)          ((struct sgmii_rx_skb_cb*)(skb)->cb)
 #define IS_SGMII_RX_SKB_CB_VALID(skb) (SGMII_RX_SKB_CB(skb)->magic == SGMII_RX_SKB_CB_MAGIC)
 
 
@@ -86,8 +82,6 @@ struct pkt_type_attr {
     /* PCP */
     u8 pcp;
 };
-
-
 static const struct pkt_type_attr __pkt_type_to_attr[] = {
     [SX_PKT_TYPE_ETH_CTL_UC] =
     { .type = 6, .emad = 0, .mc = 0, .proto = 1, .ctl = 0, .ctrl_type = 2, .pcp = SGMII_PCP_MED },
@@ -137,9 +131,7 @@ static const struct pkt_type_attr __pkt_type_to_attr[] = {
     [SX_PKT_TYPE_LOOPBACK_CTL] =
     { .type = 0, .emad = 0, .mc = 0, .proto = 0, .ctl = 0, .ctrl_type = 0, .pcp = SGMII_PCP_FROM_METADATA }
 };
-
-
-static struct net_device *__sgmii_get_netdev(void)
+static struct net_device        * __sgmii_get_netdev(void)
 {
     struct net_device *netdev = NULL;
 
@@ -177,7 +169,7 @@ int sgmii_rx_skb_cb_dev_id_get(struct sk_buff *skb, struct sgmii_dev **sgmii_dev
 static u8 __sgmii_meta_to_pcp(const struct isx_meta *meta)
 {
     /* lowest priority for invalid meta */
-    if (!meta || meta->type < SX_PKT_TYPE_MIN || meta->type > SX_PKT_TYPE_MAX) {
+    if (!meta || (meta->type < SX_PKT_TYPE_MIN) || (meta->type > SX_PKT_TYPE_MAX)) {
         return SGMII_PCP_BEST_EFFORT;
     }
 
@@ -185,16 +177,14 @@ static u8 __sgmii_meta_to_pcp(const struct isx_meta *meta)
 }
 
 
-void sgmii_fill_common_control_segment(const struct isx_meta *meta,
-                                       struct sgmii_control_segment *control_seg)
+void sgmii_fill_common_control_segment(const struct isx_meta *meta, struct sgmii_control_segment *control_seg)
 {
     const struct pkt_type_attr *pkt_type_attr = &__pkt_type_to_attr[meta->type];
-    u32 lp;
+    u32                         lp;
 
     if (meta->lp) {
         lp = 1; /* out-of-band local process */
-    }
-    else {
+    } else {
         lp = 2; /* out-of-band forward to switch */
     }
 
@@ -218,7 +208,7 @@ void sgmii_fill_common_control_segment(const struct isx_meta *meta,
 }
 
 
-void sgmii_fill_common_tx_base_header(const struct isx_meta *meta,
+void sgmii_fill_common_tx_base_header(const struct isx_meta                 *meta,
                                       struct sgmii_tx_base_header_version_0 *tx_base_header)
 {
     const struct pkt_type_attr *pkt_type_attr = &__pkt_type_to_attr[meta->type];
@@ -258,27 +248,27 @@ void sgmii_fill_common_tx_base_header(const struct isx_meta *meta,
 }
 
 
-int sgmii_send(struct sgmii_dev *sgmii_dev,
-               struct sk_buff *skb,
-               const struct isx_meta *meta,
-               u8 pcp,
+int sgmii_send(struct sgmii_dev               *sgmii_dev,
+               struct sk_buff                 *skb,
+               const struct isx_meta          *meta,
+               u8                              pcp,
                sgmii_fill_control_segment_cb_t fill_control_segment_cb,
-               sgmii_fill_tx_base_header_cb_t fill_tx_base_header_cb)
+               sgmii_fill_tx_base_header_cb_t  fill_tx_base_header_cb)
 {
     struct sgmii_tx_base_header_version_0 *tx_base_header;
-    struct sgmii_control_segment *control_seg;
-    struct sgmii_encapsulation_header_tx *encap_header;
-    const struct ku_dpt_sgmii_info *sgmii_dev_dpt_info;
-    struct sk_buff *skb_send;
-    struct net_device *netdev;
-    int err;
+    struct sgmii_control_segment          *control_seg;
+    struct sgmii_encapsulation_header_tx  *encap_header;
+    const struct ku_dpt_sgmii_info        *sgmii_dev_dpt_info;
+    struct sk_buff                        *skb_send;
+    struct net_device                     *netdev;
+    int                                    err;
 
     if (!skb || !fill_control_segment_cb) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_invalid_argument);
         return -EINVAL;
     }
 
-    if (meta && (meta->type < SX_PKT_TYPE_MIN || meta->type > SX_PKT_TYPE_MAX)) {
+    if (meta && ((meta->type < SX_PKT_TYPE_MIN) || (meta->type > SX_PKT_TYPE_MAX))) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_invalid_metadata);
         return -EINVAL;
     }
@@ -303,8 +293,7 @@ int sgmii_send(struct sgmii_dev *sgmii_dev,
     if (skb_is_nonlinear(skb)) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_skb_fragmented);
         skb_send = skb_copy(skb, GFP_ATOMIC);
-    }
-    else {
+    } else {
         skb_send = skb_clone(skb, GFP_ATOMIC);
     }
 
@@ -317,7 +306,7 @@ int sgmii_send(struct sgmii_dev *sgmii_dev,
     err = skb_cow(skb_send,
                   sizeof(struct sgmii_encapsulation_header_tx) +
                   sizeof(struct sgmii_control_segment) +
-                  (fill_tx_base_header_cb? sizeof(struct sgmii_tx_base_header_version_0): 0));
+                  (fill_tx_base_header_cb ? sizeof(struct sgmii_tx_base_header_version_0) : 0));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_skb_cow_failed);
         goto out;
@@ -333,7 +322,7 @@ int sgmii_send(struct sgmii_dev *sgmii_dev,
     /* --------------------------------------------------- */
     if (fill_tx_base_header_cb) {
         skb_push(skb_send, sizeof(struct sgmii_tx_base_header_version_0));
-        tx_base_header = (struct sgmii_tx_base_header_version_0*) skb_send->data;
+        tx_base_header = (struct sgmii_tx_base_header_version_0*)skb_send->data;
         fill_tx_base_header_cb(meta, tx_base_header);
     }
 
@@ -341,12 +330,12 @@ int sgmii_send(struct sgmii_dev *sgmii_dev,
     /* build control segment                               */
     /* --------------------------------------------------- */
     skb_push(skb_send, sizeof(struct sgmii_control_segment));
-    control_seg = (struct sgmii_control_segment*) skb_send->data;
+    control_seg = (struct sgmii_control_segment*)skb_send->data;
     fill_control_segment_cb(meta, control_seg);
 
     /* build encapsulation header */
     skb_push(skb_send, sizeof(struct sgmii_encapsulation_header_tx));
-    encap_header = (struct sgmii_encapsulation_header_tx*) skb_send->data;
+    encap_header = (struct sgmii_encapsulation_header_tx*)skb_send->data;
     memcpy(encap_header->eth_vlan_hdr.h_dest, sgmii_dev_dpt_info->dmac, 6);
     memcpy(encap_header->eth_vlan_hdr.h_source, netdev->dev_addr, 6);
     encap_header->eth_vlan_hdr.h_vlan_proto = htons(ETH_P_8021Q);
@@ -377,6 +366,11 @@ int sgmii_send(struct sgmii_dev *sgmii_dev,
     err = dev_queue_xmit(skb_send);
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_dev_queue_xmit_failed);
+
+        if (err == -ENETDOWN) { /* in this case, dev_queue_xmit() already called kfree_skb() */
+            goto release_netdev;
+        }
+
         goto out;
     }
 
@@ -395,7 +389,7 @@ release_netdev:
 int sgmii_send_misc(int dev_id, struct sk_buff *skb, const struct isx_meta *meta)
 {
     struct sgmii_dev *sgmii_dev;
-    int ret;
+    int               ret;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -426,16 +420,13 @@ out:
 }
 
 
-static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev,
-                                          struct sk_buff *skb,
-                                          struct timespec *timestamp)
+static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev, struct sk_buff *skb, struct timespec *timestamp)
 {
     struct sx_cqe_v0 cqe_v0;
-    union sx_cqe cqe = {
+    union sx_cqe     cqe = {
         .v0 = &cqe_v0
     };
-
-    int err;
+    int              err;
 
     memcpy(&cqe_v0, skb->data, sizeof(cqe_v0));
     skb_pull(skb, sizeof(cqe_v0));
@@ -443,23 +434,19 @@ static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev,
     err = rx_skb(&__sgmii_priv->dev, skb, &cqe, timestamp, 0, NULL);
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev0_handler_failed);
-    }
-    else {
+    } else {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev0_ok);
     }
 }
 
 
-static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev,
-                                          struct sk_buff *skb,
-                                          struct timespec *timestamp)
+static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev, struct sk_buff *skb, struct timespec *timestamp)
 {
     struct sx_cqe_v2 cqe_v2;
-    union sx_cqe cqe = {
+    union sx_cqe     cqe = {
         .v2 = &cqe_v2
     };
-
-    int err;
+    int              err;
 
     memcpy(&cqe_v2, skb->data, sizeof(cqe_v2));
     skb_pull(skb, sizeof(cqe_v2));
@@ -467,8 +454,7 @@ static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev,
     err = rx_skb(&__sgmii_priv->dev, skb, &cqe, timestamp, 0, NULL);
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev2_handler_failed);
-    }
-    else {
+    } else {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev2_ok);
     }
 }
@@ -477,11 +463,11 @@ static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev,
 static rx_handler_result_t __sgmii_rx_handler(struct sk_buff **pskb)
 {
     const struct sgmii_encapsulation_header_rx *encap_header;
-    const struct ku_dpt_sgmii_info *sgmii_dev_dpt_info;
-    struct timespec timestamp;
-    struct sk_buff *skb = *pskb;
-    struct sgmii_dev *sgmii_dev;
-    int err;
+    const struct ku_dpt_sgmii_info             *sgmii_dev_dpt_info;
+    struct timespec                             timestamp;
+    struct sk_buff                             *skb = *pskb;
+    struct sgmii_dev                           *sgmii_dev;
+    int                                         err;
 
     if (atomic_dec_return(&__sgmii_rx_budget) < 0) {
         /* just count, do not drop! */
@@ -528,7 +514,7 @@ static rx_handler_result_t __sgmii_rx_handler(struct sk_buff **pskb)
         goto drop_skb;
     }
 
-    encap_header = (struct sgmii_encapsulation_header_rx*) skb->data;
+    encap_header = (struct sgmii_encapsulation_header_rx*)skb->data;
     if (ZERO_MAC(encap_header->eth_hdr.h_source)) {
         COUNTER_INC(&__sgmii_global_counters.rx_zero_src_mac);
         goto drop_skb;
@@ -598,6 +584,7 @@ static void __sgmii_rate_limiter_cb(unsigned long data)
 int sgmii_get_operational_rx_pps(void)
 {
     int rx_pps = atomic_read(&__sgmii_rx_budget);
+
     if (rx_pps < 0) {
         rx_pps = 0;
     }
@@ -606,7 +593,7 @@ int sgmii_get_operational_rx_pps(void)
 }
 
 
-const char *sgmii_get_netdev_name(void)
+const char * sgmii_get_netdev_name(void)
 {
     return __sgmii_netdev_name;
 }
@@ -615,7 +602,7 @@ const char *sgmii_get_netdev_name(void)
 int sgmii_get_netdev_mac(uint8_t *netdev_mac)
 {
     struct net_device *netdev;
-    int err = -ENODEV;
+    int                err = -ENODEV;
 
     netdev = __sgmii_get_netdev();
     if (netdev) {
@@ -634,19 +621,17 @@ static void __sgmii_dev_removed_cb(void *context)
 }
 
 
-static int __netdev_notify_cb(struct notifier_block *this,
-                              unsigned long event,
-                              void *context)
+static int __netdev_notify_cb(struct notifier_block *this, unsigned long event, void *context)
 {
-    const struct net_device *netdev_notif = (struct net_device*) context;
-    struct net_device *sgmii_netdev;
+    const struct net_device *netdev_notif = (struct net_device*)context;
+    struct net_device       *sgmii_netdev;
 
     sgmii_netdev = __sgmii_get_netdev();
     if (!sgmii_netdev) {
         goto out;
     }
 
-    if (event == NETDEV_UNREGISTER && netdev_notif == sgmii_netdev) {
+    if ((event == NETDEV_UNREGISTER) && (netdev_notif == sgmii_netdev)) {
         printk(KERN_NOTICE "SGMII network link is being removed!\n");
         sgmii_queue_task(__sgmii_dev_removed_cb, NULL, 0, 0);
     }
@@ -665,15 +650,15 @@ static struct notifier_block __netdev_notify = {
 };
 
 
-int sgmii_transport_init(const char *netdev_name,
-                         const uint8_t *netdev_mac,
+int sgmii_transport_init(const char       *netdev_name,
+                         const uint8_t    *netdev_mac,
                          ku_chassis_type_t chassis_type,
-                         uint8_t cqe_ver)
+                         uint8_t           cqe_ver)
 {
-    struct sockaddr sa_hwaddr;
+    struct sockaddr     sa_hwaddr;
     enum sxd_chip_types chip_type;
-    struct net_device *netdev;
-    int ret;
+    struct net_device  *netdev;
+    int                 ret;
 
     netdev = __sgmii_get_netdev();
     if (netdev) {
@@ -681,7 +666,7 @@ int sgmii_transport_init(const char *netdev_name,
         return -EEXIST;
     }
 
-    if (!netdev_name || netdev_name[0] == '\0') {
+    if (!netdev_name || (netdev_name[0] == '\0')) {
         printk(KERN_ERR "SGMII network's netdev name is empty\n");
         return -EINVAL;
     }
@@ -703,8 +688,7 @@ int sgmii_transport_init(const char *netdev_name,
     if (cqe_ver == 0) {
         handle_rx_by_cqe_version_cb = __handle_rx_by_cqe_version_v0;
         __sgmii_cqe_size = sizeof(struct sx_cqe_v0);
-    }
-    else { /* cqe_ver == 2 */
+    } else { /* cqe_ver == 2 */
         handle_rx_by_cqe_version_cb = __handle_rx_by_cqe_version_v2;
         __sgmii_cqe_size = sizeof(struct sx_cqe_v2);
     }
@@ -733,11 +717,10 @@ int sgmii_transport_init(const char *netdev_name,
     ret = dev_set_mac_address(netdev, &sa_hwaddr);
     if (ret) {
         printk(KERN_ERR "Failed to set MAC address of SGMII netdev (err=%d)\n", ret);
-    }
-    else {
+    } else {
         ret = netdev_rx_handler_register(netdev, __sgmii_rx_handler, NULL);
         if (ret) {
-            printk(KERN_ERR "Failed to ensalve SGMII netdev to sx_core (err=%d)\n", ret);
+            printk(KERN_ERR "Failed to enslave SGMII netdev to sx_core (err=%d)\n", ret);
         }
     }
 

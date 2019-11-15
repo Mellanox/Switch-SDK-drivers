@@ -32,50 +32,51 @@
 
 struct file;
 struct sx_dev;
-
 extern struct sx_globals sx_glb;
 
-#define IOCTL_CMD_INDEX(cmd)        ((cmd) - CTRL_CMD_MIN_VAL)
-#define IOCTL_REG_INDEX(cmd)        ((cmd) - CTRL_CMD_ACCESS_REG_MIN)
-#define IOCTL_REG_HANDLER(reg_name) [IOCTL_REG_INDEX(CTRL_CMD_ACCESS_REG_##reg_name)] = ctrl_cmd_access_reg_##reg_name
+#define IOCTL_CMD_INDEX(cmd) ((cmd) - CTRL_CMD_MIN_VAL)
+#define IOCTL_REG_INDEX(cmd) ((cmd) - CTRL_CMD_ACCESS_REG_MIN)
+#define IOCTL_REG_HANDLER(reg_name)                                                \
+                             [IOCTL_REG_INDEX(CTRL_CMD_ACCESS_REG_ ## reg_name)] = \
+        ctrl_cmd_access_reg_ ## reg_name
 
 typedef long (*ioctl_handler_cb_t)(struct file *file, unsigned int cmd, unsigned long data);
 
-#define SX_CORE_IOCTL_ACCESS_REG_HANDLER(reg_name, ku_reg_struct_name)                                      \
-    long ctrl_cmd_access_reg_##reg_name(struct file *file, unsigned int cmd, unsigned long data)            \
-    {                                                                                                       \
-        struct ku_reg_struct_name reg_data;                                                                 \
-        struct sx_dev *dev;                                                                                 \
-        int err;                                                                                            \
-                                                                                                            \
-        err = copy_from_user(&reg_data, (void*) data, sizeof(reg_data));                                    \
-        if (err) {                                                                                          \
-            goto out;                                                                                       \
-        }                                                                                                   \
-                                                                                                            \
-        err = sx_dpt_get_cmd_sx_dev_by_id(reg_data.dev_id, &dev);                                           \
-        if (err) {                                                                                          \
-            printk(KERN_WARNING PFX "sx_core_access_reg " #reg_name ": Device doesn't exist. Aborting\n");  \
-            goto out;                                                                                       \
-        }                                                                                                   \
-                                                                                                            \
-        err = sx_ACCESS_REG_##reg_name(dev, &reg_data);                                                     \
-        if (!err) {                                                                                         \
-            err = copy_to_user((void*) data, &reg_data, sizeof(reg_data));                                  \
-        }                                                                                                   \
-                                                                                                            \
-    out:                                                                                                    \
-        return (long) err;                                                                                  \
+#define SX_CORE_IOCTL_ACCESS_REG_HANDLER(reg_name, ku_reg_struct_name)                                     \
+    long ctrl_cmd_access_reg_ ## reg_name(struct file *file, unsigned int cmd, unsigned long data)         \
+    {                                                                                                      \
+        struct ku_reg_struct_name reg_data;                                                                \
+        struct sx_dev            *dev;                                                                     \
+        int                       err;                                                                     \
+                                                                                                           \
+        err = copy_from_user(&reg_data, (void*)data, sizeof(reg_data));                                    \
+        if (err) {                                                                                         \
+            goto out;                                                                                      \
+        }                                                                                                  \
+                                                                                                           \
+        err = sx_dpt_get_cmd_sx_dev_by_id(reg_data.dev_id, &dev);                                          \
+        if (err) {                                                                                         \
+            printk(KERN_WARNING PFX "sx_core_access_reg " #reg_name ": Device doesn't exist. Aborting\n"); \
+            goto out;                                                                                      \
+        }                                                                                                  \
+                                                                                                           \
+        err = sx_ACCESS_REG_ ## reg_name(dev, &reg_data);                                                  \
+        if (!err) {                                                                                        \
+            err = copy_to_user((void*)data, &reg_data, sizeof(reg_data));                                  \
+        }                                                                                                  \
+                                                                                                           \
+out:                                                                                                       \
+        return (long)err;                                                                                  \
     }
 
-#define SX_CORE_IOCTL_GET_GLOBAL_DEV(dev_pp) \
-    do { \
-        *(dev_pp) = sx_glb.tmp_dev_ptr; \
-        if (!(*(dev_pp))) { \
+#define SX_CORE_IOCTL_GET_GLOBAL_DEV(dev_pp)                                               \
+    do {                                                                                   \
+        *(dev_pp) = sx_glb.tmp_dev_ptr;                                                    \
+        if (!(*(dev_pp))) {                                                                \
             printk(KERN_WARNING PFX "%s: Device doesn't exist. Aborting\n", __FUNCTION__); \
-            return -ENXIO; \
-        } \
-    } while(0)
+            return -ENXIO;                                                                 \
+        }                                                                                  \
+    } while (0)
 
 
 /* helper functions not only for ioctl() */
@@ -91,7 +92,7 @@ int get_edata_from_elist(int               *evlist_size,
                          struct list_head  *evlist,
                          size_t             user_counter,
                          int                multi_packet_read_enable);
-void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p,
+void sx_copy_pkt_metadata_prepare(struct ku_read    *metadata_p,
                                   struct event_data *edata_p);
 void unset_monitor_rdq(struct sx_dq *dq);
 int sx_core_ptp_cleanup(struct sx_dev *dev);

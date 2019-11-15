@@ -45,8 +45,8 @@
 /************************************************
  *  Defines
  ***********************************************/
-#define OFFSET_PTP_DOMAIN_NUMBER 4
-#define SPC_PTP_CLOCK_FREQ_KHZ 156257/* 6.4nSec */
+#define OFFSET_PTP_DOMAIN_NUMBER     4
+#define SPC_PTP_CLOCK_FREQ_KHZ       156257 /* 6.4nSec */
 #define SKB_MTPPTR_LOCAL_PORT_OFFSET 0x1D
 
 #define PTP_RX_MAX_PPS_PER_PORT (394)
@@ -59,23 +59,22 @@
  *  Enums
  ***********************************************/
 enum PTP_MESSAGE_TYPE {
-    PTP_MSG_SYNC                  = 1 << 0,
-    PTP_MSG_DELAY_REQ             = 1 << 1,
-    PTP_MSG_PDELAY_REQ            = 1 << 2,
-    PTP_MSG_PDELAY_RESP           = 1 << 3,
-    PTP_MSG_FOLLOW_UP             = 1 << 8,
-    PTP_MSG_DELAY_RESP            = 1 << 9,
+    PTP_MSG_SYNC = 1 << 0,
+    PTP_MSG_DELAY_REQ = 1 << 1,
+    PTP_MSG_PDELAY_REQ = 1 << 2,
+    PTP_MSG_PDELAY_RESP = 1 << 3,
+    PTP_MSG_FOLLOW_UP = 1 << 8,
+    PTP_MSG_DELAY_RESP = 1 << 9,
     PTP_MSG_PDELAY_RESP_FOLLOW_UP = 1 << 10,
-    PTP_MSG_ANNOUNCE              = 1 << 11,
-    PTP_MSG_SIGNALING             = 1 << 12,
-    PTP_MSG_MANAGEMENT            = 1 << 13,
+    PTP_MSG_ANNOUNCE = 1 << 11,
+    PTP_MSG_SIGNALING = 1 << 12,
+    PTP_MSG_MANAGEMENT = 1 << 13,
 
-    PTP_MSG_TYPE_ALL              = (1 << 16) - 1,
+    PTP_MSG_TYPE_ALL = (1 << 16) - 1,
 
-    PTP_MSG_EVENT_ALL             = (PTP_MSG_SYNC | PTP_MSG_DELAY_REQ | PTP_MSG_PDELAY_REQ | PTP_MSG_PDELAY_RESP),
-    PTP_MSG_GENERAL_ALL           = (PTP_MSG_TYPE_ALL & ~(PTP_MSG_EVENT_ALL))
+    PTP_MSG_EVENT_ALL = (PTP_MSG_SYNC | PTP_MSG_DELAY_REQ | PTP_MSG_PDELAY_REQ | PTP_MSG_PDELAY_RESP),
+    PTP_MSG_GENERAL_ALL = (PTP_MSG_TYPE_ALL & ~(PTP_MSG_EVENT_ALL))
 };
-
 enum ptp_counters {
     PTP_COUNTER_TOTAL,
     PTP_COUNTER_NEED_TIMESTAMP,
@@ -96,49 +95,41 @@ enum ptp_counters {
 
 #define PTP_MAX_PORTS (MAX_PHYPORT_NUM + MAX_LAG_NUM)
 
-struct ptp_common_event_data
-{
+struct ptp_common_event_data {
     struct list_head list;
-    u16 sequence_id;
-    u8 msg_type;
-    u8 domain_num;
-    u8 need_timestamp;
-    unsigned long since;
+    u16              sequence_id;
+    u8               msg_type;
+    u8               domain_num;
+    u8               need_timestamp;
+    unsigned long    since;
 };
-
-
 struct ptp_rx_event_data {
-    struct ptp_common_event_data  common;
-    struct completion_info       *ci;
+    struct ptp_common_event_data common;
+    struct completion_info      *ci;
 };
-
-
 struct ptp_tx_event_data {
-    struct ptp_common_event_data  common;
-    struct sk_buff               *skb;
+    struct ptp_common_event_data common;
+    struct sk_buff              *skb;
 };
 
 typedef void (*ptp_db_handle_cb_t)(struct ptp_common_event_data *ced, u64 frc);
 typedef void (*ptp_db_gc_cb_t)(struct ptp_common_event_data *ced);
 
 struct ptp_db {
-    struct list_head sysport_events_list[PTP_MAX_PORTS];
-    struct list_head sysport_records_list[PTP_MAX_PORTS];
-    spinlock_t sysport_lock[PTP_MAX_PORTS];
-
-    u8 direction;
+    struct list_head   sysport_events_list[PTP_MAX_PORTS];
+    struct list_head   sysport_records_list[PTP_MAX_PORTS];
+    spinlock_t         sysport_lock[PTP_MAX_PORTS];
+    u8                 direction;
     ptp_db_handle_cb_t handle_cb;
-    ptp_db_gc_cb_t gc_cb;
+    ptp_db_gc_cb_t     gc_cb;
 };
-
-extern atomic64_t ptp_counters[][PTP_COUNTER_LAST];
-extern struct ptp_db ptp_tx_db;
-extern struct ptp_db ptp_rx_db;
-extern ptp_mode_t ptp_working_mode;
+extern atomic64_t       ptp_counters[][PTP_COUNTER_LAST];
+extern struct ptp_db    ptp_tx_db;
+extern struct ptp_db    ptp_rx_db;
+extern ptp_mode_t       ptp_working_mode;
 extern struct semaphore ptp_polling_sem;
-
-extern atomic64_t ptp_rx_budget[PTP_MAX_PORTS];
-extern atomic64_t ptp_tx_budget[PTP_MAX_PORTS];
+extern atomic64_t       ptp_rx_budget[PTP_MAX_PORTS];
+extern atomic64_t       ptp_tx_budget[PTP_MAX_PORTS];
 
 /************************************************
  * Functions
@@ -151,10 +142,10 @@ void sx_fill_hwstamp(struct sx_tstamp *tstamp, u64 timestamp, struct skb_shared_
 void ptp_dequeue_general_messages(u8 local_port, struct ptp_db *db);
 void ptp_lookup_event(const u8 *mtpptr_buff, struct ptp_db *db);
 
-struct ptp_rx_event_data *ptp_allocate_rx_event_data(gfp_t gfp);
+struct ptp_rx_event_data * ptp_allocate_rx_event_data(gfp_t gfp);
 void ptp_free_rx_event_data(struct ptp_rx_event_data *rx_event_data);
 
-struct ptp_tx_event_data *ptp_allocate_tx_event_data(gfp_t gfp);
+struct ptp_tx_event_data * ptp_allocate_tx_event_data(gfp_t gfp);
 void ptp_free_tx_event_data(struct ptp_tx_event_data *tx_event_data);
 
 #endif  /* SX_CLOCK_H */

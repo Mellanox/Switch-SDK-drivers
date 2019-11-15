@@ -37,18 +37,23 @@
 #include <linux/rwlock.h>
 #include "map.h"
 
-#define R_LOCK(map)   do { if ((map)->use_lock) { read_lock_bh(&(map)->lock);    } } while (0)
-#define R_UNLOCK(map) do { if ((map)->use_lock) { read_unlock_bh(&(map)->lock);  } } while (0)
-#define W_LOCK(map)   do { if ((map)->use_lock) { write_lock_bh(&(map)->lock);   } } while (0)
-#define W_UNLOCK(map) do { if ((map)->use_lock) { write_unlock_bh(&(map)->lock); } } while (0)
+#define R_LOCK(map)                                              \
+    do { if ((map)->use_lock) { read_lock_bh(&(map)->lock);    } \
+    } while (0)
+#define R_UNLOCK(map)                                            \
+    do { if ((map)->use_lock) { read_unlock_bh(&(map)->lock);  } \
+    } while (0)
+#define W_LOCK(map)                                              \
+    do { if ((map)->use_lock) { write_lock_bh(&(map)->lock);   } \
+    } while (0)
+#define W_UNLOCK(map)                                            \
+    do { if ((map)->use_lock) { write_unlock_bh(&(map)->lock); } \
+    } while (0)
 
 
-int sx_core_map_init(struct sx_core_map *map,
-                     sx_core_map_compare_cb_t compare_cb,
-                     size_t key_size,
-                     uint8_t use_lock)
+int sx_core_map_init(struct sx_core_map *map, sx_core_map_compare_cb_t compare_cb, size_t key_size, uint8_t use_lock)
 {
-    if (!map || !compare_cb || key_size == 0) {
+    if (!map || !compare_cb || (key_size == 0)) {
         return -EINVAL;
     }
 
@@ -67,9 +72,9 @@ int sx_core_map_init(struct sx_core_map *map,
 
 int sx_core_map_insert(struct sx_core_map *map, const void *key, struct sx_core_map_info *info, gfp_t flags)
 {
-    struct rb_node **new_node, *parent = NULL;
+    struct rb_node               **new_node, *parent = NULL;
     const struct sx_core_map_info *curr;
-    int cmp, ret = 0;
+    int                            cmp, ret = 0;
 
     if (!map || !key || !info) {
         return -EINVAL;
@@ -103,8 +108,7 @@ int sx_core_map_insert(struct sx_core_map *map, const void *key, struct sx_core_
         parent = *new_node;
         if (cmp < 0) {
             new_node = &(*new_node)->rb_left;
-        }
-        else {
+        } else {
             new_node = &(*new_node)->rb_right;
         }
     }
@@ -119,11 +123,11 @@ out:
 
 
 /* should be called under lock (if case map is using lock) */
-struct sx_core_map_info *__sx_core_map_lookup(struct sx_core_map *map, const void *key)
+struct sx_core_map_info * __sx_core_map_lookup(struct sx_core_map *map, const void *key)
 {
     struct sx_core_map_info *info;
-    struct rb_node *node;
-    int cmp;
+    struct rb_node          *node;
+    int                      cmp;
 
     node = map->map.rb_node;
 
@@ -137,8 +141,7 @@ struct sx_core_map_info *__sx_core_map_lookup(struct sx_core_map *map, const voi
 
         if (cmp < 0) {
             node = node->rb_left;
-        }
-        else {
+        } else {
             node = node->rb_right;
         }
     }
@@ -150,7 +153,7 @@ struct sx_core_map_info *__sx_core_map_lookup(struct sx_core_map *map, const voi
 int sx_core_map_remove(struct sx_core_map *map, const void *key, struct sx_core_map_info **info)
 {
     struct sx_core_map_info *_info;
-    int ret = 0;
+    int                      ret = 0;
 
     if (!map || !key) {
         return -EINVAL;
@@ -174,7 +177,6 @@ int sx_core_map_remove(struct sx_core_map *map, const void *key, struct sx_core_
 out:
     W_UNLOCK(map);
     return ret;
-
 }
 
 
@@ -195,15 +197,15 @@ int sx_core_map_lookup(struct sx_core_map *map, const void *key, struct sx_core_
 
     R_UNLOCK(map);
 
-    return (_info != NULL)? 0: -ENOENT;
+    return (_info != NULL) ? 0 : -ENOENT;
 }
 
 
 int sx_core_map_traverse(struct sx_core_map *map, sx_core_map_traverse_cb_t traverse_cb, void *context)
 {
-    struct rb_node *node;
+    struct rb_node          *node;
     struct sx_core_map_info *info;
-    int ret = 0;
+    int                      ret = 0;
 
     if (!map || !traverse_cb) {
         return -EINVAL;

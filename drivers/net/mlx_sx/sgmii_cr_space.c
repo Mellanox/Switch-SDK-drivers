@@ -43,8 +43,9 @@ MODULE_PARM_DESC(oob_cr_command_line_mode, "0:Switch-IB/2, 1:Quantum");
 #define CR_SPACE_RESPONSE_TRAP_ID1 (0x0) /* on SwitchIB/2, cr-response trap is reserved */
 #define CR_SPACE_RESPONSE_TRAP_ID2 (0xf)
 
-#define SGMII_HEADROOM (sizeof(struct sgmii_encapsulation_header_tx) + \
-                        sizeof(struct sgmii_control_segment))
+#define SGMII_HEADROOM                              \
+    (sizeof(struct sgmii_encapsulation_header_tx) + \
+     sizeof(struct sgmii_control_segment))
 
 #define CR_SPACE_MIN_FRAME_SIZE (64) /* according to PRM */
 
@@ -52,8 +53,6 @@ enum sgmii_cr_space_direction {
     CR_SPACE_DIRECTION_WRITE_E,
     CR_SPACE_DIRECTION_READ_E
 };
-
-
 enum sgmii_cr_space_size {
     CR_SPACE_SIZE_16_BYTES,
     CR_SPACE_SIZE_4_BYTES,
@@ -61,51 +60,42 @@ enum sgmii_cr_space_size {
     CR_SPACE_SIZE_12_BYTES,
     CR_SPACE_SIZE_INVALID
 };
-
-
 struct sgmii_cr_space_sync_context {
-    struct completion completion;
-    uint8_t token;
+    struct completion             completion;
+    uint8_t                       token;
     enum sgmii_cr_space_direction direction;
-    uint8_t *user_buff;
-    int user_buff_size;
-    int ret_val;
+    uint8_t                      *user_buff;
+    int                           user_buff_size;
+    int                           ret_val;
 };
-
 struct sgmii_cr_space_rx_context {
     struct sk_buff *skb;
 };
-
 struct sgmii_cr_response_cqe_v0 {
-    u8 version;
-    u8 mac_da[3]; /* DMAC MSB */
-    u8 cr_resp_token;
-    u8 reserved1;
+    u8     version;
+    u8     mac_da[3]; /* DMAC MSB */
+    u8     cr_resp_token;
+    u8     reserved1;
     __be16 isx_dqn5_bytecount;
-    u8 oob_checks;
-    u8 reserved2;
+    u8     oob_checks;
+    u8     reserved2;
     __be16 trap_id;
     __be16 reserved3;
-    u8 type_swid_crc;
-    u8 e_sr_dqn_owner;
+    u8     type_swid_crc;
+    u8     e_sr_dqn_owner;
 };
-
 struct sgmii_cr_command_line_v0 { /* the mode that switch-ib/2 works */
     __be32 line0; /* token, r/w, address, size */
 } __attribute__((packed));
-
 struct sgmii_cr_command_line_v1 { /* the mode that quantum works */
     __be32 line0; /* token, r/w, reserved, size */
     __be32 line1; /* address, reserved */
 } __attribute__((packed));
-
-
 static struct sgmii_transaction_db __cr_space_tr_db;
-static struct mutex __cr_space_mutex;
-static uint8_t __cr_space_token = 0;
-static atomic_t __sgmii_cr_space_transactions_in_progress = ATOMIC_INIT(0);
-
-static void __sgmii_fill_cr_space_control_segment(const struct isx_meta *meta,
+static struct mutex                __cr_space_mutex;
+static uint8_t                     __cr_space_token = 0;
+static atomic_t                    __sgmii_cr_space_transactions_in_progress = ATOMIC_INIT(0);
+static void __sgmii_fill_cr_space_control_segment(const struct isx_meta        *meta,
                                                   struct sgmii_control_segment *control_seg)
 {
     SX_CORE_UNUSED_PARAM(meta);
@@ -132,23 +122,25 @@ enum sgmii_cr_space_size __sgmii_get_code_from_size(int size)
     switch (size) {
     case 4:
         return CR_SPACE_SIZE_4_BYTES;
+
     case 8:
         return CR_SPACE_SIZE_8_BYTES;
+
     case 12:
         return CR_SPACE_SIZE_12_BYTES;
+
     case 16:
         return CR_SPACE_SIZE_16_BYTES;
+
     default:
         return CR_SPACE_SIZE_INVALID;
     }
 }
 
 
-static void __cr_space_work_entry_status_cb(int err,
-                                            struct sgmii_transaction_info *tr_info,
-                                            void *context)
+static void __cr_space_work_entry_status_cb(int err, struct sgmii_transaction_info *tr_info, void *context)
 {
-    if (err){
+    if (err) {
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, cr_space_send_failed);
     }
 
@@ -158,15 +150,15 @@ static void __cr_space_work_entry_status_cb(int err,
 }
 
 
-void __fill_cr_command_line_header(struct sk_buff *skb,
-                                   uint8_t cr_cmd_line_hdr_size,
-                                   uint8_t token,
+void __fill_cr_command_line_header(struct sk_buff               *skb,
+                                   uint8_t                       cr_cmd_line_hdr_size,
+                                   uint8_t                       token,
                                    enum sgmii_cr_space_direction dir,
-                                   uint32_t address,
-                                   enum sgmii_cr_space_size size_code)
+                                   uint32_t                      address,
+                                   enum sgmii_cr_space_size      size_code)
 {
     if (cr_cmd_line_hdr_size == 4) { /* Switch-IB/2 mode */
-        struct sgmii_cr_command_line_v0 *cr_space_header = (struct sgmii_cr_command_line_v0*) skb->data;
+        struct sgmii_cr_command_line_v0 *cr_space_header = (struct sgmii_cr_command_line_v0*)skb->data;
 
         memset(cr_space_header, 0, cr_cmd_line_hdr_size);
 
@@ -178,9 +170,8 @@ void __fill_cr_command_line_header(struct sk_buff *skb,
         __sgmii_bit_field_set(&cr_space_header->line0, 0, 1, size_code);          /* size     */
 
         CONVERT_TO_NETWORK_ORDER(cr_space_header->line0);
-    }
-    else { /* Quantum mode */
-        struct sgmii_cr_command_line_v1 *cr_space_header = (struct sgmii_cr_command_line_v1*) skb->data;
+    } else { /* Quantum mode */
+        struct sgmii_cr_command_line_v1 *cr_space_header = (struct sgmii_cr_command_line_v1*)skb->data;
 
         memset(cr_space_header, 0, cr_cmd_line_hdr_size);
 
@@ -198,16 +189,16 @@ void __fill_cr_command_line_header(struct sk_buff *skb,
 }
 
 
-static int __sgmii_send_cr_space(struct sgmii_dev *sgmii_dev,
-                                 uint32_t address,
-                                 void *buf,
-                                 int size,
+static int __sgmii_send_cr_space(struct sgmii_dev             *sgmii_dev,
+                                 uint32_t                      address,
+                                 void                         *buf,
+                                 int                           size,
                                  enum sgmii_cr_space_direction dir)
 {
-    struct sk_buff *skb;
-    uint8_t *cr_data, cr_cmd_line_hdr_size;
-    enum sgmii_cr_space_size size_code;
-    int frame_size, ret, cr_space_payload, padding = 0;
+    struct sk_buff                    *skb;
+    uint8_t                           *cr_data, cr_cmd_line_hdr_size;
+    enum sgmii_cr_space_size           size_code;
+    int                                frame_size, ret, cr_space_payload, padding = 0;
     struct sgmii_cr_space_sync_context context = {
         .direction = dir,
         .user_buff = buf,
@@ -224,7 +215,7 @@ static int __sgmii_send_cr_space(struct sgmii_dev *sgmii_dev,
     /* want to get the value of 'oob_cr_command_line_mode' only once per function call and use a local variable
      * to avoid situations where this parameter is changed in the middle of the function call ...
      */
-    cr_cmd_line_hdr_size = (oob_cr_command_line_mode == 0)? 4 /* Switch-IB/2 mode */: 8 /* Quantum mode */;
+    cr_cmd_line_hdr_size = (oob_cr_command_line_mode == 0) ? 4 /* Switch-IB/2 mode */ : 8 /* Quantum mode */;
 
     cr_space_payload = cr_cmd_line_hdr_size + size;
     frame_size = SGMII_HEADROOM + cr_space_payload;
@@ -257,8 +248,7 @@ static int __sgmii_send_cr_space(struct sgmii_dev *sgmii_dev,
     cr_data = skb->data + cr_cmd_line_hdr_size;
     if (dir == CR_SPACE_DIRECTION_READ_E) {
         memset(cr_data, 0, size); /* data is reserved */
-    }
-    else {
+    } else {
         memcpy(cr_data, buf, size);
     }
 
@@ -298,7 +288,7 @@ out:
 int sgmii_send_cr_space_read(int dev_id, uint32_t address, void *buf, int size)
 {
     struct sgmii_dev *sgmii_dev;
-    int ret;
+    int               ret;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -320,7 +310,7 @@ int sgmii_send_cr_space_read(int dev_id, uint32_t address, void *buf, int size)
 int sgmii_send_cr_space_write(int dev_id, uint32_t address, void *buf, int size)
 {
     struct sgmii_dev *sgmii_dev;
-    int ret;
+    int               ret;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -343,13 +333,13 @@ int sgmii_send_cr_space_write(int dev_id, uint32_t address, void *buf, int size)
 uint8_t sgmii_cr_space_check_for_response(struct sgmii_dev *sgmii_dev, struct sk_buff *skb)
 {
     const struct sgmii_cr_response_cqe_v0 *cr_resp_cqe_v0;
-    uint16_t trap_id;
+    uint16_t                               trap_id;
 
     if (!pskb_may_pull(skb, sizeof(struct sgmii_cr_response_cqe_v0))) {
         return 0;
     }
 
-    cr_resp_cqe_v0 = (struct sgmii_cr_response_cqe_v0*) skb->data;
+    cr_resp_cqe_v0 = (struct sgmii_cr_response_cqe_v0*)skb->data;
     if (((cr_resp_cqe_v0->type_swid_crc >> 5) & 0x7) != PKT_TYPE_OOB_CR_RESP) {
         return 0;
     }
@@ -361,12 +351,12 @@ uint8_t sgmii_cr_space_check_for_response(struct sgmii_dev *sgmii_dev, struct sk
 
     trap_id = ntohs(cr_resp_cqe_v0->trap_id) & 0x1ff;
 
-/* ******* UNCOMMENT THESE LINES WHEN HW IS READY WITH VALID TRAP IDs !!!
-    if (trap_id != CR_SPACE_RESPONSE_TRAP_ID1 && trap_id != CR_SPACE_RESPONSE_TRAP_ID2) {
-        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_invalid_trap_id);
-        goto out;
-    }
-*/
+/* ******* UN-COMMENT THESE LINES WHEN HW IS READY WITH VALID TRAP IDs !!!
+ *   if (trap_id != CR_SPACE_RESPONSE_TRAP_ID1 && trap_id != CR_SPACE_RESPONSE_TRAP_ID2) {
+ *       SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_invalid_trap_id);
+ *       goto out;
+ *   }
+ */
 
     if (((cr_resp_cqe_v0->type_swid_crc >> 1) & 0x7) != 0) { /* swid must be 0 */
         SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_misc_failed);
@@ -395,19 +385,18 @@ out:
 }
 
 
-static void __sgmii_cr_space_transaction_completion(struct sk_buff *rx_skb,
+static void __sgmii_cr_space_transaction_completion(struct sk_buff                          *rx_skb,
                                                     enum sgmii_transaction_completion_status status,
-                                                    struct sgmii_transaction_info *tr_info,
-                                                    void *context)
+                                                    struct sgmii_transaction_info           *tr_info,
+                                                    void                                    *context)
 {
-    struct sgmii_cr_space_sync_context *tx_ctx = (struct sgmii_cr_space_sync_context*) context;
+    struct sgmii_cr_space_sync_context *tx_ctx = (struct sgmii_cr_space_sync_context*)context;
 
     switch (status) {
     case SGMII_TR_COMP_ST_COMPLETED:
         if (!pskb_may_pull(rx_skb, tx_ctx->user_buff_size)) {
             SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, cr_space_snipped_data);
-        }
-        else {
+        } else {
             SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, cr_space_transaction_completed);
         }
 
@@ -417,12 +406,15 @@ static void __sgmii_cr_space_transaction_completion(struct sk_buff *rx_skb,
 
         tx_ctx->ret_val = 0;
         break;
+
     case SGMII_TR_COMP_ST_RX_DEV_MISMATCH:
         tx_ctx->ret_val = -EPERM;
         break;
+
     case SGMII_TR_COMP_ST_TIMEDOUT:
         tx_ctx->ret_val = -ETIMEDOUT;
         break;
+
     case SGMII_TR_COMP_ST_TERMINATED:
         tx_ctx->ret_val = -ERESTARTSYS;
         break;
