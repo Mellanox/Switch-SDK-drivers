@@ -38,7 +38,6 @@
 #include "sx_dbg_dump_proc.h"
 
 int use_sgmii = 0;
-
 int sgmii_send_attempts = 3;
 module_param_named(sgmii_send_attempts, sgmii_send_attempts, int, 0644);
 MODULE_PARM_DESC(sgmii_send_attempts, "how many attempts to send a packet");
@@ -52,16 +51,15 @@ module_param_named(sgmii_rx_pps, sgmii_rx_pps, int, 0644);
 MODULE_PARM_DESC(sgmii_rx_pps, "RX packets-per-second rate limiter");
 
 static struct workqueue_struct *__sgmii_worker_thread = NULL;
-static atomic_t __sgmii_wq_refcnt = ATOMIC_INIT(0);
-static struct completion __sgmii_wq_completion;
-static ku_chassis_type_t __sgmii_chassis_type = KU_CHASSIS_TYPE_INVALID;
-static ku_mgmt_board_t __sgmii_management_board = KU_MGMT_BOARD_INVALID;
-static uint8_t __sgmii_cqe_ver = 0; 	/* TODO: use the enum! */
-
+static atomic_t                 __sgmii_wq_refcnt = ATOMIC_INIT(0);
+static struct completion        __sgmii_wq_completion;
+static ku_chassis_type_t        __sgmii_chassis_type = KU_CHASSIS_TYPE_INVALID;
+static ku_mgmt_board_t          __sgmii_management_board = KU_MGMT_BOARD_INVALID;
+static uint8_t                  __sgmii_cqe_ver = 0; /* TODO: use the enum! */
 struct sgmii_task {
     struct delayed_work work;
-    sgmii_task_t task;
-    uint8_t user_data[0];
+    sgmii_task_t        task;
+    uint8_t             user_data[0];
 };
 
 
@@ -109,7 +107,7 @@ uint8_t sgmii_get_cqe_ver(void)
 static void __sgmii_wq_handler(struct work_struct *work)
 {
     struct delayed_work *dw;
-    struct sgmii_task *sgmii_task;
+    struct sgmii_task   *sgmii_task;
 
     dw = to_delayed_work(work);
     sgmii_task = container_of(dw, struct sgmii_task, work);
@@ -163,12 +161,12 @@ static void __sgmii_wq_deinit(void)
 int sgmii_queue_task(sgmii_task_t task, const void *param_buff, int param_buff_size, unsigned long delay)
 {
     struct sgmii_task *sgmii_task;
-    int ret = -EPERM;
+    int                ret = -EPERM;
 
     if (!task ||
-        param_buff_size < 0 ||
-        (!param_buff && param_buff_size > 0) ||
-        (param_buff && param_buff_size == 0)) {
+        (param_buff_size < 0) ||
+        (!param_buff && (param_buff_size > 0)) ||
+        (param_buff && (param_buff_size == 0))) {
         return -EINVAL;
     }
 
@@ -186,8 +184,7 @@ int sgmii_queue_task(sgmii_task_t task, const void *param_buff, int param_buff_s
     if (__sgmii_wq_inc_ref()) {
         queue_delayed_work(__sgmii_worker_thread, &sgmii_task->work, delay);
         ret = 0;
-    }
-    else {
+    } else {
         printk(KERN_ERR "SGMII workqueue is not active!\n");
         kfree(sgmii_task);
     }
@@ -200,33 +197,30 @@ int sgmii_queue_task(sgmii_task_t task, const void *param_buff, int param_buff_s
 
 static int __sgmii_general_info_handler(struct seq_file *m, void *v)
 {
-    const char *netdev_name = sgmii_get_netdev_name();
-    const char *chassis_type = "<NOT INITIALIZED>";
-    const char *mgmt_board = "<NOT INITIALIZED>";
-    uint8_t netdev_mac[6] = { 0 };
-    ku_mgmt_board_t mb;
+    const char       *netdev_name = sgmii_get_netdev_name();
+    const char       *chassis_type = "<NOT INITIALIZED>";
+    const char       *mgmt_board = "<NOT INITIALIZED>";
+    uint8_t           netdev_mac[6] = { 0 };
+    ku_mgmt_board_t   mb;
     ku_chassis_type_t ct;
 
-    if (!netdev_name || netdev_name[0] == '\0') {
+    if (!netdev_name || (netdev_name[0] == '\0')) {
         netdev_name = "<NOT INITIALIZED>";
-    }
-    else {
+    } else {
         sgmii_get_netdev_mac(netdev_mac);
     }
 
     mb = sgmii_get_management_board();
     if (mb == KU_MGMT_BOARD_1) {
         mgmt_board = "Mgmt_1";
-    }
-    else if (mb == KU_MGMT_BOARD_2) {
+    } else if (mb == KU_MGMT_BOARD_2) {
         mgmt_board = "Mgmt_2";
     }
 
     ct = sgmii_get_chassis_type();
     if (ct == KU_CHASSIS_TYPE_BARRACUDA) {
         chassis_type = "Barracuda";
-    }
-    else if (ct == KU_CHASSIS_TYPE_MANTARAY) {
+    } else if (ct == KU_CHASSIS_TYPE_MANTARAY) {
         chassis_type = "Manta Ray";
     }
 
@@ -238,7 +232,7 @@ static int __sgmii_general_info_handler(struct seq_file *m, void *v)
     seq_printf(m, "Management board ............................. %s\n", mgmt_board);
     seq_printf(m, "Network interface name ....................... %s\n", netdev_name);
     seq_printf(m, "Network interface MAC address................. %02x:%02x:%02x:%02x:%02x:%02x\n",
-                  netdev_mac[0], netdev_mac[1], netdev_mac[2], netdev_mac[3], netdev_mac[4], netdev_mac[5]);
+               netdev_mac[0], netdev_mac[1], netdev_mac[2], netdev_mac[3], netdev_mac[4], netdev_mac[5]);
     seq_printf(m, "Maximum send attempts ........................ %d\n", sgmii_get_send_attempts());
     seq_printf(m, "Interval between send attempts (in msec) ..... %d\n", sgmii_get_send_interval_msec());
     seq_printf(m, "Rate limiter (Packets-per-Second):\n");
@@ -247,7 +241,8 @@ static int __sgmii_general_info_handler(struct seq_file *m, void *v)
     seq_printf(m, "Transactions in progress:\n");
     seq_printf(m, "    EMAD ..................................... %d\n", sgmii_emad_get_transactions_in_progress());
     seq_printf(m, "    MAD ...................................... %d\n", sgmii_mad_get_transactions_in_progress());
-    seq_printf(m, "    CR-Space ................................. %d\n", sgmii_cr_space_get_transactions_in_progress());
+    seq_printf(m, "    CR-Space ................................. %d\n",
+               sgmii_cr_space_get_transactions_in_progress());
 
     return 0;
 }
@@ -330,19 +325,19 @@ int sgmii_set_system_cfg(const struct ku_sgmii_system_cfg *sgmii_system_cfg)
         return -EINVAL;
     }
 
-    if (sgmii_system_cfg->chassis_type != KU_CHASSIS_TYPE_BARRACUDA &&
-        sgmii_system_cfg->chassis_type != KU_CHASSIS_TYPE_MANTARAY) {
+    if ((sgmii_system_cfg->chassis_type != KU_CHASSIS_TYPE_BARRACUDA) &&
+        (sgmii_system_cfg->chassis_type != KU_CHASSIS_TYPE_MANTARAY)) {
         printk(KERN_ERR "SGMII chassis type is invalid\n");
         return -EINVAL;
     }
 
-    if (sgmii_system_cfg->mgmt_board != KU_MGMT_BOARD_1 &&
-        sgmii_system_cfg->mgmt_board != KU_MGMT_BOARD_2) {
+    if ((sgmii_system_cfg->mgmt_board != KU_MGMT_BOARD_1) &&
+        (sgmii_system_cfg->mgmt_board != KU_MGMT_BOARD_2)) {
         printk(KERN_ERR "SGMII management board number is invalid\n");
         return -EINVAL;
     }
-	/* TODO: use the enum! */
-    if (sgmii_system_cfg->cqe_ver != 0 && sgmii_system_cfg->cqe_ver != 2) {
+    /* TODO: use the enum! */
+    if ((sgmii_system_cfg->cqe_ver != 0) && (sgmii_system_cfg->cqe_ver != 2)) {
         printk(KERN_ERR "SGMII CQE version is invalid\n");
         return -EINVAL;
     }
@@ -356,10 +351,10 @@ int sgmii_set_system_cfg(const struct ku_sgmii_system_cfg *sgmii_system_cfg)
     __sgmii_chassis_type = sgmii_system_cfg->chassis_type;
     __sgmii_management_board = sgmii_system_cfg->mgmt_board;
     __sgmii_cqe_ver = sgmii_system_cfg->cqe_ver;
-    ret =  sgmii_transport_init(sgmii_system_cfg->netdev_name,
-                                sgmii_system_cfg->netdev_mac,
-                                __sgmii_chassis_type,
-                                __sgmii_cqe_ver);
+    ret = sgmii_transport_init(sgmii_system_cfg->netdev_name,
+                               sgmii_system_cfg->netdev_mac,
+                               __sgmii_chassis_type,
+                               __sgmii_cqe_ver);
 
     if (ret == 0) {
         /* set MAD DPT path to SGMII for the default device (255). In this way, when default device calls sxd_dpt_send(),

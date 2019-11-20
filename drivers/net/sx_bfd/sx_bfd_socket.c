@@ -49,18 +49,18 @@
 #define SX_BFD_SINGLEHOP_PORT 3784
 #define SX_BFD_MULTIHOP_PORT  4784
 
-#define RX_HDR_IPPROTO_IP            (1 << 0)
-#define RX_HDR_IPPROTO_IP_TTL        (1 << 1)
-#define RX_HDR_IPPROTO_IP_PKTINFO    (1 << 2)
-#define RX_HDR_IPV4_COMPLETE         (RX_HDR_IPPROTO_IP | RX_HDR_IPPROTO_IP_TTL | RX_HDR_IPPROTO_IP_PKTINFO)
+#define RX_HDR_IPPROTO_IP         (1 << 0)
+#define RX_HDR_IPPROTO_IP_TTL     (1 << 1)
+#define RX_HDR_IPPROTO_IP_PKTINFO (1 << 2)
+#define RX_HDR_IPV4_COMPLETE      (RX_HDR_IPPROTO_IP | RX_HDR_IPPROTO_IP_TTL | RX_HDR_IPPROTO_IP_PKTINFO)
 
 #define RX_HDR_IPPROTO_IPV6          (1 << 3)
 #define RX_HDR_IPPROTO_IPV6_HOPLIMIT (1 << 4)
 #define RX_HDR_IPPROTO_IPV6_PKTINFO  (1 << 5)
 #define RX_HDR_IPV6_COMPLETE         (RX_HDR_IPPROTO_IPV6 | RX_HDR_IPPROTO_IPV6_HOPLIMIT | RX_HDR_IPPROTO_IPV6_PKTINFO)
 
-#define HDR_RX_STATE_OK(hdr_state)                                    \
-    ((((hdr_state) & RX_HDR_IPV4_COMPLETE) == RX_HDR_IPV4_COMPLETE) ||  \
+#define HDR_RX_STATE_OK(hdr_state)                                     \
+    ((((hdr_state) & RX_HDR_IPV4_COMPLETE) == RX_HDR_IPV4_COMPLETE) || \
      (((hdr_state) & RX_HDR_IPV6_COMPLETE) == RX_HDR_IPV6_COMPLETE))
 
 #define SX_RX_VRFS_HASH_BITS 8
@@ -119,7 +119,7 @@ struct sockets_scheduler {
 static struct sockets_scheduler scheduler;
 static struct task_struct      *bfd_thread = NULL;
 
-/* Function which sends traffic when timeout event on Tx session occures */
+/* Function which sends traffic when timeout event on Tx session occurs */
 bool sx_bfd_socket_send(struct socket * sock, char* buf, size_t buf_len, struct sockaddr *peer)
 {
     int           len = -1;
@@ -309,7 +309,7 @@ static void sk_data_ready_custom(struct sock *sk)
 
     if (user_info) {
         if (user_info->sk_data_ready_origin_cb) {
-            /* Call original Linux define function which is initialised in
+            /* Call original Linux define function which is initialized in
              * socket_create function. */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0))
             user_info->sk_data_ready_origin_cb(sk, bytes);
@@ -376,7 +376,7 @@ int sk_thread_sockets_scheduler(void *data)
             recv_packet(user_info->t_sock, user_info->sock_type, user_info->vrf_id, user_info->bfd_user_space_pid);
 
             /* Decrement ref_counter of the socket - important when sock_destroy
-             * function was called. Actually socket won't be destroied if ref_counter
+             * function was called. Actually socket won't be destroyed if ref_counter
              * on socket is not 0. */
             sock_put(user_info->t_sock->sk);
 
@@ -391,7 +391,7 @@ int sk_thread_sockets_scheduler(void *data)
             if (user_info->ref_count == 0) {
                 if (user_info->sock_state == sx_bfd_sock_state_dead) {
                     /* If the socket was signed as DEAD (means that there is delete socket process waiting -
-                     * sign to ths process that socket can be released */
+                     * sign to this process that socket can be released */
                     complete(&user_info->free_wait);
                 }
                 /* If this is the only frame (which we are going to take care
@@ -447,7 +447,7 @@ int sx_bfd_rx_socket_init(uint16_t port, struct socket ** sock, uint32_t vrf_id,
     struct socket                    * t_sock;
     struct timeval                     time;
     struct sx_bfd_rx_socket_user_info *sk_user_data = NULL;
-    int rcvbuf;
+    int                                rcvbuf;
 
     /* Create Socket */
     if (sock_create(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, &t_sock) < 0) {
@@ -686,7 +686,7 @@ void sx_bfd_rx_vrf_hash_add(void *rx_vrf_entry)
     printk(KERN_DEBUG "VRF %d ADDED.\n", entry_vrf->vrf_id);
 }
 
-/* Function which initialises VRF. */
+/* Function which initializes VRF. */
 void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
 {
     struct sx_bfd_rx_vrf       *vrf = NULL;
@@ -716,7 +716,7 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
     vrf->ref_count = 1;
     vrf->vrf_id = vrf_id;
 
-    /* Initialise Rx_socket for single_port. */
+    /* Initialize Rx_socket for single_port. */
     err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT, &vrf->sock_single_hop, vrf->vrf_id, bfd_pid);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_SINGLEHOP_PORT socket failed.\n");
@@ -724,7 +724,7 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
         goto bail;
     }
 
-    /* Initialise Rx_socket for multihop_port. */
+    /* Initialize Rx_socket for multihop_port. */
     err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT, &vrf->sock_multi_hop, vrf->vrf_id, bfd_pid);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_MULTIHOP_PORT socket failed.\n");

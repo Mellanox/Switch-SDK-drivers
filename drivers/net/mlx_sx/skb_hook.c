@@ -36,12 +36,11 @@
 
 static struct list_head __skb_hook_list_rx;
 static struct list_head __skb_hook_list_tx;
-static spinlock_t __skb_hook_lock;
-
+static spinlock_t       __skb_hook_lock;
 struct sx_skb_hook {
     struct list_head hook_list;
     sx_skb_hook_cb_t hook_cb;
-    void *user_context;
+    void            *user_context;
 };
 
 
@@ -53,13 +52,11 @@ void sx_core_skb_hook_init(void)
 }
 
 
-static int __sx_core_hook_register(sx_skb_hook_cb_t hook_cb,
-                                   void *user_context,
-                                   struct list_head *hook_list)
+static int __sx_core_hook_register(sx_skb_hook_cb_t hook_cb, void *user_context, struct list_head *hook_list)
 {
     struct sx_skb_hook *hook, *iter;
-    unsigned long flags;
-    int err = 0;
+    unsigned long       flags;
+    int                 err = 0;
 
     if (hook_cb == NULL) {
         return -EINVAL;
@@ -97,12 +94,11 @@ static int __sx_core_hook_register(sx_skb_hook_cb_t hook_cb,
 }
 
 
-static int __sx_core_hook_unregister(sx_skb_hook_cb_t hook_cb,
-                                     struct list_head *hook_list)
+static int __sx_core_hook_unregister(sx_skb_hook_cb_t hook_cb, struct list_head *hook_list)
 {
     struct sx_skb_hook *iter;
-    unsigned long flags;
-    int err = -ENOENT;
+    unsigned long       flags;
+    int                 err = -ENOENT;
 
     if (hook_cb == NULL) {
         return -EINVAL;
@@ -131,12 +127,10 @@ static int __sx_core_hook_unregister(sx_skb_hook_cb_t hook_cb,
 }
 
 
-static void __sx_core_skb_hook_call(struct sx_dev *sx_dev,
-                                    struct sk_buff *skb,
-                                    const struct list_head *hook_list)
+static void __sx_core_skb_hook_call(struct sx_dev *sx_dev, struct sk_buff *skb, const struct list_head *hook_list)
 {
     struct sx_skb_hook *iter;
-    unsigned long flags;
+    unsigned long       flags;
 
     spin_lock_irqsave(&__skb_hook_lock, flags);
 
@@ -148,8 +142,7 @@ static void __sx_core_skb_hook_call(struct sx_dev *sx_dev,
 }
 
 
-int sx_core_skb_hook_rx_register(sx_skb_hook_cb_t hook_cb,
-                                 void *user_context)
+int sx_core_skb_hook_rx_register(sx_skb_hook_cb_t hook_cb, void *user_context)
 {
     return __sx_core_hook_register(hook_cb, user_context, &__skb_hook_list_rx);
 }
@@ -163,15 +156,13 @@ int sx_core_skb_hook_rx_unregister(sx_skb_hook_cb_t hook_cb)
 EXPORT_SYMBOL(sx_core_skb_hook_rx_unregister);
 
 
-void sx_core_skb_hook_rx_call(struct sx_dev *sx_dev,
-                              struct sk_buff *skb)
+void sx_core_skb_hook_rx_call(struct sx_dev *sx_dev, struct sk_buff *skb)
 {
     __sx_core_skb_hook_call(sx_dev, skb, &__skb_hook_list_rx);
 }
 
 
-int sx_core_skb_hook_tx_register(sx_skb_hook_cb_t hook_cb,
-                                 void *user_context)
+int sx_core_skb_hook_tx_register(sx_skb_hook_cb_t hook_cb, void *user_context)
 {
     return __sx_core_hook_register(hook_cb, user_context, &__skb_hook_list_tx);
 }
@@ -185,8 +176,7 @@ int sx_core_skb_hook_tx_unregister(sx_skb_hook_cb_t hook_cb)
 EXPORT_SYMBOL(sx_core_skb_hook_tx_unregister);
 
 
-void sx_core_skb_hook_tx_call(struct sx_dev *sx_dev,
-                              struct sk_buff *skb)
+void sx_core_skb_hook_tx_call(struct sx_dev *sx_dev, struct sk_buff *skb)
 {
     __sx_core_skb_hook_call(sx_dev, skb, &__skb_hook_list_tx);
 }

@@ -48,9 +48,8 @@ static long __ctrl_cmd_not_implemented(struct file *file, unsigned int cmd, unsi
 
 extern const ioctl_handler_cb_t ioctl_reg_handler_table[];
 extern const ioctl_handler_cb_t ioctl_auto_reg_handler_table[];
-
 static const ioctl_handler_cb_t
-__ioctl_handler_table[CTRL_CMD_MAX_VAL - CTRL_CMD_MIN_VAL + 1] = {
+    __ioctl_handler_table[CTRL_CMD_MAX_VAL - CTRL_CMD_MIN_VAL + 1] = {
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_CAPABILITIES)] = ctrl_cmd_get_capabilities,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PCI_PROFILE)] = ctrl_cmd_set_pci_profile,
     [IOCTL_CMD_INDEX(CTRL_CMD_INVALID)] = __ctrl_cmd_not_implemented, /* do not use this entry! */
@@ -84,7 +83,7 @@ __ioctl_handler_table[CTRL_CMD_MAX_VAL - CTRL_CMD_MIN_VAL + 1] = {
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_PCI_PROFILE)] = ctrl_cmd_get_pci_profile,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_SWID_2_RDQ)] = ctrl_cmd_get_swid_2_rdq,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_DEFAULT_VID)] = ctrl_cmd_set_default_vid,
-#if defined(PD_BU)
+#if defined(PD_BU) && defined(SPECTRUM3_BU)
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
 #endif
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_VID_MEMBERSHIP)] = ctrl_cmd_set_vid_membership,
@@ -147,13 +146,12 @@ __ioctl_handler_table[CTRL_CMD_MAX_VAL - CTRL_CMD_MIN_VAL + 1] = {
 long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
 {
     ioctl_handler_cb_t handler = NULL;
-    long err = -ENOTTY;
-    u8 access_reg_cmd = 0;
+    long               err = -ENOTTY;
+    u8                 access_reg_cmd = 0;
 
-    if (cmd >= CTRL_CMD_MIN_VAL && cmd <= CTRL_CMD_MAX_VAL) {
+    if ((cmd >= CTRL_CMD_MIN_VAL) && (cmd <= CTRL_CMD_MAX_VAL)) {
         handler = __ioctl_handler_table[IOCTL_CMD_INDEX(cmd)];
-    }
-    else if (cmd >= CTRL_CMD_ACCESS_REG_MIN && cmd <= CTRL_CMD_ACCESS_REG_MAX) {
+    } else if ((cmd >= CTRL_CMD_ACCESS_REG_MIN) && (cmd <= CTRL_CMD_ACCESS_REG_MAX)) {
         access_reg_cmd = 1;
         handler = ioctl_reg_handler_table[IOCTL_REG_INDEX(cmd)];
 
@@ -161,8 +159,7 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
         if (!handler) {
             handler = ioctl_auto_reg_handler_table[IOCTL_REG_INDEX(cmd)];
         }
-    }
-    else {
+    } else {
         err = -EINVAL;
     }
 
@@ -174,8 +171,7 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
         down_read(&sx_glb.pci_restart_lock);
         err = handler(filp, cmd, data);
         up_read(&sx_glb.pci_restart_lock);
-    }
-    else {
+    } else {
         err = handler(filp, cmd, data);
     }
 

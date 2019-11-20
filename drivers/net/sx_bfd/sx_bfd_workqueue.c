@@ -36,24 +36,24 @@
 #include "sx_bfd_workqueue.h"
 
 static struct workqueue_struct * workqueue = NULL;
-
-static bool g_initialized = false;
-
-struct sx_bfd_delayed_work
-{
-        struct delayed_work work;
-        handler_func func;
-        uint32_t data;
+static bool                      g_initialized = false;
+struct sx_bfd_delayed_work {
+    struct delayed_work work;
+    handler_func        func;
+    uint32_t            data;
 };
-
-static void handler(struct work_struct * work) {
+static void handler(struct work_struct * work)
+{
     /*
      *  <work> is actually of type <struct delayed_work> and it is the <work> field of <struct sx_bfd_delayed_work>.
      *  So we need to retrieve the parent struct of <work> and we will get <struct sx_bfd_delayed_work>.
      */
-    struct sx_bfd_delayed_work * sx_bfd_work = container_of((struct delayed_work*)work, struct sx_bfd_delayed_work, work);
-    //printk(KERN_ERR "sx_bfd_work %p.\n", sx_bfd_work);
-    //printk(KERN_ERR "sx_bfd_work->data %d.\n", sx_bfd_work->data);
+    struct sx_bfd_delayed_work * sx_bfd_work = container_of((struct delayed_work*)work,
+                                                            struct sx_bfd_delayed_work,
+                                                            work);
+
+    /* printk(KERN_ERR "sx_bfd_work %p.\n", sx_bfd_work); */
+    /* printk(KERN_ERR "sx_bfd_work->data %d.\n", sx_bfd_work->data); */
 
 
     /* Call function with data as argument */
@@ -62,7 +62,7 @@ static void handler(struct work_struct * work) {
 
 int sx_bfd_create_delayed_work(sx_bfd_delayed_work_t ** dwork, handler_func func, uint32_t data)
 {
-    int err = 0;
+    int                          err = 0;
     struct sx_bfd_delayed_work * t_dwork = NULL;
 
     t_dwork = (struct sx_bfd_delayed_work*)kmalloc(sizeof(struct sx_bfd_delayed_work), GFP_KERNEL);
@@ -77,12 +77,8 @@ int sx_bfd_create_delayed_work(sx_bfd_delayed_work_t ** dwork, handler_func func
     t_dwork->data = data;
 
     *dwork = t_dwork;
-    t_dwork = NULL;
 
 bail:
-    if (t_dwork) {
-        kfree(t_dwork);
-    }
     return err;
 }
 
@@ -118,7 +114,7 @@ int sx_bfd_workqueue_init(void)
 
     if (!g_initialized) {
         workqueue = create_singlethread_workqueue("sx_bfd_workqueue");
-        if (workqueue == NULL){
+        if (workqueue == NULL) {
             printk(KERN_ERR "Kernel BFD work queue initialization failed.\n");
             err = -EIO;
             goto bail;

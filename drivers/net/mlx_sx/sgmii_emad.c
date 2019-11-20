@@ -37,12 +37,11 @@
 #include "sgmii_internal.h"
 #include "map.h"
 
-#define EMAD_TRAP_ID (0x5)
+#define EMAD_TRAP_ID                     (0x5)
 #define EMAD_FRAME_TRANSACTION_ID_OFFSET (0x18)
 
 static struct sgmii_transaction_db __emad_tr_db;
-static atomic_t __sgmii_emad_transactions_in_progress = ATOMIC_INIT(0);
-
+static atomic_t                    __sgmii_emad_transactions_in_progress = ATOMIC_INIT(0);
 static void __emad_work_entry_status_cb(int err, struct sgmii_transaction_info *tr_info, void *context)
 {
     if (err) {
@@ -57,7 +56,7 @@ static void __emad_work_entry_status_cb(int err, struct sgmii_transaction_info *
 
 static void __sgmii_rx_emad(struct completion_info* ci, void *context)
 {
-    struct sgmii_dev *rx_dev;
+    struct sgmii_dev      *rx_dev;
     sgmii_transaction_id_t tr_id;
 
     /* first check if this function handles a SGMII RX originated SKB */
@@ -77,14 +76,14 @@ static void __sgmii_rx_emad(struct completion_info* ci, void *context)
 }
 
 
-static int __sgmii_send_emad(int dev_id,
-                             struct sk_buff *skb,
-                             const struct isx_meta *meta,
+static int __sgmii_send_emad(int                                    dev_id,
+                             struct sk_buff                        *skb,
+                             const struct isx_meta                 *meta,
                              struct sgmii_sync_transaction_context *sync_context)
 {
-    struct sgmii_dev *sgmii_dev;
+    struct sgmii_dev      *sgmii_dev;
     sgmii_transaction_id_t tr_id;
-    int ret;
+    int                    ret;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -112,8 +111,7 @@ static int __sgmii_send_emad(int dev_id,
     if (ret == -EINPROGRESS) {
         /* joined to an existing transaction. just have to release the dev refcnt */
         ret = 0;
-    }
-    else {
+    } else {
         SGMII_DEV_INC_COUNTER(sgmii_dev, emad_transaction_init_failed);
     }
 
@@ -136,30 +134,34 @@ static int __sgmii_send_emad_sync(int dev_id, struct sk_buff *skb, const struct 
 }
 
 
-static void __sgmii_emad_transaction_completion(struct sk_buff *rx_skb,
+static void __sgmii_emad_transaction_completion(struct sk_buff                          *rx_skb,
                                                 enum sgmii_transaction_completion_status status,
-                                                struct sgmii_transaction_info *tr_info,
-                                                void *context)
+                                                struct sgmii_transaction_info           *tr_info,
+                                                void                                    *context)
 {
     switch (status) {
     case SGMII_TR_COMP_ST_COMPLETED:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_transaction_completed);
         break;
+
     case SGMII_TR_COMP_ST_RX_DEV_MISMATCH:
         SGMII_DEV_INC_COUNTER(tr_info->rx_dev, emad_dev_mismatch);
         break;
+
     case SGMII_TR_COMP_ST_TIMEDOUT:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_timeout);
         break;
+
     case SGMII_TR_COMP_ST_TERMINATED:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_terminated);
         break;
+
     default:
         break;
-    };
+    }
 
     if (context) { /* only in sync transaction */
-        struct sgmii_sync_transaction_context *tr_ctx = (struct sgmii_sync_transaction_context*) context;
+        struct sgmii_sync_transaction_context *tr_ctx = (struct sgmii_sync_transaction_context*)context;
         sgmii_sync_transaction_complete(tr_ctx, rx_skb, status);
     }
 
@@ -173,49 +175,44 @@ int sgmii_emad_get_transactions_in_progress(void)
 }
 
 
-static int __sgmii_emad_build(int dev_id,
-                              const uint8_t *reg_buff,
-                              uint32_t reg_buff_len,
+static int __sgmii_emad_build(int              dev_id,
+                              const uint8_t   *reg_buff,
+                              uint32_t         reg_buff_len,
                               struct sk_buff **skb,
                               struct isx_meta *meta,
-                              gfp_t gfp,
-                              uint16_t reg_id,
-                              uint8_t method)
+                              gfp_t            gfp,
+                              uint16_t         reg_id,
+                              uint8_t          method)
 {
-    uint8_t emad_header[] = {
+    uint8_t               emad_header[] = {
         0x01, 0x02, 0xc9, 0x00, 0x00, 0x01, /* dst mac */
         0x00, 0x02, 0xc9, 0x01, 0x02, 0x03, /* src mac */
         0x89, 0x32,                         /* ethtype */
         0x00,                               /* MLX proto */
         0x00                                /* version */
     };
-
-    uint8_t emad_op_tlv[] = {
+    uint8_t               emad_op_tlv[] = {
         0x08, 0x04, 0x00, 0x00,             /* type, len, dr, status, gas, stat_details */
         0xff, 0xff, 0xff, 0x01,             /* reg_id, r, method, trap_index, emad_class */
         0xff, 0xff, 0xff, 0xff,             /* tid (high)*/
         0xff, 0xff, 0xff, 0xff,             /* tid (low) */
     };
-    uint8_t *p_reg_id = &emad_op_tlv[4];
-    uint8_t *p_method = &emad_op_tlv[6];
-    uint8_t *p_tid = &emad_op_tlv[8];
-
-    uint8_t emad_reg_tlv[] = {
+    uint8_t              *p_reg_id = &emad_op_tlv[4];
+    uint8_t              *p_method = &emad_op_tlv[6];
+    uint8_t              *p_tid = &emad_op_tlv[8];
+    uint8_t               emad_reg_tlv[] = {
         0xff, 0xff, 0x00, 0x00              /* type, len */
     };
-    uint8_t *p_type_len = &emad_reg_tlv[0];
-
-    uint8_t emad_end_tlv[] = {
+    uint8_t              *p_type_len = &emad_reg_tlv[0];
+    uint8_t               emad_end_tlv[] = {
         0x00, 0x01, 0x00, 0x00
     };
-
-    static atomic_t tid_low_atomic = ATOMIC_INIT(0);
+    static atomic_t       tid_low_atomic = ATOMIC_INIT(0);
     static const uint32_t tid_high = cpu_to_be32(SGMII_TR_ID_PREFIX);
-    uint32_t tid_low = cpu_to_be32(atomic_inc_return(&tid_low_atomic));
-    uint16_t reg_type_len = cpu_to_be16((3 << 11) | (1 + (reg_buff_len >> 2)));
-
-    uint8_t *p;
-    struct sk_buff *new_skb;
+    uint32_t              tid_low = cpu_to_be32(atomic_inc_return(&tid_low_atomic));
+    uint16_t              reg_type_len = cpu_to_be16((3 << 11) | (1 + (reg_buff_len >> 2)));
+    uint8_t              *p;
+    struct sk_buff       *new_skb;
 
 #define EMAD_BUFF_SIZE(reg_size_in_bytes) \
     (sizeof(emad_header) +                \
@@ -242,7 +239,7 @@ static int __sgmii_emad_build(int dev_id,
     meta->rdq = 0x1f;
     meta->lp = 1;
     meta->type = SX_PKT_TYPE_EMAD_CTL;
-    meta->dev_id = (uint8_t) dev_id;
+    meta->dev_id = (uint8_t)dev_id;
 
     skb_put(new_skb, EMAD_BUFF_SIZE(reg_buff_len));
     p = new_skb->data;
@@ -266,15 +263,15 @@ static int __sgmii_emad_build(int dev_id,
 }
 
 
-int __sgmii_emad_build_and_send_sync(int dev_id,
+int __sgmii_emad_build_and_send_sync(int            dev_id,
                                      const uint8_t* reg_buff,
-                                     uint32_t reg_buff_len,
-                                     uint16_t reg_id,
-                                     uint8_t method)
+                                     uint32_t       reg_buff_len,
+                                     uint16_t       reg_id,
+                                     uint8_t        method)
 {
     struct isx_meta meta;
     struct sk_buff *skb;
-    int err;
+    int             err;
 
     if (dev_id == DEFAULT_DEVICE_ID) {
         err = sgmii_default_dev_id_get(&dev_id);
@@ -315,13 +312,13 @@ int sgmii_emad_access_ppad(int dev_id, const struct ku_ppad_reg *reg_ppad)
 
 int sgmii_emad_access_hopf(int dev_id, const struct ku_hopf_reg *reg_hopf)
 {
-    uint8_t hopf[32] = { 0 };
+    uint8_t  hopf[32] = { 0 };
     uint32_t flow_number;
     uint16_t vid;
 
     hopf[0] = (reg_hopf->sr << 7) | reg_hopf->cqe_ver;
     flow_number = cpu_to_be32(reg_hopf->flow_number & 0xffffff);
-    memcpy(&hopf[1], ((uint8_t*) &flow_number) + 1, 3);
+    memcpy(&hopf[1], ((uint8_t*)&flow_number) + 1, 3);
     hopf[4] = reg_hopf->rcv_cpu_tclass;
     hopf[7] = reg_hopf->i_f;
     memcpy(&hopf[10], reg_hopf->mac, 6);
@@ -379,7 +376,7 @@ int sgmii_emad_access_spzr(int dev_id, const struct ku_spzr_reg *reg_spzr)
     memcpy(&spzr_dwords[12], reg_spzr->NodeDescription, sizeof(reg_spzr->NodeDescription));
 
     return __sgmii_emad_build_and_send_sync(dev_id,
-                                            (uint8_t*) spzr_dwords,
+                                            (uint8_t*)spzr_dwords,
                                             sizeof(spzr_dwords),
                                             SPZR_REG_ID,
                                             EMAD_METHOD_WRITE);
@@ -389,7 +386,7 @@ int sgmii_emad_access_spzr(int dev_id, const struct ku_spzr_reg *reg_spzr)
 int sgmii_emad_init(void)
 {
     union ku_filter_critireas dummy;
-    int ret;
+    int                       ret;
 
     ret = sgmii_transaction_db_init(&__emad_tr_db,
                                     sgmii_fill_common_control_segment,

@@ -57,9 +57,9 @@ enum sx_bfd_cmd {
     /*
      *  DO NOT TOUCH - enum = 2 is not working for ioctl
      */
-     SX_BFD_CMD_INVALID,
+    SX_BFD_CMD_INVALID,
 
-     /*
+    /*
      *  Stop TX offloading.
      *  Message format is defined in struct stop_bfd_offload.
      */
@@ -83,7 +83,7 @@ enum sx_bfd_cmd {
      */
     SX_BFD_CMD_STOP_RX_OFFLOAD,
 
-   /*
+    /*
      *  Get RX session statistics.
      *  Message format is defined in struct bfd_stats_req.
      */
@@ -108,49 +108,43 @@ enum sx_bfd_cmd {
     SX_BFD_CMD_GET_AND_CLEAR_TX_STATS,
 };
 
-struct __attribute__((__packed__)) bfd_offload {
+struct __attribute__((__packed__)) bfd_offload_info {
+    int      vrf_id;
+    uint32_t session_id;
+    uint64_t session_opaque_data;
 
-        int vrf_id;
+    union {
+        struct sockaddr_in  local_in;
+        struct sockaddr_in6 local_in6;
+    } local_addr;
 
-        uint32_t session_id;
+    uint8_t ttl;
+    uint8_t dscp;
 
-        uint64_t session_opaque_data;
+    /*
+     *  Tx, Rx - Peer IP address
+     */
+    union {
+        struct sockaddr_in  peer_in;
+        struct sockaddr_in6 peer_in6;
+    } peer_addr;
 
-        union {
-                struct sockaddr_in local_in;
-                struct sockaddr_in6 local_in6;
-        } local_addr;
+    /*
+     *  Interval between BFD control packets
+     *  Tx - This is minimum interval (microsec) that local system
+     *       should use for transmitting BFD frames. (0 - reserved)
+     *  Rx - This is the minimum interval (microsec) between received
+     *       BFD Control frames, that this system is capable of supporting.
+     *       (0 - No BFD frames to transit from Tx peer system)
+     */
+    uint32_t interval;
 
-        uint8_t ttl;
-
-        uint8_t dscp;
-
-        /*
-         *  Tx, Rx - Peer IP address
-         */
-        union {
-                struct sockaddr_in peer_in;
-                struct sockaddr_in6 peer_in6;
-        } peer_addr;
-
-        /*
-         *  Interval between BFD control packets
-         *  Tx - This is minimum interval (microsec) that local system
-         *       should use for transmitting BFD frames. (0 - reserved)
-         *  Rx - This is the minimum interval (microsec) between received
-         *       BFD Control frames, that this system is capable of supporting.
-         *       (0 - No BFD frames to transit from Tx peer system)
-         */
-        uint32_t interval;
-
-        /*
-         *  Length of BFD control packet
-         */
-        size_t size;
-
-        unsigned long bfd_pid;
-
-        char bfd_packet[0];
+    /*
+     *  Length of BFD control packet
+     */
+    size_t        size;
+    unsigned long bfd_pid;
+    char          bfd_packet[0];
 };
 
 enum bfd_session_type {
@@ -159,45 +153,45 @@ enum bfd_session_type {
 };
 
 struct __attribute__((__packed__)) bfd_offload_session_stats {
-        uint64_t num_control;
-        uint64_t num_dropped_control;
-        uint64_t last_time;
-        uint64_t interval_min;
-        uint64_t interval_max;
-        uint64_t interval_average;
-        uint8_t  remote_heard;
+    uint64_t num_control;
+    uint64_t num_dropped_control;
+    uint64_t last_time;
+    uint64_t interval_min;
+    uint64_t interval_max;
+    uint64_t interval_average;
+    uint8_t  remote_heard;
 };
 
 struct __attribute__((__packed__)) bfd_offload_get_stats {
-        uint8_t  session_type;
-        uint32_t session_id;
-        struct bfd_offload_session_stats session_stats;
+    uint8_t                          session_type;
+    uint32_t                         session_id;
+    struct bfd_offload_session_stats session_stats;
 };
 
 struct bfd_timeout_event {
-        uint32_t session_id;
-        uint64_t opaque_data;
-        unsigned long bfd_pid;
+    uint32_t      session_id;
+    uint64_t      opaque_data;
+    unsigned long bfd_pid;
 };
 
 struct __attribute__((__packed__)) bfd_packet_event {
-        uint32_t session_id;
-        uint32_t timeout;
-        uint32_t opaque_data_valid;
-        uint64_t opaque_data;
-        union {
-                struct sockaddr_in peer_in;
-                struct sockaddr_in6 peer_in6;
-        } peer_addr;
-        union {
-                struct sockaddr_in local_in;
-                struct sockaddr_in6 local_in6;
-        } local_addr;
-        int inbound_id;
-        int ttl;
-        unsigned long bfd_pid;
-        uint32_t packet_size;
-        char packet[0];
+    uint32_t session_id;
+    uint32_t timeout;
+    uint32_t opaque_data_valid;
+    uint64_t opaque_data;
+    union {
+        struct sockaddr_in  peer_in;
+        struct sockaddr_in6 peer_in6;
+    } peer_addr;
+    union {
+        struct sockaddr_in  local_in;
+        struct sockaddr_in6 local_in6;
+    } local_addr;
+    int           inbound_id;
+    int           ttl;
+    unsigned long bfd_pid;
+    uint32_t      packet_size;
+    char          packet[0];
 };
 
 

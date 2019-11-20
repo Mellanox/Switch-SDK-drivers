@@ -176,7 +176,7 @@ kernel:
 		$(MLNX_LINUX_EXTRA_INCLUDE_FOLDERS) \
 		$(KERNEL_MEMTRACK_CFLAGS) \
 		' \
-		KCFLAGS="-DSYSTEM_PCI $(KCFLAGS) -Werror -Wall -Wswitch -Wunused $(GCC_NO_DATE_TIME)" \
+		KCFLAGS="-DSYSTEM_PCI $(KCFLAGS) -Werror -Wall -Wswitch -Wunused -Wno-format-truncation -Wno-stringop-truncation $(GCC_NO_DATE_TIME)" \
 		modules
 
 

@@ -38,13 +38,13 @@
 
 static int __init sx_bfd_init(void)
 {
-	int err = 0;
+    int err = 0;
 
-	err = sx_bfd_engine_ctrl_init();
-	if (err < 0) {
-	    printk(KERN_ERR "Kernel BFD engine control failed to initialize.\n");
-		goto bail;
-	}
+    err = sx_bfd_engine_ctrl_init();
+    if (err < 0) {
+        printk(KERN_ERR "Kernel BFD engine control failed to initialize.\n");
+        goto bail;
+    }
 
     err = sx_bfd_engine_data_init();
     if (err < 0) {
@@ -52,10 +52,10 @@ static int __init sx_bfd_init(void)
         goto bail;
     }
 
-	printk(KERN_DEBUG "Kernel BFD initialized\n");
+    printk(KERN_DEBUG "Kernel BFD initialized\n");
 
 bail:
-        return err;
+    return err;
 }
 
 static void __exit sx_bfd_deinit(void)
@@ -75,4 +75,3 @@ module_exit(sx_bfd_deinit);
 MODULE_AUTHOR("Alla Segal, Dan Akunis");
 MODULE_DESCRIPTION("Mellanox Switch BFD driver");
 MODULE_LICENSE("Dual BSD/GPL");
-

@@ -41,9 +41,9 @@
 #include <linux/mlx_sx/kernel_user.h>
 #include <linux/mlx_sx/skb_hook.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
 #define NETLINK_TAP_SUPPORTED 1
-#elif defined(RHEL_RELEASE_CODE) && LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
+#elif defined(RHEL_RELEASE_CODE) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
 #define NETLINK_TAP_SUPPORTED 1
 #else
 #define NETLINK_TAP_SUPPORTED 0
@@ -67,42 +67,38 @@ MODULE_LICENSE("Dual BSD/GPL");
 /************************************************
  *  Local variables
  ***********************************************/
-static struct sock *__sx_emad_dump_nl_sk = NULL;
-static struct net_device* __nl_dev = NULL;
-static struct netlink_tap __nl_tap;
+static struct sock             *__sx_emad_dump_nl_sk = NULL;
+static struct net_device      * __nl_dev = NULL;
+static struct netlink_tap       __nl_tap;
 static struct workqueue_struct *__work_queue = NULL;
 
 /************************************************
  *  Type definitions
  ***********************************************/
-
 struct sx_emad_dump_nl_msghdr {
     u32 devindex;
     u32 reserved;
 };
-
 enum sx_emad_dump_nl_direction {
     SX_EMAD_DUMP_NL_DIRECTION_TX, /* SW --> HW */
     SX_EMAD_DUMP_NL_DIRECTION_RX  /* HW --> SW */
 };
 
 enum {
-	SX_EMAD_DUMP_NL_ATTR_UNSPEC,
-	SX_EMAD_DUMP_NL_ATTR_PAYLOAD,   /* data */
-	SX_EMAD_DUMP_NL_ATTR_TYPE,      /* u32 */
-	SX_EMAD_DUMP_NL_ATTR_DIRECTION, /* u8 */
+    SX_EMAD_DUMP_NL_ATTR_UNSPEC,
+    SX_EMAD_DUMP_NL_ATTR_PAYLOAD,   /* data */
+    SX_EMAD_DUMP_NL_ATTR_TYPE,      /* u32 */
+    SX_EMAD_DUMP_NL_ATTR_DIRECTION, /* u8 */
 
     __SX_EMAD_DUMP_NL_ATTR_MAX,
-	SX_EMAD_DUMP_NL_ATTR_MAX = __SX_EMAD_DUMP_NL_ATTR_MAX - 1
+    SX_EMAD_DUMP_NL_ATTR_MAX = __SX_EMAD_DUMP_NL_ATTR_MAX - 1
 };
 
 struct skb_to_dump {
-    struct work_struct work;
-    struct sk_buff *skb;
+    struct work_struct             work;
+    struct sk_buff                *skb;
     enum sx_emad_dump_nl_direction direction;
 };
-
-
 static netdev_tx_t __emad_dump_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
     consume_skb(skb);
@@ -129,13 +125,11 @@ static const struct net_device_ops __emad_dump_ops = {
     .ndo_stop = __emad_dump_stop,
     .ndo_start_xmit = __emad_dump_start_xmit
 };
-
-
 static void __emad_dump_setup(struct net_device *dev)
 {
     dev->type = ARPHRD_NETLINK;
-    dev->netdev_ops	= &__emad_dump_ops;
-    dev->destructor	= free_netdev;
+    dev->netdev_ops = &__emad_dump_ops;
+    dev->destructor = free_netdev;
     dev->features = NETIF_F_SG | NETIF_F_FRAGLIST;
     dev->flags = IFF_NOARP;
     dev->mtu = 8 * 1024;
@@ -145,12 +139,11 @@ static void __emad_dump_setup(struct net_device *dev)
  * Functions                                    *
  ***********************************************/
 
-static int __nl_hwmsg_notify(const struct sk_buff *skb,
-                             enum sx_emad_dump_nl_direction direction)
+static int __nl_hwmsg_notify(const struct sk_buff *skb, enum sx_emad_dump_nl_direction direction)
 {
     struct sx_emad_dump_nl_msghdr *hdr;
-    struct nlmsghdr *nlh;
-    struct sk_buff *skb_new;
+    struct nlmsghdr               *nlh;
+    struct sk_buff                *skb_new;
 
     skb_new = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_ATOMIC);
     if (!skb_new) {
@@ -166,14 +159,17 @@ static int __nl_hwmsg_notify(const struct sk_buff *skb,
     hdr->devindex = 0;
     hdr->reserved = 0;
 
-    if (nla_put(skb_new, SX_EMAD_DUMP_NL_ATTR_PAYLOAD, skb->len, skb->data))
+    if (nla_put(skb_new, SX_EMAD_DUMP_NL_ATTR_PAYLOAD, skb->len, skb->data)) {
         goto nla_put_failure;
+    }
 
-    if (nla_put_u32(skb_new, SX_EMAD_DUMP_NL_ATTR_TYPE, 0))
+    if (nla_put_u32(skb_new, SX_EMAD_DUMP_NL_ATTR_TYPE, 0)) {
         goto nla_put_failure;
+    }
 
-    if (nla_put_u8(skb_new, SX_EMAD_DUMP_NL_ATTR_DIRECTION, direction))
+    if (nla_put_u8(skb_new, SX_EMAD_DUMP_NL_ATTR_DIRECTION, direction)) {
         goto nla_put_failure;
+    }
 
     nlmsg_end(skb_new, nlh);
 
@@ -189,7 +185,7 @@ nla_put_failure:
 static void __work_handler(struct work_struct *work)
 {
     struct skb_to_dump *skb_to_dump = container_of(work, struct skb_to_dump, work);
-    int err;
+    int                 err;
 
     err = __nl_hwmsg_notify(skb_to_dump->skb, skb_to_dump->direction);
     if (err && net_ratelimit()) {
@@ -201,19 +197,25 @@ static void __work_handler(struct work_struct *work)
 }
 
 
-static void __queue_skb_to_worker_thread(struct sk_buff *skb,
-                                         enum sx_emad_dump_nl_direction direction)
+static void __queue_skb_to_worker_thread(struct sk_buff *skb, enum sx_emad_dump_nl_direction direction)
 {
     struct skb_to_dump *skb_to_dump = kmalloc(sizeof(struct skb_to_dump), GFP_ATOMIC);
-    if (!skb_to_dump && net_ratelimit()) {
-        printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed to allocate skb to dump\n", direction);
+
+    if (!skb_to_dump) {
+        if (net_ratelimit()) {
+            printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed to allocate skb to dump\n", direction);
+        }
+
         return;
     }
 
     skb_to_dump->direction = direction;
     skb_to_dump->skb = skb_clone(skb, GFP_ATOMIC);
-    if (!skb_to_dump->skb && net_ratelimit()) {
-        printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed on skb_clone()\n", direction);
+    if (!skb_to_dump->skb) {
+        if (net_ratelimit()) {
+            printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed on skb_clone()\n", direction);
+        }
+
         kfree(skb_to_dump);
         return;
     }
@@ -238,7 +240,7 @@ static void __emad_dump_hook_tx(struct sx_dev *sx_dev, struct sk_buff *skb, void
 int __init sx_emad_dump_init(void)
 {
     struct netlink_kernel_cfg cfg;
-    int err, netdev_registered = 0;
+    int                       err, netdev_registered = 0;
 
     if (!emad_dump_rx && !emad_dump_tx) {
         printk(KERN_ERR "emad-dump is disabled on RX and TX\n");

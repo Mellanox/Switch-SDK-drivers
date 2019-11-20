@@ -38,36 +38,34 @@
 #include "map.h"
 
 struct sgmii_transaction_entry {
-    struct sx_core_map_info map_info;
+    struct sx_core_map_info      map_info;
     struct sgmii_transaction_db *tr_db;
-    sgmii_transaction_id_t tr_id;
-    int completed;
-    int attempts_total;
-    int attempts_so_far;
-    struct sgmii_dev *sgmii_dev;
-    struct sk_buff *skb;
-    int meta_is_valid;
-    struct isx_meta meta;
-    void *context;
+    sgmii_transaction_id_t       tr_id;
+    int                          completed;
+    int                          attempts_total;
+    int                          attempts_so_far;
+    struct sgmii_dev            *sgmii_dev;
+    struct sk_buff              *skb;
+    int                          meta_is_valid;
+    struct isx_meta              meta;
+    void                        *context;
 };
-
-
 static int __sgmii_transaction_compare_cb(const void* key1, const void *key2)
 {
-    const sgmii_transaction_id_t *tr_id1 = (const sgmii_transaction_id_t*) key1;
-    const sgmii_transaction_id_t *tr_id2 = (const sgmii_transaction_id_t*) key2;
+    const sgmii_transaction_id_t *tr_id1 = (const sgmii_transaction_id_t*)key1;
+    const sgmii_transaction_id_t *tr_id2 = (const sgmii_transaction_id_t*)key2;
 
     return ((*tr_id1) - (*tr_id2));
 }
 
 
-static void __sgmii_transaction_complete(struct sk_buff *rx_skb,
-                                         struct sgmii_transaction_entry *entry,
+static void __sgmii_transaction_complete(struct sk_buff                          *rx_skb,
+                                         struct sgmii_transaction_entry          *entry,
                                          enum sgmii_transaction_completion_status status,
-                                         struct sgmii_dev *rx_dev)
+                                         struct sgmii_dev                        *rx_dev)
 {
     struct sgmii_transaction_info tr_info;
-    struct sgmii_transaction_db *tr_db = entry->tr_db;
+    struct sgmii_transaction_db  *tr_db = entry->tr_db;
 
     tr_info.tr_db = tr_db;
     tr_info.tr_id = entry->tr_id;
@@ -85,10 +83,10 @@ static void __sgmii_transaction_complete(struct sk_buff *rx_skb,
 
 static void __sgmii_transaction_task(void *task_param)
 {
-    struct sgmii_transaction_info tr_info;
+    struct sgmii_transaction_info   tr_info;
     struct sgmii_transaction_entry *entry;
-    struct sgmii_transaction_db *tr_db;
-    int err;
+    struct sgmii_transaction_db    *tr_db;
+    int                             err;
 
     memcpy(&entry, task_param, sizeof(entry)); /* copy the entry pointer itself */
     tr_db = entry->tr_db;
@@ -115,7 +113,7 @@ static void __sgmii_transaction_task(void *task_param)
 
     err = sgmii_send(entry->sgmii_dev,
                      entry->skb,
-                     entry->meta_is_valid? &entry->meta: NULL,
+                     entry->meta_is_valid ? &entry->meta : NULL,
                      SGMII_PCP_HIGH,
                      tr_db->fill_control_segment_cb,
                      tr_db->fill_tx_base_header_cb);
@@ -135,15 +133,15 @@ out:
 
 
 int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
-                                       struct sk_buff *rx_skb,
-                                       sgmii_transaction_id_t tr_id,
-                                       struct sgmii_dev *rx_dev)
+                                       struct sk_buff              *rx_skb,
+                                       sgmii_transaction_id_t       tr_id,
+                                       struct sgmii_dev            *rx_dev)
 {
-    struct sx_core_map_info *map_info;
-    struct sgmii_transaction_entry *entry;
+    struct sx_core_map_info                 *map_info;
+    struct sgmii_transaction_entry          *entry;
     enum sgmii_transaction_completion_status st;
-    unsigned long flags;
-    int ret;
+    unsigned long                            flags;
+    int                                      ret;
 
     /* we are called from dispatch_pkt() which holds a spinlock with IRQ off. we must keep this line ... */
     spin_lock_irqsave(&tr_db->db_lock, flags);
@@ -160,8 +158,8 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
      */
     entry = container_of(map_info, struct sgmii_transaction_entry, map_info);
 
-    st = (entry->sgmii_dev == rx_dev)? SGMII_TR_COMP_ST_COMPLETED:
-                                       SGMII_TR_COMP_ST_RX_DEV_MISMATCH;
+    st = (entry->sgmii_dev == rx_dev) ? SGMII_TR_COMP_ST_COMPLETED :
+         SGMII_TR_COMP_ST_RX_DEV_MISMATCH;
 
     __sgmii_transaction_complete(rx_skb, entry, st, rx_dev);
     entry->completed = 1;
@@ -171,12 +169,11 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
 }
 
 
-int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db,
-                                sgmii_transaction_id_t tr_id)
+int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db, sgmii_transaction_id_t tr_id)
 {
-    struct sx_core_map_info *map_info;
+    struct sx_core_map_info        *map_info;
     struct sgmii_transaction_entry *entry;
-    int err;
+    int                             err;
 
     spin_lock_bh(&tr_db->db_lock);
 
@@ -200,15 +197,15 @@ out:
 
 
 int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
-                           struct sk_buff *skb,
-                           sgmii_transaction_id_t tr_id,
-                           struct sgmii_dev *sgmii_dev,
-                           const struct isx_meta *meta,
-                           void *context)
+                           struct sk_buff              *skb,
+                           sgmii_transaction_id_t       tr_id,
+                           struct sgmii_dev            *sgmii_dev,
+                           const struct isx_meta       *meta,
+                           void                        *context)
 {
     struct sgmii_transaction_entry *entry, *existing_entry;
-    struct sx_core_map_info *existing_info;
-    int ret = -ENOMEM, max_attempts;
+    struct sx_core_map_info        *existing_info;
+    int                             ret = -ENOMEM, max_attempts;
 
     entry = kmalloc(sizeof(struct sgmii_transaction_entry), GFP_ATOMIC);
     if (!entry) {
@@ -235,7 +232,7 @@ int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
     spin_lock_bh(&tr_db->db_lock);
 
     ret = sx_core_map_lookup(&tr_db->db_map, &entry->tr_id, &existing_info);
-    if (ret == 0) { /* joining an exsisting transaction */
+    if (ret == 0) { /* joining an existing transaction */
         existing_entry = container_of(existing_info, struct sgmii_transaction_entry, map_info);
         existing_entry->attempts_total = max_attempts;
         ret = -EINPROGRESS;
@@ -270,14 +267,14 @@ free_orig_skb:
 }
 
 
-int sgmii_send_transaction_sync(int dev_id,
-                                struct sk_buff *skb,
-                                const struct isx_meta *meta,
+int sgmii_send_transaction_sync(int                            dev_id,
+                                struct sk_buff                *skb,
+                                const struct isx_meta         *meta,
                                 sgmii_transaction_sync_send_cb send_cb,
-                                struct sk_buff **rx_skb)
+                                struct sk_buff               **rx_skb)
 {
     struct sgmii_sync_transaction_context context;
-    int err;
+    int                                   err;
 
     init_completion(&context.completion);
     err = send_cb(dev_id, skb, meta, &context); /* callback fills 'context.tr_db' and 'context.tr_id' */
@@ -288,7 +285,7 @@ int sgmii_send_transaction_sync(int dev_id,
     err = wait_for_completion_interruptible(&context.completion);
     if (err == -ERESTARTSYS) {
         /* this will synchronously terminate the transaction and fill 'context.status'
-           to SGMII_TR_COMP_ST_TERMINATED */
+         *  to SGMII_TR_COMP_ST_TERMINATED */
         sgmii_transaction_terminate(context.tr_db, context.tr_id);
     }
 
@@ -299,15 +296,19 @@ int sgmii_send_transaction_sync(int dev_id,
             *rx_skb = context.rx_skb;
         }
         break;
+
     case SGMII_TR_COMP_ST_RX_DEV_MISMATCH:
         err = -ENODEV;
         break;
+
     case SGMII_TR_COMP_ST_TIMEDOUT:
         err = -ETIMEDOUT;
         break;
+
     case SGMII_TR_COMP_ST_TERMINATED:
         err = -ERESTARTSYS;
         break;
+
     default:
         err = -EIO;
         break;
@@ -317,21 +318,21 @@ int sgmii_send_transaction_sync(int dev_id,
 }
 
 
-void sgmii_sync_transaction_complete(struct sgmii_sync_transaction_context *context,
-                                     struct sk_buff *rx_skb,
+void sgmii_sync_transaction_complete(struct sgmii_sync_transaction_context   *context,
+                                     struct sk_buff                          *rx_skb,
                                      enum sgmii_transaction_completion_status status)
 {
-    context->rx_skb = rx_skb? skb_copy(rx_skb, GFP_ATOMIC): NULL;
+    context->rx_skb = rx_skb ? skb_copy(rx_skb, GFP_ATOMIC) : NULL;
     context->status = status;
     complete(&context->completion);
 }
 
 
-int sgmii_transaction_db_init(struct sgmii_transaction_db *tr_db,
-                              sgmii_fill_control_segment_cb_t fill_control_segment_cb,
-                              sgmii_fill_tx_base_header_cb_t fill_tx_base_header_cb,
+int sgmii_transaction_db_init(struct sgmii_transaction_db       *tr_db,
+                              sgmii_fill_control_segment_cb_t    fill_control_segment_cb,
+                              sgmii_fill_tx_base_header_cb_t     fill_tx_base_header_cb,
                               sgmii_transaction_entry_handler_cb entry_handler_cb,
-                              sgmii_transaction_completion_cb_t transaction_completion_cb)
+                              sgmii_transaction_completion_cb_t  transaction_completion_cb)
 {
     int ret;
 

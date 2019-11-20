@@ -256,7 +256,7 @@ int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id)
     in_mb_info = mailbox->imm_data >> 32;
     out_mb_info = mailbox->imm_data & 0xFFFFFFFFUL;
 
-    /* TODO: what about endianess?? */
+    /* TODO: what about endianness?? */
     if (dev->device_id == sx_dev_id) {
         fw->local_in_mb_offset = (in_mb_info & 0x000FFFFF);
         fw->local_in_mb_size = in_mb_info >> 20;

@@ -49,7 +49,7 @@
 #include "sx_proc.h"
 #include "sgmii.h"
 
-#define SX_FULL_DQ_TOUT_MSECS	300000
+#define SX_FULL_DQ_TOUT_MSECS 300000
 
 extern struct sx_globals sx_glb;
 
@@ -146,7 +146,7 @@ static __be16 sx_set_wqe_flags(u8 set_lp, enum ku_pkt_type type)
 
 static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct sx_wqe *wqe, int idx)
 {
-    int i, num_frags;
+    int             i, num_frags;
     struct sk_buff *orig_skb = NULL;
 
     num_frags = skb_shinfo(skb)->nr_frags;
@@ -169,7 +169,6 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
                                                        sdq->sge[idx].hdr_pld_sg.len, PCI_DMA_TODEVICE);
     if (dma_mapping_error(&sdq->dev->pdev->dev,
                           sdq->sge[idx].hdr_pld_sg.dma_addr)) {
-
         if (orig_skb) {
             sx_skb_free(skb); /* delete the copy. the original skb will be freed elsewhere */
         }
@@ -220,7 +219,7 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
 
     if (orig_skb) {
         sx_skb_free(orig_skb); /* delete orig_skb instead of completion handler. the completion handler will
-                                  delete the copy */
+                                *  delete the copy */
     }
 
     return 0;
@@ -234,8 +233,7 @@ static int sx_dq_overflow(struct sx_dq *sdq)
 
     if (sdq->head >= sdq->tail) {
         q_size = sdq->head - sdq->tail;
-    }
-    else {
+    } else {
         q_size = 0x10000 - (sdq->tail - sdq->head);
     }
 
@@ -257,6 +255,7 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
     int           err;
     unsigned long flags;
     unsigned long end;
+
     if (update_flushing_state) {
         dq->is_flushing = 1;
     }
@@ -279,10 +278,9 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
 
         spin_lock_irqsave(&dq->lock, flags);
     }
+
     if ((int)(dq->head - dq->tail) > 0) {
-        err = -ETIMEDOUT;
-    } else {
-        err = 0;
+        sx_warn(dev, "not all entries flushed for DQN %06x\n", dq->dqn);
     }
 
     if (update_flushing_state) {
@@ -290,7 +288,7 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
     }
 
     spin_unlock_irqrestore(&dq->lock, flags);
-    
+
     /* take control from hw */
     err = sx_hw2sw_dq(dev, dq);
     if (err) {
@@ -357,6 +355,14 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     u8             stclass;
     u8             max_cpu_etclass_for_unlimited_mtu;
 
+    if (!dev || !dev->profile_set) {
+        printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
+               "execute because the profile is not "
+               "set\n");
+        sx_skb_free(skb);
+        return -EFAULT;
+    }
+
     if (dev->global_flushing == 1) {
         if (printk_ratelimit()) {
             printk(KERN_WARNING "__sx_core_post_send: Cannot send packet "
@@ -369,14 +375,6 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     if (NUMBER_OF_SWIDS <= meta->swid) {
         printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on swid %u\n",
                meta->swid);
-        sx_skb_free(skb);
-        return -EFAULT;
-    }
-
-    if (!dev || !dev->profile_set) {
-        printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
-               "execute because the profile is not "
-               "set\n");
         sx_skb_free(skb);
         return -EFAULT;
     }
@@ -424,9 +422,9 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
         return -EFAULT;
     }
 
-    if (skb->len > 2048 && dev->profile.cpu_egress_tclass[sdqn] > max_cpu_etclass_for_unlimited_mtu) {
+    if ((skb->len > 2048) && (dev->profile.cpu_egress_tclass[sdqn] > max_cpu_etclass_for_unlimited_mtu)) {
         printk(KERN_ERR PFX "sx_core_post_send: cannot send packet of size %u "
-               "from SDQ %u since it's binded to cpu_tclass %u\n",
+               "from SDQ %u since it's bounded to cpu_tclass %u\n",
                skb->len, sdqn, dev->profile.cpu_egress_tclass[sdqn]);
         sx_skb_free(skb);
         return -EFAULT;
@@ -436,8 +434,8 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
      * Since the verification environment doesn't yet support ETH L3
      * packets we don't pass them such packets. */
     if (tx_stub_func &&
-            (meta->type != SX_PKT_TYPE_ETH_DATA &&
-             meta->type != SX_PKT_TYPE_ETH_CTL_UC)) {
+        ((meta->type != SX_PKT_TYPE_ETH_DATA) &&
+         (meta->type != SX_PKT_TYPE_ETH_CTL_UC))) {
         tx_stub_func(skb, 0);
     }
 
@@ -469,11 +467,14 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     spin_lock_irqsave(&sdq->lock, flags);
     list_add_tail(&new_pkt->list, &sdq->pkts_list.list);
     if (sx_dq_overflow(sdq)) {
-    	if ((sdq->last_full_queue != sdq->last_completion) &&
-    			(time_after_eq(jiffies, (sdq->last_completion + msecs_to_jiffies(SX_FULL_DQ_TOUT_MSECS))))) {
-			 sdq->last_full_queue = sdq->last_completion;
-			printk(KERN_ERR PFX "%s: sdq[%d] buffer is full for at least %d seconds\n", __func__, sdq->dqn, SX_FULL_DQ_TOUT_MSECS/1000);
-		}
+        if ((sdq->last_full_queue != sdq->last_completion) &&
+            (time_after_eq(jiffies, (sdq->last_completion + msecs_to_jiffies(SX_FULL_DQ_TOUT_MSECS))))) {
+            sdq->last_full_queue = sdq->last_completion;
+            printk(KERN_ERR PFX "%s: sdq[%d] buffer is full for at least %d seconds\n",
+                   __func__,
+                   sdq->dqn,
+                   SX_FULL_DQ_TOUT_MSECS / 1000);
+        }
         goto out;
     }
 
@@ -493,7 +494,7 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
     /* WA for pad TX packets with size less than ETH_ZLEN */
     if (((meta->type == SX_PKT_TYPE_ETH_DATA) ||
          (meta->type == SX_PKT_TYPE_ETH_CTL_UC)) &&
-         (skb->len < ETH_ZLEN)) {
+        (skb->len < ETH_ZLEN)) {
         err = skb_pad(skb, ETH_ZLEN - skb->len);
         if (err) {
             sx_skb_free(skb);
@@ -579,22 +580,22 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
         }
     }
 
-    if (dev != NULL && meta->swid < NUMBER_OF_SWIDS) {
-    	sx_glb.stats.tx_by_pkt_type[meta->swid][meta->type]++;
-    	sx_glb.stats.tx_by_pkt_type_bytes[meta->swid][meta->type] += skb->len;
+    if ((dev != NULL) && (meta->swid < NUMBER_OF_SWIDS)) {
+        sx_glb.stats.tx_by_pkt_type[meta->swid][meta->type]++;
+        sx_glb.stats.tx_by_pkt_type_bytes[meta->swid][meta->type] += skb->len;
         dev->stats.tx_by_pkt_type[meta->swid][meta->type]++;
         dev->stats.tx_by_pkt_type_bytes[meta->swid][meta->type] += skb->len;
     } else if (dev != NULL) {
-    	sx_glb.stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-    	sx_glb.stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
+        sx_glb.stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
+        sx_glb.stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
         dev->stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
         dev->stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
-    } else if (sx_glb.tmp_dev_ptr ) {
-    	sx_glb.stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-    	sx_glb.stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
-	    sx_glb.tmp_dev_ptr->stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-	    sx_glb.tmp_dev_ptr->stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
-	}
+    } else if (sx_glb.tmp_dev_ptr) {
+        sx_glb.stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
+        sx_glb.stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
+        sx_glb.tmp_dev_ptr->stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
+        sx_glb.tmp_dev_ptr->stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
+    }
 
     if ((meta->type == SX_PKT_TYPE_DROUTE_EMAD_CTL) || /* emad */
         (meta->type == SX_PKT_TYPE_EMAD_CTL)) { /* emad */
@@ -602,8 +603,7 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
     } else if ((meta->type == SX_PKT_TYPE_IB_TRANSPORT_CTL) ||
                (meta->type == SX_PKT_TYPE_IB_TRANSPORT_DATA)) { /* mad */
         err = sx_dpt_send_mad(meta->dev_id, skb, meta);
-    }
-    else if (is_sgmii_device(meta->dev_id)) {
+    } else if (is_sgmii_device(meta->dev_id)) {
         err = sgmii_send_misc(meta->dev_id, skb, meta);
         if (err) {
             sx_skb_free(skb);
@@ -612,8 +612,7 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
 #ifndef NO_PCI /* In real mode we should only call __sx_core_post_send when we have PCI device */
     else if (dev && dev->pdev) {
         err = __sx_core_post_send(dev, skb, meta);
-    }
-    else {
+    } else {
         return -EFAULT;
     }
 #else
@@ -662,21 +661,21 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
     wqe = sx_get_wqe(rdq, idx << SX_WQE_SHIFT);
     memset(wqe, 0, sizeof *wqe);
 
-    /* 
+    /*
      * If skb != NULL :
      *       - new skb will be post_received
      *
      * else (also case of Monitor RDQ) :
-     *      - the same buffer will be reposted 
-     *      - The start of the buffer will not be filled by 0x55555555 
-     *        because the same buffer is used       
+     *      - the same buffer will be reposted
+     *      - The start of the buffer will not be filled by 0x55555555
+     *        because the same buffer is used
      */
-    if (skb != NULL){
+    if (skb != NULL) {
         rdq->sge[idx].skb = skb;
         rdq->sge[idx].hdr_pld_sg.vaddr = skb->data;
         rdq->sge[idx].hdr_pld_sg.len = length;
-    
-    
+
+
 #ifdef CONFIG_44x
         /*
          *   (L1_CACHE_BYTES = 32)
@@ -707,7 +706,7 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
         }
         pci_unmap_single(rdq->dev->pdev,
                          rdq->sge[idx].hdr_pld_sg.dma_addr,
-                         length, PCI_DMA_TODEVICE);    
+                         length, PCI_DMA_TODEVICE);
     }
 
     rdq->sge[idx].hdr_pld_sg.dma_addr = pci_map_single(rdq->dev->pdev,
@@ -731,16 +730,17 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
                                    rdq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
 
     rdq->head++;
-    
-    if (rdq->is_monitor ){
+
+    if (rdq->is_monitor) {
         rdq->mon_rx_count++;
 
-        /* 
-         *  the window [mon_rx_start, mon_rx_start+mon_rx_cnt] should 
-         *  contains maximum wqe_cnt packets 
+        /*
+         *  the window [mon_rx_start, mon_rx_start+mon_rx_cnt] should
+         *  contains maximum wqe_cnt packets
          */
-        if(rdq->mon_rx_count - rdq->mon_rx_start > rdq->wqe_cnt)
+        if (rdq->mon_rx_count - rdq->mon_rx_start > rdq->wqe_cnt) {
             rdq->mon_rx_start++;
+        }
     }
 
     /*
@@ -890,7 +890,7 @@ int sx_sw2hw_dq(struct sx_dev *dev, struct sx_dq *dq)
     if (!err) {
         if (dev->pdev && !dq->is_send) {
             u16      size = dev->profile.rdq_properties[dq->dqn].entry_size;
-            uint16_t nent = dev->profile.rdq_properties[dq->dqn].number_of_entries;            
+            uint16_t nent = dev->profile.rdq_properties[dq->dqn].number_of_entries;
             for (i = 0; i < nent; i++) {
                 skb = alloc_skb(size, GFP_KERNEL);
                 if (!skb) {
@@ -1024,19 +1024,19 @@ int sx_core_create_rdq(struct sx_dev *dev, int nent, u8 dqn, struct sx_dq **rdq_
 
 int sx_core_add_rdq_to_monitor_rdq_list(struct sx_dq *dq)
 {
-    int is_found = 0, i;
+    int            is_found = 0, i;
     struct sx_dev *dev = dq->dev;
-    
+
     /* add monitor rdq to the list if it wasn't existed in the list before */
     is_found = 0;
-    for (i=0; i<sx_priv(dev)->monitor_rdqs_count; i++){
+    for (i = 0; i < sx_priv(dev)->monitor_rdqs_count; i++) {
         if (sx_priv(dev)->monitor_rdqs_arr[i] == dq->dqn) {
             is_found = 1;
         }
     }
-    
-    if (!is_found && sx_priv(dev)->monitor_rdqs_count ==MAX_MONITOR_RDQ_NUM) {
-        return -EINVAL;        
+
+    if (!is_found && (sx_priv(dev)->monitor_rdqs_count == MAX_MONITOR_RDQ_NUM)) {
+        return -EINVAL;
     }
 
     if (!is_found) {
@@ -1044,20 +1044,20 @@ int sx_core_add_rdq_to_monitor_rdq_list(struct sx_dq *dq)
         sx_priv(dev)->monitor_rdqs_count++;
         sx_bitmap_set(&sx_priv(dev)->active_monitor_cq_bitmap, dq->cq->cqn);
     }
-    
+
     return 0;
 }
 
 void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq)
 {
-    int i;
+    int            i;
     struct sx_dev *dev = dq->dev;
-    
+
     /* remove monitor rdq from the list */
-    for (i=0; i<sx_priv(dev)->monitor_rdqs_count; i++){
+    for (i = 0; i < sx_priv(dev)->monitor_rdqs_count; i++) {
         if (sx_priv(dev)->monitor_rdqs_arr[i] == dq->dqn) {
             sx_bitmap_free(&(sx_priv(dev)->active_monitor_cq_bitmap), dq->cq->cqn);
-            sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count - 1];            
+            sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count - 1];
             sx_priv(dev)->monitor_rdqs_count--;
         }
     }
@@ -1178,7 +1178,7 @@ void sx_core_destroy_rdq_table(struct sx_dev *dev, u8 free_table)
         if (rdq_table->dq[i]) {
             if (atomic_read(&rdq_table->dq[i]->refcount) == 1) {
                 sx_core_del_rdq_from_monitor_rdq_list(rdq_table->dq[i]);
-                sx_core_destroy_rdq(dev, rdq_table->dq[i]);                
+                sx_core_destroy_rdq(dev, rdq_table->dq[i]);
             } else {
                 atomic_dec(&rdq_table->dq[i]->refcount);
             }

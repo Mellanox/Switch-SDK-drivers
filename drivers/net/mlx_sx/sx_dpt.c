@@ -46,8 +46,8 @@
 
 #define MAX_I2C_RETRIES 1
 
-extern struct sx_globals    sx_glb;
-extern int                  tx_debug;
+extern struct sx_globals sx_glb;
+extern int               tx_debug;
 
 #include <linux/module.h>
 #include <linux/mlx_sx/sx_i2c_if.h>
@@ -66,9 +66,9 @@ extern int                  tx_debug;
 #define ENTER_FUNC() DPRINTK("ENTER {");
 #define EXIT_FUNC()  DPRINTK("EXIT }");
 
-#define PRINTK_ERR(fmt, args ...)                                  \
-    do {                                                           \
-        printk(KERN_ERR DRV_NAME fmt "\n", ## args);               \
+#define PRINTK_ERR(fmt, args ...)                    \
+    do {                                             \
+        printk(KERN_ERR DRV_NAME fmt "\n", ## args); \
     } while (0)
 
 static char *dpt_type2str[] = {
@@ -85,7 +85,11 @@ typedef enum cr_access_method {
     CR_ACCESS_METHOD_MAX = CR_ACCESS_METHOD_WRITE,
 } cr_access_method;
 
-static int __cr_pcie_access(int dev_id, unsigned int address, unsigned char *buf, int size, cr_access_method access_method);
+static int __cr_pcie_access(int              dev_id,
+                            unsigned int     address,
+                            unsigned char   *buf,
+                            int              size,
+                            cr_access_method access_method);
 
 /**
  *
@@ -122,8 +126,7 @@ int sx_dpt_init_default_dev(struct sx_dev *sx_dev)
     sx_dpt_set_dev(dev_id, sx_dev);
 
 #ifdef NO_PCI
-    if (DEFAULT_DEVICE_ID == dev_id)
-    {
+    if (DEFAULT_DEVICE_ID == dev_id) {
         /* In NO_PCI mode we act as if we had PCI path */
         sx_glb.tmp_dev_ptr = sx_dev;
         return sx_dpt_init_dev_pci(sx_dev);
@@ -184,7 +187,7 @@ unsigned int sx_dpt_build_pci_dev_id(struct sx_dev *sx_dev)
 int sx_dpt_init_dev_pci(struct sx_dev *sx_dev)
 {
     union ku_dpt_path_info path_data;
-    int dev_id = sx_dev->device_id;
+    int                    dev_id = sx_dev->device_id;
     int                    err;
 
     printk("Called %s with device_id: %d \n", __func__, sx_dev->device_id);
@@ -212,11 +215,11 @@ int sx_dpt_init_dev_pci(struct sx_dev *sx_dev)
 static int __dpt_dump_handler(struct seq_file *m, void *v)
 {
     const struct sx_dpt_info *info;
-    int dev_id;
+    int                       dev_id;
 
     seq_printf(m, "--------------------------------------------\n");
     seq_printf(m, "%-6s   %-7s   %-5s   %-5s   %-9s\n",
-                  "dev-id", "cmd-ifc", "emad ", "mad  ", "cr-access");
+               "dev-id", "cmd-ifc", "emad ", "mad  ", "cr-access");
     seq_printf(m, "--------------------------------------------\n");
 
     for (dev_id = 0; dev_id < MAX_NUM_OF_REMOTE_SWITCHES; dev_id++) {
@@ -371,7 +374,7 @@ int sx_dpt_find_pci_dev(unsigned int sx_pci_dev_id, int vendor, int device, stru
 bool sx_dpt_is_valid(int sx_dev_id)
 {
     const struct sx_dpt_info *info = &sx_glb.sx_dpt.dpt_info[sx_dev_id];
-    int i;
+    int                       i;
 
     for (i = 0; i < sizeof(info->is_ifc_valid) / sizeof(info->is_ifc_valid[0]); i++) {
         if (info->is_ifc_valid[i]) {
@@ -389,7 +392,7 @@ void sx_dpt_set_dev(int sx_dev_id, struct sx_dev *sx_dev)
 }
 
 
-struct sx_dev *sx_dpt_get_dev_from_id(int sx_dev_id)
+struct sx_dev * sx_dpt_get_dev_from_id(int sx_dev_id)
 {
     return sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_dev;
 }
@@ -539,7 +542,7 @@ out:
 
 /**
  * This function with params dev_id and path will invalidate the
- * given "path" at index DEV_ID in DPT. All other pathes will
+ * given "path" at index DEV_ID in DPT. All other paths will
  * remains without changes.
  */
 int sx_dpt_remove_dev_path(int sx_dev_id, enum ku_dpt_path_type path)
@@ -626,7 +629,7 @@ int sx_dpt_remove_dev_path(int sx_dev_id, enum ku_dpt_path_type path)
 }
 
 /**
- * This function with params dev_id and path will invalidate all pathes
+ * This function with params dev_id and path will invalidate all paths
  * at index DEV_ID in DPT.
  */
 void __sx_dpt_remove_dev(int sx_dev_id)
@@ -665,7 +668,7 @@ void __sx_dpt_remove_dev(int sx_dev_id)
 int sx_dpt_is_dev_pci_attached(int sx_dev_id)
 {
     if (sx_glb.sx_dpt.dpt_info[sx_dev_id].is_ifc_valid[DPT_PATH_PCI_E] &&
-            (sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path == DPT_PATH_PCI_E) ){
+        (sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path == DPT_PATH_PCI_E)) {
         return 1;
     }
 
@@ -674,27 +677,27 @@ int sx_dpt_is_dev_pci_attached(int sx_dev_id)
 
 int sx_dpt_remove_dev(int sx_dev_id, int restart_flow)
 {
-    int err = 0;
-    void  *sx_dev = NULL; 
-    void  *def_sx_dev = NULL;
-    
-    if (sx_glb.sx_dpt.dpt_info[sx_dev_id].is_ifc_valid[DPT_PATH_PCI_E]){
+    int   err = 0;
+    void *sx_dev = NULL;
+    void *def_sx_dev = NULL;
+
+    if (sx_glb.sx_dpt.dpt_info[sx_dev_id].is_ifc_valid[DPT_PATH_PCI_E]) {
         sx_dev = sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_pcie_info.sx_dev;
     }
-    
-    if (sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].is_ifc_valid[DPT_PATH_PCI_E]){
+
+    if (sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].is_ifc_valid[DPT_PATH_PCI_E]) {
         def_sx_dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
-    }        
-    
-    /* 
-     * if the removed device is PCI (CMD_PATH=PCI) and 
-     * the it is the same as default device then remove default device too 
-     */ 
-    if ( (sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path == DPT_PATH_PCI_E) && 
-         (sx_dev == def_sx_dev) && restart_flow) {
+    }
+
+    /*
+     * if the removed device is PCI (CMD_PATH=PCI) and
+     * the it is the same as default device then remove default device too
+     */
+    if ((sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path == DPT_PATH_PCI_E) &&
+        (sx_dev == def_sx_dev) && restart_flow) {
         __sx_dpt_remove_dev(DEFAULT_DEVICE_ID);
     }
-    
+
     __sx_dpt_remove_dev(sx_dev_id);
 
     return err;
@@ -702,8 +705,8 @@ int sx_dpt_remove_dev(int sx_dev_id, int restart_flow)
 
 /**
  * This function is used to change dpt path : i2c , pci-e , sgmii
- * by changing the callbacks to approprite interface functions
- * To validate if the change is suceessed need to make some
+ * by changing the callbacks to appropriate interface functions
+ * To validate if the change is succeeded need to make some
  * wr/rd to check if the new interface is working
  */
 int sx_dpt_set_cmd_path(int sx_dev_id, enum  ku_dpt_path_type cmd_path)
@@ -716,12 +719,12 @@ int sx_dpt_set_cmd_path(int sx_dev_id, enum  ku_dpt_path_type cmd_path)
     }
 
     if ((cmd_path != DPT_PATH_I2C) && (cmd_path != DPT_PATH_SGMII) && (cmd_path != DPT_PATH_PCI_E)) {
-        PRINTK_ERR("path %d is not valid ! Supported CMD pathes: "
+        PRINTK_ERR("path %d is not valid ! Supported CMD paths: "
                    "I2C and PCI-E\n", cmd_path);
         return -EINVAL;
     }
 
-    /* change the pathes */
+    /* change the paths */
     sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path = cmd_path;
 
     EXIT_FUNC();
@@ -772,7 +775,7 @@ int sx_dpt_set_emad_path(int sx_dev_id, enum  ku_dpt_path_type emad_path)
         return -EINVAL;
     }
 
-    /* change the pathes */
+    /* change the paths */
     sx_glb.sx_dpt.dpt_info[sx_dev_id].emad_path = emad_path;
 
     EXIT_FUNC();
@@ -805,7 +808,7 @@ int sx_dpt_set_mad_path(int sx_dev_id, enum  ku_dpt_path_type mad_path)
         return -EINVAL;
     }
 
-    /* change the pathes */
+    /* change the paths */
     sx_glb.sx_dpt.dpt_info[sx_dev_id].mad_path = mad_path;
 
     EXIT_FUNC();
@@ -839,7 +842,7 @@ int sx_dpt_set_cr_access_path(int sx_dev_id, enum ku_dpt_path_type cr_access_pat
     sx_glb.sx_dpt.dpt_info[sx_dev_id].cr_access_path = cr_access_path;
 
     printk(KERN_INFO PFX "Successfully set CR_ACCESS path for device %d to %s\n",
-               sx_dev_id, dpt_type2str[cr_access_path]);
+           sx_dev_id, dpt_type2str[cr_access_path]);
 
     EXIT_FUNC();
     return err;
@@ -939,12 +942,12 @@ int sx_get_sdq_num_per_etclasss(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq
     }
 
     /* Let's use Spectrum1 like schema for SDQ creation.
-     * 
-     * Please note that the further SDQ handling will be based on 
-     * traffic type and handled by 'sx_get_sdq_cb' 
-     *  
-     * Actually we should have 3 SDQ to be created. 
-     */ 
+     *
+     * Please note that the further SDQ handling will be based on
+     * traffic type and handled by 'sx_get_sdq_cb'
+     *
+     * Actually we should have 3 SDQ to be created.
+     */
     if (etclass < 5) {
         *sdq = 2;
     } else if (etclass < 8) {
@@ -1089,17 +1092,17 @@ int sx_get_hw_etclass(struct isx_meta *meta, u8* hw_etclass)
         PRINTK_ERR("Invalid device id %d\n", meta->dev_id);
         return -EINVAL;
     }
-    
+
     /* case of SGMII dev */
-    if (dev == NULL){
+    if (dev == NULL) {
         *hw_etclass = meta->etclass;
         return 0;
     }
 
     err = __sx_core_dev_specific_cb_get_reference(dev);
     if (err) {
-    	PRINTK_ERR("__sx_core_dev_specific_cb_get_reference failed for device id %d\n", meta->dev_id);
-    	return err;
+        PRINTK_ERR("__sx_core_dev_specific_cb_get_reference failed for device id %d\n", meta->dev_id);
+        return err;
     }
 
     if (sx_priv(dev)->dev_specific_cb.get_hw_etclass_cb != NULL) {
@@ -1122,7 +1125,7 @@ int sx_get_sqd_num(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq)
         err = -EINVAL;
         printk(KERN_ERR PFX "Error retrieving sx_get_sdq_num_to_create_cb callback structure! err=[%d]\n", err);
         goto out;
-    } 
+    }
 
 out:
     return err;
@@ -1140,8 +1143,13 @@ int sx_get_sdq(struct isx_meta *meta,
                u8              *sdq,
                u8              *max_cpu_etclass_for_unlimited_mtu)
 {
-    u8            hw_etclass = 0;
-    int           ret = 0;
+    u8  hw_etclass = 0;
+    int ret = 0;
+
+    if (!dev) {
+        PRINTK_ERR("get sdq: dev is NULL\n");
+        return -EINVAL;
+    }
 
     /* this func also take priv->db_lock */
     if (sx_get_hw_etclass(meta, &hw_etclass) != 0) {
@@ -1151,19 +1159,18 @@ int sx_get_sdq(struct isx_meta *meta,
 
     ret = __sx_core_dev_specific_cb_get_reference(dev);
     if (ret) {
-    	PRINTK_ERR("__sx_core_dev_specific_cb_get_reference failed \n");
-    	return ret;
+        PRINTK_ERR("__sx_core_dev_specific_cb_get_reference failed \n");
+        return ret;
     }
 
-    if (dev && sx_priv(dev)->dev_specific_cb.max_cpu_etclass_for_unlimited_mtu != NULL) {
+    if (sx_priv(dev)->dev_specific_cb.max_cpu_etclass_for_unlimited_mtu != NULL) {
         *max_cpu_etclass_for_unlimited_mtu =
             sx_priv(dev)->dev_specific_cb.max_cpu_etclass_for_unlimited_mtu();
-    }
-    else {
-    	*max_cpu_etclass_for_unlimited_mtu = 1; /* default */
+    } else {
+        *max_cpu_etclass_for_unlimited_mtu = 1; /* default */
     }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb != NULL)) {
+    if (sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb(dev, type, swid,
                                                     etclass, stclass, sdq);
     } else {
@@ -1183,7 +1190,12 @@ int sx_build_isx_header(struct isx_meta *meta, struct sk_buff *skb, u8 stclass)
 {
     struct sx_dev *dev = sx_glb.tmp_dev_ptr;
     u8             hw_etclass = 0;
-    int 		   err = 0;
+    int            err = 0;
+
+    if (!dev) {
+        PRINTK_ERR("build isx header: dev is NULL\n");
+        return -EINVAL;
+    }
 
     /* this func also take priv->db_lock */
     if (sx_get_hw_etclass(meta, &hw_etclass) != 0) {
@@ -1192,12 +1204,12 @@ int sx_build_isx_header(struct isx_meta *meta, struct sk_buff *skb, u8 stclass)
     }
 
     err = __sx_core_dev_specific_cb_get_reference(dev);
-	if (err) {
-		PRINTK_ERR("__sx_core_dev_specific_cb_get_reference failed for dev id %d \n",meta->dev_id);
-		return err;
-	}
+    if (err) {
+        PRINTK_ERR("__sx_core_dev_specific_cb_get_reference failed for dev id %d \n", meta->dev_id);
+        return err;
+    }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.sx_build_isx_header_cb != NULL)) {
+    if (sx_priv(dev)->dev_specific_cb.sx_build_isx_header_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.sx_build_isx_header_cb(meta, skb, stclass, hw_etclass);
     } else {
         PRINTK_ERR("Error retrieving sx_build_isx_header callback structure!\n");
@@ -1312,12 +1324,11 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
 
     if (meta->type == SX_PKT_TYPE_ETH_DATA) {
         if ((!(meta->rx_is_router)) && (meta->fid_valid)) {
-
             spin_lock_irqsave(&sx_priv(dev_p)->db_lock, flags);
 
             if (sx_priv(dev_p)->fid_to_hwfid[meta->fid] == INVALID_HW_FID_ID) {
                 if (printk_ratelimit()) {
-                    printk(KERN_WARNING PFX "Failed to update meta of outcoming packet:"
+                    printk(KERN_WARNING PFX "Failed to update meta of outgoing packet:"
                            "no fid(%u) to hw_fid mapping \n", meta->fid);
                 }
             } else {
@@ -1430,7 +1441,7 @@ int sx_dpt_send_emad(int sx_dev_id, struct sk_buff *skb, struct isx_meta *meta)
 
     case DPT_PATH_PCI_E:
         DPRINTK("Send emad over PCI-E.\n");
-    	dev = sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_pcie_info.sx_dev;
+        dev = sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_pcie_info.sx_dev;
         err = __sx_core_post_send(dev, skb, meta);
         break;
 
@@ -1492,13 +1503,13 @@ int sx_dpt_get_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
 {
     int ret = 0;
 
-    ENTER_FUNC();    
+    ENTER_FUNC();
 
 #ifdef NO_PCI
     if (sx_glb.tmp_dev_ptr == NULL) {
         *dev = NULL;
         ret = -EINVAL;
-		PRINTK_ERR("There is no device to configure for DPT\n");
+        PRINTK_ERR("There is no device to configure for DPT\n");
         goto out;
     }
 
@@ -1517,7 +1528,7 @@ int sx_dpt_get_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
         ret = -EINVAL;
         goto out;
     }
-    
+
 
     if (sx_glb.sx_dpt.dpt_info[sx_dev_id].is_ifc_valid[DPT_PATH_PCI_E] == true) {
         *dev = (struct sx_dev *)sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_pcie_info.sx_dev;
@@ -1526,7 +1537,7 @@ int sx_dpt_get_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
         ret = -ENXIO;
         goto out;
     }
-    
+
 out:
     EXIT_FUNC();
     return ret;
@@ -1599,7 +1610,7 @@ int sx_dpt_get_i2c_dev_by_id(int sx_dev_id, int *i2c_dev)
 }
 
 /**
- * reg - CR space adress to write to
+ * reg - CR space address to write to
  * value - the value we want to write
  */
 int sx_dpt_i2c_writel(int dev_id, u32 reg, u32 value)
@@ -1632,10 +1643,8 @@ int sx_dpt_i2c_writel(int dev_id, u32 reg, u32 value)
         return -EINVAL;
     }
 
-    if (i > 0) {
-        printk(KERN_INFO "sx_dpt_i2c_writel for dev_id: %d succeeded "
-               "after %d tries!\n", dev_id, i);
-    }
+    printk(KERN_INFO "sx_dpt_i2c_writel for dev_id: %d succeeded "
+           "after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1671,10 +1680,8 @@ int sx_dpt_i2c_write_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf
         return -EINVAL;
     }
 
-    if (i > 0) {
-        printk(KERN_INFO "sx_dpt_i2c_write_buf for dev_id: %d "
-               "succeeded after %d tries!\n", dev_id, i);
-    }
+    printk(KERN_INFO "sx_dpt_i2c_write_buf for dev_id: %d "
+           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1711,10 +1718,8 @@ int sx_dpt_i2c_read_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf,
         return -EINVAL;
     }
 
-    if (i > 0) {
-        printk(KERN_INFO "sx_dpt_i2c_read_buf for dev_id: %d "
-               "succeeded after %d tries!\n", dev_id, i);
-    }
+    printk(KERN_INFO "sx_dpt_i2c_read_buf for dev_id: %d "
+           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1936,52 +1941,53 @@ int sx_dpt_stub_i2c_read_dword(int i2c_dev_id, int offset, u32 *val)
 int sx_dpt_cr_space_read(int dev_id, unsigned int address, unsigned char *buf, int size)
 {
     enum ku_dpt_path_type   cr_access_path = sx_dpt_get_cr_access_path(dev_id);
-    int                   err = 0;
+    int                     err = 0;
     struct ku_dpt_i2c_info* sx_i2c_info = NULL;
 
     ENTER_FUNC();
 
-    switch (cr_access_path){
+    switch (cr_access_path) {
     case (DPT_PATH_I2C):
-		if (!sx_glb.sx_i2c.enforce) {
-		    printk(KERN_ERR PFX "enforce is NULL!!!\n");
-		    err = -EINVAL;
-		    goto out;
-		}
+        if (!sx_glb.sx_i2c.enforce) {
+            printk(KERN_ERR PFX "enforce is NULL!!!\n");
+            err = -EINVAL;
+            goto out;
+        }
 
-		err = sx_dpt_get_i2c_info(dev_id, &sx_i2c_info);
-		if (err) {
-		    printk(KERN_WARNING PFX "Can't get I2C info of device %d. "
-		           "cr space read will not be performed. err = %d\n",
-		           dev_id, err);
-		    goto out;
-		}
-		err = sx_glb.sx_i2c.enforce(sx_i2c_info->sx_i2c_dev);
-		if (err) {
-		    printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
-		           "cr space read will not be performed. err = %d\n",
-		           dev_id, err);
-		    goto out;
-		}
+        err = sx_dpt_get_i2c_info(dev_id, &sx_i2c_info);
+        if (err) {
+            printk(KERN_WARNING PFX "Can't get I2C info of device %d. "
+                   "cr space read will not be performed. err = %d\n",
+                   dev_id, err);
+            goto out;
+        }
+        err = sx_glb.sx_i2c.enforce(sx_i2c_info->sx_i2c_dev);
+        if (err) {
+            printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
+                   "cr space read will not be performed. err = %d\n",
+                   dev_id, err);
+            goto out;
+        }
 
-		err = sx_dpt_i2c_read_buf(dev_id, address, buf, size);
-		sx_glb.sx_i2c.release(sx_i2c_info->sx_i2c_dev);
-		if (err) {
-		        printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
-		           "cr space read will not be performed. err = %d\n",
-		           dev_id, err);
-			goto out;
-		}
+        err = sx_dpt_i2c_read_buf(dev_id, address, buf, size);
+        sx_glb.sx_i2c.release(sx_i2c_info->sx_i2c_dev);
+        if (err) {
+            printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
+                   "cr space read will not be performed. err = %d\n",
+                   dev_id, err);
+            goto out;
+        }
 
-		break;
+        break;
+
     case (DPT_PATH_PCI_E):
         DPRINTK("Reading CR space using PCIE\n");
 
 #if defined(NO_PCI)
-    printk(KERN_ERR PFX "sx_dpt_cr_space_read: Can't read from CR space "
-           "of device %u. PCIE not supported\n", dev_id);
-    err = -EINVAL;
-    break;
+        printk(KERN_ERR PFX "sx_dpt_cr_space_read: Can't read from CR space "
+               "of device %u. PCIE not supported\n", dev_id);
+        err = -EINVAL;
+        break;
 #endif
         err = __cr_pcie_access(dev_id, address, buf, size, CR_ACCESS_METHOD_READ);
         if (err) {
@@ -2015,51 +2021,52 @@ out:
 int sx_dpt_cr_space_write(int dev_id, unsigned int address, unsigned char *buf, int size)
 {
     enum ku_dpt_path_type   cr_access_path = sx_dpt_get_cr_access_path(dev_id);
-    int                   err = 0;
+    int                     err = 0;
     struct ku_dpt_i2c_info* sx_i2c_info;
 
     ENTER_FUNC();
 
     switch (cr_access_path) {
     case (DPT_PATH_I2C):
-		if (!sx_glb.sx_i2c.enforce) {
-		    printk(KERN_ERR PFX "enforce is NULL!!!\n");
-		    err = -EINVAL;
-		    goto out;
-		}
+        if (!sx_glb.sx_i2c.enforce) {
+            printk(KERN_ERR PFX "enforce is NULL!!!\n");
+            err = -EINVAL;
+            goto out;
+        }
 
-		err = sx_dpt_get_i2c_info(dev_id, &sx_i2c_info);
-		if (err) {
-		    printk(KERN_WARNING PFX "Can't get I2C info of device %d. "
-		           "cr space read will not be performed. err = %d\n",
-		           dev_id, err);
-		    goto out;
-		}
-		err = sx_glb.sx_i2c.enforce(sx_i2c_info->sx_i2c_dev);
-		if (err) {
-		    printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
-		           "cr space write will not be performed. err = %d\n",
-		           dev_id, err);
-		    goto out;
-		}
+        err = sx_dpt_get_i2c_info(dev_id, &sx_i2c_info);
+        if (err) {
+            printk(KERN_WARNING PFX "Can't get I2C info of device %d. "
+                   "cr space read will not be performed. err = %d\n",
+                   dev_id, err);
+            goto out;
+        }
+        err = sx_glb.sx_i2c.enforce(sx_i2c_info->sx_i2c_dev);
+        if (err) {
+            printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
+                   "cr space write will not be performed. err = %d\n",
+                   dev_id, err);
+            goto out;
+        }
 
-		err = sx_dpt_i2c_write_buf(dev_id, address, buf, size);
-		sx_glb.sx_i2c.release(sx_i2c_info->sx_i2c_dev);
-		if (err) {
-		    printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
-		           "cr space write will not be performed. err = %d\n",
-		           dev_id, err);
-		    goto out;
-		}
+        err = sx_dpt_i2c_write_buf(dev_id, address, buf, size);
+        sx_glb.sx_i2c.release(sx_i2c_info->sx_i2c_dev);
+        if (err) {
+            printk(KERN_WARNING PFX "I2C bus of device %d is not ready. "
+                   "cr space write will not be performed. err = %d\n",
+                   dev_id, err);
+            goto out;
+        }
         break;
+
     case (DPT_PATH_PCI_E):
-         DPRINTK("Writing CR space using PCIE\n");
+        DPRINTK("Writing CR space using PCIE\n");
 
 #if defined(NO_PCI)
-    printk(KERN_ERR PFX "sx_dpt_cr_space_read: Can't write to CR space "
-           "of device %u. PCIE not supported\n", dev_id);
-    err = -EINVAL;
-    break;
+        printk(KERN_ERR PFX "sx_dpt_cr_space_read: Can't write to CR space "
+               "of device %u. PCIE not supported\n", dev_id);
+        err = -EINVAL;
+        break;
 #endif
         err = __cr_pcie_access(dev_id, address, buf, size, CR_ACCESS_METHOD_WRITE);
         if (err) {
@@ -2068,7 +2075,8 @@ int sx_dpt_cr_space_write(int dev_id, unsigned int address, unsigned char *buf, 
         }
 
         break;
-   case DPT_PATH_SGMII:
+
+    case DPT_PATH_SGMII:
         err = sgmii_send_cr_space_write(dev_id, address, buf, size);
         if (err) {
             printk(KERN_ERR "failed to send CR-Space write-request over SGMII (err=%d)\n", err);
@@ -2087,32 +2095,35 @@ int sx_dpt_cr_space_write(int dev_id, unsigned int address, unsigned char *buf, 
 out:
     EXIT_FUNC();
     return err;
-
 }
 
-static int __cr_pcie_access(int dev_id, unsigned int address, unsigned char *buff, int size, cr_access_method access_method)
+static int __cr_pcie_access(int              dev_id,
+                            unsigned int     address,
+                            unsigned char   *buff,
+                            int              size,
+                            cr_access_method access_method)
 {
-    int err = 0;
+    int                      err = 0;
     struct ku_dpt_pcie_info* pcie_info = NULL;
-    bool   locked = true;
-    void __iomem *cr_addr = NULL;
-    struct sx_dev *pcie_dev = NULL;
-    unsigned long pci_addr_start  = 0;
-    unsigned long pci_addr_end    = 0;
-    u32 bytes_processed = 0;
+    bool                     locked = true;
+    void __iomem            *cr_addr = NULL;
+    struct sx_dev           *pcie_dev = NULL;
+    unsigned long            pci_addr_start = 0;
+    unsigned long            pci_addr_end = 0;
+    u32                      bytes_processed = 0;
 
     if (buff == NULL) {
         printk(KERN_ERR PFX "__cr_pcie_access: Invalid buffer address for"
-                       "device %u\n", dev_id);
+               "device %u\n", dev_id);
         err = -EINVAL;
         goto out;
     }
 
-    if((access_method < CR_ACCESS_METHOD_MIN) || (access_method > CR_ACCESS_METHOD_MAX)) {
-            printk(KERN_ERR PFX "__cr_pcie_access: Can't access CR space "
-                           "of device %u because access method %d is invalid\n", dev_id, access_method);
-            err = -EINVAL;
-            goto out;
+    if ((access_method < CR_ACCESS_METHOD_MIN) || (access_method > CR_ACCESS_METHOD_MAX)) {
+        printk(KERN_ERR PFX "__cr_pcie_access: Can't access CR space "
+               "of device %u because access method %d is invalid\n", dev_id, access_method);
+        err = -EINVAL;
+        goto out;
     }
 
     if ((size % 4) != 0) {
@@ -2169,31 +2180,33 @@ static int __cr_pcie_access(int dev_id, unsigned int address, unsigned char *buf
 
 
     switch (access_method) {
-        case CR_ACCESS_METHOD_READ:
-            while (bytes_processed < size) {
-                (*(u32*) (buff + bytes_processed)) = readl(cr_addr + bytes_processed);
-                bytes_processed += 4;
-            }
-            break;
-        case CR_ACCESS_METHOD_WRITE:
-            while ( bytes_processed < size) {
-                writel((*((uint32_t*) (buff + bytes_processed))), cr_addr + bytes_processed);
-                bytes_processed += 4;
-            }
-            break;
-        default:
-            printk(KERN_ERR PFX "__cr_pcie_access: Can't access CR space "
-                           "of device %u because access method %d is invalid\n", dev_id, access_method);
-            err = -EINVAL;
-            goto out;
+    case CR_ACCESS_METHOD_READ:
+        while (bytes_processed < size) {
+            (*(u32*)(buff + bytes_processed)) = readl(cr_addr + bytes_processed);
+            bytes_processed += 4;
+        }
+        break;
+
+    case CR_ACCESS_METHOD_WRITE:
+        while (bytes_processed < size) {
+            writel((*((uint32_t*)(buff + bytes_processed))), cr_addr + bytes_processed);
+            bytes_processed += 4;
+        }
+        break;
+
+    default:
+        printk(KERN_ERR PFX "__cr_pcie_access: Can't access CR space "
+               "of device %u because access method %d is invalid\n", dev_id, access_method);
+        err = -EINVAL;
+        goto out;
     }
 
 out:
-	if (locked) {
-	    spin_unlock(&sx_glb.pci_devs_lock);
-	}
-	if (cr_addr) {
-		iounmap(cr_addr);
-	}
+    if (locked) {
+        spin_unlock(&sx_glb.pci_devs_lock);
+    }
+    if (cr_addr) {
+        iounmap(cr_addr);
+    }
     return err;
 }

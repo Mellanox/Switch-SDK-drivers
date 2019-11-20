@@ -43,53 +43,63 @@ static int sx_bfd_parse_cmd(char* data, int cmd)
 {
     int err = -ENOTTY;
 
-	switch(cmd) {
+    switch (cmd) {
     case SX_BFD_CMD_START_TX_OFFLOAD:
         printk(KERN_DEBUG "START_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_add(data, NULL);
-	case SX_BFD_CMD_UPDATE_TX_OFFLOAD:
-	    printk(KERN_DEBUG "UPDATE_TX_OFFLOAD.\n");
-	    return sx_bfd_tx_sess_update(data);
+
+    case SX_BFD_CMD_UPDATE_TX_OFFLOAD:
+        printk(KERN_DEBUG "UPDATE_TX_OFFLOAD.\n");
+        return sx_bfd_tx_sess_update(data);
+
     case SX_BFD_CMD_STOP_TX_OFFLOAD:
         printk(KERN_DEBUG "STOP_TX_OFFLOAD.\n");
-		return sx_bfd_tx_sess_del(data, NULL);
+        return sx_bfd_tx_sess_del(data, NULL);
+
     case SX_BFD_CMD_START_RX_OFFLOAD:
         printk(KERN_DEBUG "START_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_add(data);
+
     case SX_BFD_CMD_UPDATE_RX_OFFLOAD:
         printk(KERN_DEBUG "UPDATE_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_update(data);
+
     case SX_BFD_CMD_STOP_RX_OFFLOAD:
         printk(KERN_DEBUG "STOP_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_del(data);
-	case SX_BFD_CMD_GET_RX_STATS:
+
+    case SX_BFD_CMD_GET_RX_STATS:
         printk(KERN_DEBUG "Request RX statistics\n");
         return sx_bfd_get_rx_sess_stats(data, false);
+
     case SX_BFD_CMD_GET_TX_STATS:
         printk(KERN_DEBUG "Request TX statistics\n");
         return sx_bfd_get_tx_sess_stats(data, false);
+
     case SX_BFD_CMD_GET_AND_CLEAR_RX_STATS:
         printk(KERN_DEBUG "Request & Clear RX statistics\n");
         return sx_bfd_get_rx_sess_stats(data, true);
+
     case SX_BFD_CMD_GET_AND_CLEAR_TX_STATS:
         printk(KERN_DEBUG "Request & Clear TX statistics\n");
         return sx_bfd_get_tx_sess_stats(data, true);
-	default:
-	    printk(KERN_DEBUG "Unsupported sx bfd command");
-	}
 
-	return err;
+    default:
+        printk(KERN_DEBUG "Unsupported sx bfd command");
+    }
+
+    return err;
 }
 
 int sx_bfd_engine_ctrl_init(void)
 {
-	int err;
+    int err;
 
-	err = sx_bfd_cdev_init(&sx_bfd_parse_cmd);
-	if (err < 0) {
-		printk(KERN_ERR "Kernel BFD chardevice failed to initialize.\n");
-		goto bail;
-	}
+    err = sx_bfd_cdev_init(&sx_bfd_parse_cmd);
+    if (err < 0) {
+        printk(KERN_ERR "Kernel BFD chardevice failed to initialize.\n");
+        goto bail;
+    }
 
     err = sx_bfd_workqueue_init();
     if (err < 0) {
@@ -113,17 +123,16 @@ bail:
     if (err) {
         sx_bfd_engine_ctrl_deinit();
     }
-	return err;
+    return err;
 }
 
 void sx_bfd_engine_ctrl_deinit(void)
 {
     sx_bfd_cdev_deinit();
 
-	sx_bfd_rx_session_deinit();
+    sx_bfd_rx_session_deinit();
 
-	sx_bfd_tx_session_deinit();
+    sx_bfd_tx_session_deinit();
 
-	sx_bfd_workqueue_deinit();
-
+    sx_bfd_workqueue_deinit();
 }

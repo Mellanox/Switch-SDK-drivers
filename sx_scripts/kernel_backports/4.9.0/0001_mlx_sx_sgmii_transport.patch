@@ -1,12 +1,13 @@
---- a/drivers/net/mlx_sx/sgmii_transport.c	2018-05-02 04:16:15.569156000 +0300
-+++ b/drivers/net/mlx_sx/sgmii_transport.c	2018-05-02 04:22:43.371105000 +0300
-@@ -638,7 +638,7 @@ static int __netdev_notify_cb(struct notifier_block *this,
-                               unsigned long event,
-                               void *context)
- {
--    const struct net_device *netdev_notif = (struct net_device*) context;
-+    const struct net_device *netdev_notif = netdev_notifier_info_to_dev((struct netdev_notifier_info*) context);
-     struct net_device *sgmii_netdev;
-
-     sgmii_netdev = __sgmii_get_netdev();
+diff --git a/drivers/net/mlx_sx/sgmii_transport.c b/drivers/net/mlx_sx/sgmii_transport.c
+index 3e15357..b5b16c3 100644
+--- a/drivers/net/mlx_sx/sgmii_transport.c
++++ b/drivers/net/mlx_sx/sgmii_transport.c
+@@ -618,7 +618,7 @@ static void __sgmii_dev_removed_cb(void *context)
  
+ static int __netdev_notify_cb(struct notifier_block *this, unsigned long event, void *context)
+ {
+-    const struct net_device *netdev_notif = (struct net_device*)context;
++    const struct net_device *netdev_notif = netdev_notifier_info_to_dev((struct netdev_notifier_info*) context);
+     struct net_device       *sgmii_netdev;
+ 
+     sgmii_netdev = __sgmii_get_netdev();

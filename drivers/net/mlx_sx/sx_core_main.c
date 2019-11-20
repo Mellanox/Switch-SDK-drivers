@@ -96,16 +96,16 @@ static const char sx_version[] =
     SX_CORE_DRV_VERSION " (" DRV_RELDATE ")\n";
 
 #define MAX_ROUTER_MID_TABLE_SIZE 0xffff
-#define MAX_IB_PORT 65
+#define MAX_IB_PORT               65
 
-#define SX_CORE_PHY_PORT_NUM_MAX 64
-#define SX_CORE_PHY_PORT_NUM_QUANTUM_MAX 80
-#define SX_CORE_PHY_PORT_NUM_SPECTRUM2_MAX 128
-#define SX_CORE_LAG_NUM_MAX 64
-#define SX_CORE_LAG_NUM_SPECTRUM2_MAX 128
-#define SX_CORE_PORTS_PER_LAG_NUM_MAX 32
+#define SX_CORE_PHY_PORT_NUM_MAX                64
+#define SX_CORE_PHY_PORT_NUM_QUANTUM_MAX        80
+#define SX_CORE_PHY_PORT_NUM_SPECTRUM2_MAX      128
+#define SX_CORE_LAG_NUM_MAX                     64
+#define SX_CORE_LAG_NUM_SPECTRUM2_MAX           128
+#define SX_CORE_PORTS_PER_LAG_NUM_MAX           32
 #define SX_CORE_PORTS_PER_LAG_NUM_SPECTRUM2_MAX 64
-#define SX_CORE_DEV_CB_FINISH_WAIT_TIMEOUT     (30*HZ)
+#define SX_CORE_DEV_CB_FINISH_WAIT_TIMEOUT      (30 * HZ)
 
 /* The following defines are used in the chip specific
  * callback functions to get the correct number of RDQ
@@ -230,22 +230,22 @@ MODULE_PARM_DESC(eventlist_drops_counter, "Event list drops counter");
 
 int unconsumed_packets_counter = 0;
 module_param_named(unconsumed_packets_counter,
-		unconsumed_packets_counter, int, 0644);
+                   unconsumed_packets_counter, int, 0644);
 MODULE_PARM_DESC(unconsumed_packets_counter, "Unconsumed packets counter");
 
 int filtered_lag_packets_counter = 0;
 module_param_named(filtered_lag_packets_counter,
-		filtered_lag_packets_counter, int, 0644);
+                   filtered_lag_packets_counter, int, 0644);
 MODULE_PARM_DESC(filtered_lag_packets_counter, "Filtered LAG packets counter");
 
 int filtered_port_packets_counter = 0;
 module_param_named(filtered_port_packets_counter,
-		filtered_port_packets_counter, int, 0644);
+                   filtered_port_packets_counter, int, 0644);
 MODULE_PARM_DESC(filtered_port_packets_counter, "Filtered port packets counter");
 
 int loopback_packets_counter = 0;
 module_param_named(loopback_packets_counter,
-		loopback_packets_counter, int, 0644);
+                   loopback_packets_counter, int, 0644);
 MODULE_PARM_DESC(loopback_packets_counter, "Loopback packets counter");
 
 int fast_boot = 0;
@@ -324,12 +324,12 @@ static void inc_eventlist_drops_global_counter(u16 hw_synd);
 #ifndef SXD_KERNEL_DISABLE_PCI_DRV_SHUTDOWN
 static void sx_core_shutdown(struct pci_dev *pdev);
 #endif
-static void sx_disconnect_all_trap_groups_spectrum(struct sx_dev  *dev);
+static void sx_disconnect_all_trap_groups_spectrum(struct sx_dev *dev);
 static void sx_core_listeners_cleanup(void);
 
 int sx_init_char_dev(struct cdev *cdev_p);
 void sx_deinit_char_dev(struct cdev *cdev_p);
-int sx_core_ptp_cleanup(struct sx_dev  *dev);
+int sx_core_ptp_cleanup(struct sx_dev *dev);
 
 enum {
     PCI_PROBE_STATE_NONE_E,
@@ -347,28 +347,27 @@ static u8 __oob_pci = 0;
 
 u16 translate_user_port_to_sysport(struct sx_dev *dev, u32 log_port, int* is_lag)
 {
-	unsigned int port_type = SX_PORT_TYPE_ID_GET(log_port);
-	u16 ret = 0;
-	*is_lag = 0;
-	if (port_type == SX_PORT_TYPE_LAG) {
-		*is_lag = 1;
-		return SX_PORT_LAG_ID_GET(log_port);
-	}
-	else {
-		if (SX_PORT_PHY_ID_GET(log_port) == CPU_PORT_PHY_ID) {
-			/* Build CPU port route*/
-			ret = UCROUTE_CPU_PORT_PREFIX;
-			ret |= SX_PORT_DEV_ID_GET(log_port) << UCROUTE_CPU_DEV_BIT_OFFSET;
-		}
-		else {
-			ret = sx_priv(dev)->local_to_system_db[SX_PORT_PHY_ID_GET(log_port)];
-			/* For Switchx-2 it's equals to the following translation:
-			ret = SX_PORT_DEV_ID_GET(log_port) << UCROUTE_DEV_ID_BIT_OFFSET;
-			ret |= (SX_PORT_PHY_ID_GET(log_port) - 1) << UCROUTE_PHY_PORT_BITS_OFFSET;
-			*/
-		}
-	}
-	return ret;
+    unsigned int port_type = SX_PORT_TYPE_ID_GET(log_port);
+    u16          ret = 0;
+
+    *is_lag = 0;
+    if (port_type == SX_PORT_TYPE_LAG) {
+        *is_lag = 1;
+        return SX_PORT_LAG_ID_GET(log_port);
+    } else {
+        if (SX_PORT_PHY_ID_GET(log_port) == CPU_PORT_PHY_ID) {
+            /* Build CPU port route*/
+            ret = UCROUTE_CPU_PORT_PREFIX;
+            ret |= SX_PORT_DEV_ID_GET(log_port) << UCROUTE_CPU_DEV_BIT_OFFSET;
+        } else {
+            ret = sx_priv(dev)->local_to_system_db[SX_PORT_PHY_ID_GET(log_port)];
+            /* For Switchx-2 it's equals to the following translation:
+             *  ret = SX_PORT_DEV_ID_GET(log_port) << UCROUTE_DEV_ID_BIT_OFFSET;
+             *  ret |= (SX_PORT_PHY_ID_GET(log_port) - 1) << UCROUTE_PHY_PORT_BITS_OFFSET;
+             */
+        }
+    }
+    return ret;
 }
 EXPORT_SYMBOL(translate_user_port_to_sysport);
 
@@ -376,25 +375,23 @@ u32 translate_sysport_to_user_port(struct sx_dev *dev, u16 port, u8 is_lag)
 {
     u32 lag_id = 0;
 
-	if (is_lag) {
-	    lag_id = port << SX_PORT_LAG_ID_OFFS;
-	    lag_id |= SX_PORT_TYPE_LAG << SX_PORT_TYPE_ID_OFFS;
-		return lag_id;
-	}
-	else {
-		if ((port & UCROUTE_CPU_PORT_PREFIX) == UCROUTE_CPU_PORT_PREFIX) {
-			return ((port & ~UCROUTE_CPU_PORT_PREFIX) >> UCROUTE_CPU_DEV_BIT_OFFSET)
-				<< SX_PORT_DEV_ID_OFFS;
-		}
-		else {
-			return ((port >> UCROUTE_DEV_ID_BIT_OFFSET) << SX_PORT_DEV_ID_OFFS) |
-				(sx_priv(dev)->system_to_local_db[port]) << SX_PORT_PHY_ID_OFFS;
-			/* For Switchx-2 it's equals to the following translation:
-			return ((port >> UCROUTE_DEV_ID_BIT_OFFSET) << SX_PORT_DEV_ID_OFFS) |
-				(((port >> UCROUTE_PHY_PORT_BITS_OFFSET) & 0xFF) + 1) << SX_PORT_PHY_ID_OFFS;
-			*/
-		}
-	}
+    if (is_lag) {
+        lag_id = port << SX_PORT_LAG_ID_OFFS;
+        lag_id |= SX_PORT_TYPE_LAG << SX_PORT_TYPE_ID_OFFS;
+        return lag_id;
+    } else {
+        if ((port & UCROUTE_CPU_PORT_PREFIX) == UCROUTE_CPU_PORT_PREFIX) {
+            return ((port & ~UCROUTE_CPU_PORT_PREFIX) >> UCROUTE_CPU_DEV_BIT_OFFSET)
+                   << SX_PORT_DEV_ID_OFFS;
+        } else {
+            return ((port >> UCROUTE_DEV_ID_BIT_OFFSET) << SX_PORT_DEV_ID_OFFS) |
+                   (sx_priv(dev)->system_to_local_db[port]) << SX_PORT_PHY_ID_OFFS;
+            /* For Switchx-2 it's equals to the following translation:
+             *  return ((port >> UCROUTE_DEV_ID_BIT_OFFSET) << SX_PORT_DEV_ID_OFFS) |
+             *   (((port >> UCROUTE_PHY_PORT_BITS_OFFSET) & 0xFF) + 1) << SX_PORT_PHY_ID_OFFS;
+             */
+        }
+    }
 }
 EXPORT_SYMBOL(translate_sysport_to_user_port);
 
@@ -458,13 +455,13 @@ int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint8_t lag_subport, 
 
     if (lag_id > lag_max) {
         net_err_ratelimited(PFX "lag_id %d is invalid. (MAX %d).\n",
-               lag_id, lag_max);
+                            lag_id, lag_max);
         return -EINVAL;
     }
 
     if (lag_subport > lag_member_max) {
         net_err_ratelimited(PFX "lag_subport %d is invalid. (MAX %d).\n",
-               lag_subport, lag_member_max);
+                            lag_subport, lag_member_max);
         return -EINVAL;
     }
 
@@ -477,7 +474,7 @@ int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint8_t lag_subport, 
 
     if (local > phy_port_max) {
         net_err_ratelimited(PFX "Local %d is invalid. (MAX %d).\n",
-               local, phy_port_max);
+                            local, phy_port_max);
         return -EINVAL;
     }
 
@@ -498,7 +495,7 @@ int sx_core_get_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 *oper_state_p)
 
     if (lag_id >= lag_max) {
         net_err_ratelimited(PFX "lag_id %d is invalid. (MAX %d).\n",
-               lag_id, lag_max);
+                            lag_id, lag_max);
         return -EINVAL;
     }
 
@@ -508,9 +505,9 @@ int sx_core_get_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 *oper_state_p)
 }
 EXPORT_SYMBOL(sx_core_get_lag_oper_state);
 
-void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 *is_lag_member) {
-
-    int i = 0, j = 0;
+void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 *is_lag_member)
+{
+    int      i = 0, j = 0;
     uint16_t lag_max = 0, lag_member_max = 0;
 
     if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
@@ -518,9 +515,9 @@ void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 
         return;
     }
 
-    for (i = 0; i < lag_max; i++){  /* lag */
-        for (j = 0; j < lag_member_max; j++){  /* lag member id */
-            if (sx_priv(dev)->lag_member_to_local_db[i][j] == sysport){
+    for (i = 0; i < lag_max; i++) { /* lag */
+        for (j = 0; j < lag_member_max; j++) { /* lag member id */
+            if (sx_priv(dev)->lag_member_to_local_db[i][j] == sysport) {
                 if (lag_id != NULL) {
                     *lag_id = i;
                 }
@@ -559,11 +556,11 @@ EXPORT_SYMBOL(sx_core_get_ptp_clock_index);
 
 int sx_core_pending_ptp_eg_pkt(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag, u8 *is_ptp_pkt)
 {
-    u8                          ptp_domain_num = 0, ptp_msg_type = 0;
-    u16                         ptp_evt_seqid = 0;
-    struct ptp_tx_event_data   *ptp_event;
-    unsigned long               flags;
-    uint16_t                    phy_port_max = 0;
+    u8                        ptp_domain_num = 0, ptp_msg_type = 0;
+    u16                       ptp_evt_seqid = 0;
+    struct ptp_tx_event_data *ptp_event;
+    unsigned long             flags;
+    uint16_t                  phy_port_max = 0;
 
     if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
         printk(KERN_ERR PFX "Failed to get max number of phy ports.\n");
@@ -662,10 +659,7 @@ int sx_core_get_prio2tc(struct sx_dev *dev, uint16_t port_lag_id, uint8_t is_lag
 }
 EXPORT_SYMBOL(sx_core_get_prio2tc);
 
-int sx_core_get_pvid(struct sx_dev *dev,
-                     uint16_t       sysport_lag_id,
-                     uint8_t        is_lag,
-                     uint16_t       *pvid)
+int sx_core_get_pvid(struct sx_dev *dev, uint16_t sysport_lag_id, uint8_t is_lag, uint16_t       *pvid)
 {
     struct sx_priv *dev_priv = sx_priv(dev);
     unsigned long   flags;
@@ -750,17 +744,22 @@ EXPORT_SYMBOL(sx_core_get_prio_tagging);
 
 int sx_core_get_swid(struct sx_dev *dev, struct completion_info *comp_info, uint8_t *swid)
 {
-	int rc = 0;
+    int rc = 0;
 
     *swid = 0;
 
-    rc = __sx_core_dev_specific_cb_get_reference(dev);
-    if (rc) {
-    	printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-    	return rc;
+    if (!dev) {
+        printk(KERN_ERR PFX "get_swid: dev is NULL\n");
+        return -EINVAL;
     }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.get_swid_cb != NULL)) {
+    rc = __sx_core_dev_specific_cb_get_reference(dev);
+    if (rc) {
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return rc;
+    }
+
+    if (sx_priv(dev)->dev_specific_cb.get_swid_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.get_swid_cb(dev, comp_info, swid);
     } else {
         printk(KERN_ERR PFX "Error retrieving get_swid_cb callback\n");
@@ -777,6 +776,11 @@ int sx_core_get_phy_port_max(struct sx_dev *dev, uint16_t *port)
 {
     int rc = 0;
 
+    if (dev == NULL) {
+        printk(KERN_ERR PFX "get phy port max: dev is NULL.\n");
+        return -EINVAL;
+    }
+
     if (port == NULL) {
         printk(KERN_ERR PFX "port is NULL.\n");
         return -EINVAL;
@@ -786,17 +790,16 @@ int sx_core_get_phy_port_max(struct sx_dev *dev, uint16_t *port)
 
     rc = __sx_core_dev_specific_cb_get_reference(dev);
     if (rc) {
-    	printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-    	return rc;
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return rc;
     }
 
-    /* We don't use lock because the following function will return hardcoded
-       value and nothing will be changed after we will init switch with
-       appropriate callback, hence lock will be redundant here. */
+    /* We don't use lock because the following function will return hard-coded
+     *  value and nothing will be changed after we will init switch with
+     *  appropriate callback, hence lock will be redundant here. */
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb != NULL)) {
-        if (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb(port))
-        {
+    if (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb != NULL) {
+        if (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb(port)) {
             printk(KERN_ERR PFX "Error retrieving max phy port number from sx_get_phy_port_max_cb callback\n");
             rc = -EINVAL;
         }
@@ -804,7 +807,6 @@ int sx_core_get_phy_port_max(struct sx_dev *dev, uint16_t *port)
         printk(KERN_ERR PFX "Error retrieving sx_get_phy_port_max_cb callback\n");
         rc = -EINVAL;
     }
-
 
 
     __sx_core_dev_specific_cb_release_reference(dev);
@@ -815,6 +817,11 @@ EXPORT_SYMBOL(sx_core_get_phy_port_max);
 int sx_core_get_lag_max(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag)
 {
     int rc = 0;
+
+    if (dev == NULL) {
+        printk(KERN_ERR PFX "lag_max: dev is NULL.\n");
+        return -EINVAL;
+    }
 
     if (lags == NULL) {
         printk(KERN_ERR PFX "lags is NULL.\n");
@@ -827,18 +834,17 @@ int sx_core_get_lag_max(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_l
     }
 
     rc = __sx_core_dev_specific_cb_get_reference(dev);
-	if (rc) {
-		printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-		return rc;
-	}
+    if (rc) {
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return rc;
+    }
 
-    /* We don't use lock because the following function will return hardcoded
-       value and nothing will be changed after we will init switch with
-       appropriate callback, hence lock will be redundant here. */
+    /* We don't use lock because the following function will return hard-coded
+     *  value and nothing will be changed after we will init switch with
+     *  appropriate callback, hence lock will be redundant here. */
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb != NULL)) {
-        if (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb(lags, pors_per_lag))
-        {
+    if (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb != NULL) {
+        if (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb(lags, pors_per_lag)) {
             printk(KERN_ERR PFX "Error retrieving max values for LAG from sx_get_lag_max_cb callback\n");
             rc = -EINVAL;
         }
@@ -854,13 +860,18 @@ EXPORT_SYMBOL(sx_core_get_lag_max);
 
 int sx_core_get_lag_mid(struct sx_dev *dev, u16 lag_id, u16 *mid)
 {
-	int rc;
+    int rc;
 
-	rc = __sx_core_dev_specific_cb_get_reference(dev);
-	if (rc) {
-		printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-		return rc;
-	}
+    if (!dev) {
+        printk(KERN_ERR PFX "get_lad_mid: dev is NULL\n");
+        return -EINVAL;
+    }
+
+    rc = __sx_core_dev_specific_cb_get_reference(dev);
+    if (rc) {
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return rc;
+    }
 
     if (dev && (sx_priv(dev)->dev_specific_cb.get_lag_mid_cb != NULL)) {
         sx_priv(dev)->dev_specific_cb.get_lag_mid_cb(lag_id, mid);
@@ -870,7 +881,7 @@ int sx_core_get_lag_mid(struct sx_dev *dev, u16 lag_id, u16 *mid)
         return -EINVAL;
     }
 
-	__sx_core_dev_specific_cb_release_reference(dev);
+    __sx_core_dev_specific_cb_release_reference(dev);
 
     return 0;
 }
@@ -880,16 +891,15 @@ int sx_core_is_eqn_cmd_ifc_only(struct sx_dev *dev, int eqn, u8 *is_cmd_ifc_only
 {
     int rc = 0;
 
+    if (!dev) {
+        printk(KERN_ERR PFX "Error in sx_core_is_eqn_cmd_ifc_only: *dev is NULL.\n");
+        return -EINVAL;
+    }
+
     rc = __sx_core_dev_specific_cb_get_reference(dev);
     if (rc) {
         printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
         return rc;
-    }
-
-    if (!dev) {
-        printk(KERN_ERR PFX "Error in sx_core_is_eqn_cmd_ifc_only: *dev is NULL.\n");
-        __sx_core_dev_specific_cb_release_reference(dev);
-        return -EINVAL;
     }
 
     if (sx_priv(dev)->dev_specific_cb.is_eqn_cmd_ifc_only_cb != NULL) {
@@ -904,13 +914,12 @@ int sx_core_is_eqn_cmd_ifc_only(struct sx_dev *dev, int eqn, u8 *is_cmd_ifc_only
 }
 EXPORT_SYMBOL(sx_core_is_eqn_cmd_ifc_only);
 
-int sx_core_get_rp_rfid(struct sx_dev *dev, uint16_t port_lag_id,
-                        uint8_t is_lag, uint16_t vlan_id, uint16_t *rfid)
+int sx_core_get_rp_rfid(struct sx_dev *dev, uint16_t port_lag_id, uint8_t is_lag, uint16_t vlan_id, uint16_t *rfid)
 {
     struct sx_priv *dev_priv = sx_priv(dev);
     uint16_t        local = 0, phy_port_max = 0, rif_id = 0;
     unsigned long   flags;
-    uint16_t lag_max = 0, lag_member_max = 0;
+    uint16_t        lag_max = 0, lag_member_max = 0;
 
     if (vlan_id >= SXD_MAX_VLAN_NUM) {
         printk(KERN_ERR PFX "vlan_id %d is invalid. (MAX %d).\n",
@@ -934,7 +943,7 @@ int sx_core_get_rp_rfid(struct sx_dev *dev, uint16_t port_lag_id,
     if (is_lag) {
         if (port_lag_id > lag_max) {
             net_err_ratelimited(PFX "port_lag_id %d is invalid. (MAX %d).\n",
-                   port_lag_id, lag_max);
+                                port_lag_id, lag_max);
             spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
             return -EINVAL;
         }
@@ -952,7 +961,7 @@ int sx_core_get_rp_rfid(struct sx_dev *dev, uint16_t port_lag_id,
 
         if (local > phy_port_max) {
             net_err_ratelimited(PFX "Local %d is invalid. (MAX %d).\n",
-                   local, phy_port_max);
+                                local, phy_port_max);
             spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
             return -EINVAL;
         }
@@ -974,17 +983,22 @@ EXPORT_SYMBOL(sx_core_get_rp_rfid);
 
 int sx_core_get_rp_vlan(struct sx_dev *dev, struct completion_info *comp_info, uint16_t *vlan_id)
 {
-	int rc;
+    int rc;
+
+    if (!dev) {
+        printk(KERN_ERR PFX "get_rp_vlan: dev is NULL\n");
+        return -EINVAL;
+    }
 
     *vlan_id = 0;
 
     rc = __sx_core_dev_specific_cb_get_reference(dev);
     if (rc) {
-    	printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-    	return rc;
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return rc;
     }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.get_rp_vid_cb != NULL)) {
+    if (sx_priv(dev)->dev_specific_cb.get_rp_vid_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.get_rp_vid_cb(dev, comp_info, vlan_id);
     } else {
         printk(KERN_ERR PFX "Error retrieving get_rp_vid_cb callback\n");
@@ -1000,9 +1014,9 @@ EXPORT_SYMBOL(sx_core_get_rp_vlan);
 int sx_core_get_rp_mode(struct sx_dev *dev, u8 is_lag, u16 sysport_lag_id, u16 vlan_id, u8 *is_rp)
 {
     unsigned long flags;
-    u16 lag_id = 0;
-    uint16_t local = 0, phy_port_max = 0;
-    uint16_t lag_max = 0, lag_member_max = 0;
+    u16           lag_id = 0;
+    uint16_t      local = 0, phy_port_max = 0;
+    uint16_t      lag_max = 0, lag_member_max = 0;
 
     if (vlan_id >= SXD_MAX_VLAN_NUM) {
         printk(KERN_ERR PFX "vlan_id %d is invalid. (MAX %d).\n",
@@ -1113,37 +1127,37 @@ int sx_core_get_fid_by_port_vid(struct sx_dev *dev, struct completion_info *comp
 }
 EXPORT_SYMBOL(sx_core_get_fid_by_port_vid);
 
-int sx_core_get_ib_system_port_mid(struct sx_dev *dev,u16 ib_port, u16* sys_port_mid)
+int sx_core_get_ib_system_port_mid(struct sx_dev *dev, u16 ib_port, u16* sys_port_mid)
 {
-	u16 ret = 0;
+    u16 ret = 0;
 
-	/* this function is called from the sx_ib/IPoIB drivers that work only with PCI devices.
-	 * When OOB is enabled, these drivers work with the SX dev and its specific callbacks.
-	 * This is the point when we change the sx_dev we work with in order to work with the
-	 * right callbacks!
-	 */
-	if (is_sgmii_supported()) {
-	    dev = sx_glb.tmp_dev_ptr; /* the SGMII device with the right callbacks */
-	}
+    /* this function is called from the sx_ib/IPoIB drivers that work only with PCI devices.
+     * When OOB is enabled, these drivers work with the SX dev and its specific callbacks.
+     * This is the point when we change the sx_dev we work with in order to work with the
+     * right callbacks!
+     */
+    if (is_sgmii_supported()) {
+        dev = sx_glb.tmp_dev_ptr; /* the SGMII device with the right callbacks */
+    }
 
     ret = __sx_core_dev_specific_cb_get_reference(dev);
-	if (ret) {
-		printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-		return ret;
-	}
+    if (ret) {
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return ret;
+    }
 
     if (sx_priv(dev)->dev_specific_cb.get_ib_system_port_mid != NULL) {
-        ret = sx_priv(dev)->dev_specific_cb.get_ib_system_port_mid(dev,ib_port, sys_port_mid);
+        ret = sx_priv(dev)->dev_specific_cb.get_ib_system_port_mid(dev, ib_port, sys_port_mid);
     } else {
-    	printk(KERN_ERR PFX "Error retrieving get_ib_system_port_mid callback structure!\n");
-    	printk(KERN_ERR PFX "Hint: Check call to IB code from ETH flow!\n");
-    	__sx_core_dev_specific_cb_release_reference(dev);
+        printk(KERN_ERR PFX "Error retrieving get_ib_system_port_mid callback structure!\n");
+        printk(KERN_ERR PFX "Hint: Check call to IB code from ETH flow!\n");
+        __sx_core_dev_specific_cb_release_reference(dev);
         return -EINVAL;
     }
 
     __sx_core_dev_specific_cb_release_reference(dev);
 
-	return ret;
+    return ret;
 }
 EXPORT_SYMBOL(sx_core_get_ib_system_port_mid);
 
@@ -1152,10 +1166,10 @@ int sx_core_get_send_to_port_as_data(struct sx_dev *dev, u8* send_to_port_as_dat
     int ret = 0;
 
     ret = __sx_core_dev_specific_cb_get_reference(dev);
-	if (ret) {
-		printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-		return ret;
-	}
+    if (ret) {
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return ret;
+    }
 
     if (sx_priv(dev)->dev_specific_cb.get_send_to_port_as_data_supported_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.get_send_to_port_as_data_supported_cb(send_to_port_as_data);
@@ -1164,7 +1178,7 @@ int sx_core_get_send_to_port_as_data(struct sx_dev *dev, u8* send_to_port_as_dat
     }
     __sx_core_dev_specific_cb_release_reference(dev);
 
-  	return ret;
+    return ret;
 }
 EXPORT_SYMBOL(sx_core_get_send_to_port_as_data);
 
@@ -1181,7 +1195,7 @@ static void set_default_capabilities(struct sx_dev *dev)
 
     dev->dev_cap.max_num_rdqs = NUMBER_OF_RDQS;
     dev->dev_cap.max_num_sdqs = NUMBER_OF_SDQS;
-	dev->dev_cap.max_num_cqs = NUMBER_OF_RDQS + NUMBER_OF_SDQS;
+    dev->dev_cap.max_num_cqs = NUMBER_OF_RDQS + NUMBER_OF_SDQS;
 
     dev->dev_cap.max_num_cpu_egress_tcs = 12;
     dev->dev_cap.max_num_cpu_ingress_tcs = 16;
@@ -1228,11 +1242,11 @@ EXPORT_SYMBOL(sx_get_dev_context);
  ***********************************************/
 void inc_unconsumed_packets_counter(struct sx_dev *dev, u16 hw_synd, enum sx_packet_type pkt_type)
 {
-    inc_unconsumed_packets_global_counter( hw_synd, pkt_type);
-	if (dev) {
-    	dev->stats.rx_unconsumed_by_synd[hw_synd][pkt_type]++;
-    	dev->unconsumed_packets_counter++;
-	}
+    inc_unconsumed_packets_global_counter(hw_synd, pkt_type);
+    if (dev) {
+        dev->stats.rx_unconsumed_by_synd[hw_synd][pkt_type]++;
+        dev->unconsumed_packets_counter++;
+    }
 #ifdef SX_DEBUG
     printk(KERN_ERR PFX "A packet with trap ID 0x%x and type %s "
            "was not consumed\n", hw_synd, sx_cqe_packet_type_str[pkt_type]);
@@ -1241,7 +1255,7 @@ void inc_unconsumed_packets_counter(struct sx_dev *dev, u16 hw_synd, enum sx_pac
 
 void inc_eventlist_drops_counter(struct sx_dev* sx_dev, u16 hw_synd)
 {
-	inc_eventlist_drops_global_counter(hw_synd);
+    inc_eventlist_drops_global_counter(hw_synd);
 
     if (sx_dev != NULL) {
         sx_dev->eventlist_drops_counter++;
@@ -1256,10 +1270,10 @@ void inc_eventlist_drops_counter(struct sx_dev* sx_dev, u16 hw_synd)
 
 void inc_filtered_lag_packets_counter(struct sx_dev *dev)
 {
-	inc_filtered_lag_packets_global_counter();
-	if (dev != NULL) {
-	    dev->filtered_lag_packets_counter++;
-	}
+    inc_filtered_lag_packets_global_counter();
+    if (dev != NULL) {
+        dev->filtered_lag_packets_counter++;
+    }
 }
 
 void inc_filtered_port_packets_counter(struct sx_dev *dev)
@@ -1272,38 +1286,38 @@ void inc_filtered_port_packets_counter(struct sx_dev *dev)
 
 void inc_unconsumed_packets_global_counter(u16 hw_synd, enum sx_packet_type pkt_type)
 {
-	unconsumed_packets_counter++;
-	sx_glb.stats.rx_unconsumed_by_synd[hw_synd][pkt_type]++;
+    unconsumed_packets_counter++;
+    sx_glb.stats.rx_unconsumed_by_synd[hw_synd][pkt_type]++;
  #ifdef SX_DEBUG
- 	printk(KERN_ERR PFX "A packet with trap ID 0x%x and type %s "
- 			"was not consumed\n", hw_synd, sx_cqe_packet_type_str[pkt_type]);
+    printk(KERN_ERR PFX "A packet with trap ID 0x%x and type %s "
+           "was not consumed\n", hw_synd, sx_cqe_packet_type_str[pkt_type]);
  #endif
 }
 
-static void inc_eventlist_drops_global_counter( u16 hw_synd)
+static void inc_eventlist_drops_global_counter(u16 hw_synd)
 {
-	eventlist_drops_counter++;
-	sx_glb.stats.rx_eventlist_drops_by_synd[hw_synd]++;
+    eventlist_drops_counter++;
+    sx_glb.stats.rx_eventlist_drops_by_synd[hw_synd]++;
  #ifdef SX_DEBUG
- 	printk(KERN_ERR PFX "A packet with trap ID 0x%x "
- 			"was dropped from the event list\n", hw_synd);
+    printk(KERN_ERR PFX "A packet with trap ID 0x%x "
+           "was dropped from the event list\n", hw_synd);
  #endif
 }
 
 void inc_filtered_lag_packets_global_counter(void)
 {
-	filtered_lag_packets_counter++;
+    filtered_lag_packets_counter++;
 }
 
 void inc_filtered_port_packets_global_counter(void)
 {
-  filtered_port_packets_counter++;
+    filtered_port_packets_counter++;
 }
 
 static int check_valid_meta(struct sx_dev *dev, struct isx_meta *meta)
 {
     uint8_t rdq_num = 0;
-    int rc = 0;
+    int     rc = 0;
 
     if (meta->etclass >= NUMBER_OF_ETCLASSES) {
         if (printk_ratelimit()) {
@@ -1369,12 +1383,12 @@ static int check_valid_meta(struct sx_dev *dev, struct isx_meta *meta)
 }
 
 /**
- * Get a packet capsulated in ku struct
- * (scattered to small buffers pointed by internal iovector)
- * and gather them together to one buffer capslated in the given skb data.
+ * Get a packet encapsulated in ku struct
+ * (scattered to small buffers pointed by internal io vector)
+ * and gather them together to one buffer encapsulated in the given skb data.
  * (NOTE: allocate skb)
  *
- * @param ku[in]   -  The given ku that capsulate the scattered packet
+ * @param ku[in]   -  The given ku that encapsulated the scattered packet
  * @param reserve_hdrs[in]   -  Should the function reserve place for headers
  * @param skb[out] -  A pointer to the pointer of allocated skb
  *                    to be updated by the function with the gathered packet
@@ -1384,12 +1398,12 @@ static int check_valid_meta(struct sx_dev *dev, struct isx_meta *meta)
  */
 static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u8 reserve_hdrs)
 {
-    int            err = 0;
-    int            index = 0;
-    int            packet_size = 0;
-    unsigned char *p_skb_data = NULL;
-    struct ku_iovec  *iov;
-    int            max_headers_size = 0;
+    int              err = 0;
+    int              index = 0;
+    int              packet_size = 0;
+    unsigned char   *p_skb_data = NULL;
+    struct ku_iovec *iov;
+    int              max_headers_size = 0;
 
     if ((!skb) || (!write_data)) {
         err = -EINVAL;
@@ -1402,7 +1416,7 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
         goto out_err;
     }
 
-    /*1. copy iovector */
+    /*1. copy io vector */
     err = copy_from_user((void*)iov, (void*)(write_data->iov),
                          sizeof(*iov) * (write_data->vec_entries));
     if (err) {
@@ -1471,9 +1485,9 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
 {
     int                    err = 0;
     struct completion_info ci;
-    struct ethhdr *eth_h = NULL;
-    u8 is_from_rp = IS_RP_DONT_CARE_E;
-    u16 fid = 0;
+    struct ethhdr         *eth_h = NULL;
+    u8                     is_from_rp = IS_RP_DONT_CARE_E;
+    u16                    fid = 0;
 
     memset(&ci, 0, sizeof(ci));
     err = copy_buff_to_skb(&ci.skb, write_data, false);
@@ -1501,10 +1515,10 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     ci.info.eth.emad_tid = TID_DONT_CARE_VALUE;
     ci.is_lag = write_data->meta.loopback_data.is_lag;
     ci.lag_subport = write_data->meta.loopback_data.lag_subport;
-    eth_h = (struct ethhdr *) (ci.skb->data);
+    eth_h = (struct ethhdr *)(ci.skb->data);
     if (be16_to_cpu(eth_h->h_proto) == ETH_P_8021Q) {
         ci.is_tagged = VLAN_TAGGED_E;
-        ci.vid = be16_to_cpu(((struct vlan_ethhdr*) ci.skb->data)->h_vlan_TCI) & 0xfff;
+        ci.vid = be16_to_cpu(((struct vlan_ethhdr*)ci.skb->data)->h_vlan_TCI) & 0xfff;
         if (ci.vid == 0) {
             ci.is_tagged = VLAN_PRIO_TAGGED_E;
         }
@@ -1521,16 +1535,16 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
         spin_unlock_bh(&sx_priv(dev)->db_lock);
     }
 
-    if (ci.sysport != 0 || ci.is_lag != 0) {
+    if ((ci.sysport != 0) || (ci.is_lag != 0)) {
         err = sx_core_get_rp_mode(dev, ci.is_lag, ci.sysport, ci.vid, &is_from_rp);
         if (err) {
-            printk(KERN_ERR PFX "Failed sx_core_get_rp_mode(). err: %d \n",err);
+            printk(KERN_ERR PFX "Failed sx_core_get_rp_mode(). err: %d \n", err);
         }
         ci.info.eth.from_rp = (is_from_rp) ? IS_RP_FROM_RP_E : IS_RP_NOT_FROM_RP_E;
 
         err = sx_core_get_fid_by_port_vid(dev, &ci, &fid);
         if (err) {
-            printk(KERN_ERR PFX "Failed sx_core_get_bridge(). err: %d \n",err);
+            printk(KERN_ERR PFX "Failed sx_core_get_bridge(). err: %d \n", err);
         }
         ci.bridge_id = fid;
         ci.info.eth.from_bridge = (fid) ? IS_BRIDGE_FROM_BRIDGE_E : IS_BRIDGE_NOT_FROM_BRIDGE_E;
@@ -1552,13 +1566,11 @@ out:
     return err;
 }
 
-int send_trap(const void            *buf,
-              const uint32_t         buf_size,
-              uint16_t               trap_id)
+int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id)
 {
-    struct ku_write     write_data;
-    struct ku_iovec    iov;
-    int err = 0;
+    struct ku_write write_data;
+    struct ku_iovec iov;
+    int             err = 0;
 
     if (!sx_glb.tmp_dev_ptr) {
         printk(KERN_WARNING "device is NULL\n");
@@ -1586,15 +1598,14 @@ out:
 EXPORT_SYMBOL(send_trap);
 
 /**
- * Prepare a meta-data struct from the edata 
+ * Prepare a meta-data struct from the edata
  *
- * param[in] metadata_p   - The place the meta-data + packet should be copied to 
+ * param[in] metadata_p   - The place the meta-data + packet should be copied to
  * param[in] edata - The packet and meta-data parameters
  *
  * returns: void
  */
-void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p,
-                                  struct event_data *edata_p)
+void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p, struct event_data *edata_p)
 {
     metadata_p->length = edata_p->skb->len;
     metadata_p->system_port = edata_p->system_port;
@@ -1744,9 +1755,9 @@ out_free:
  *	edata list on - success
  *      NULL          - error
  * retval:
- * 	0 on success, otherwise the size of the buffer needed for the
- * 	first packet if there is enough space in the buffer for
- * 	metadata, -ENOMEM if not
+ *      0 on success, otherwise the size of the buffer needed for the
+ *      first packet if there is enough space in the buffer for
+ *      metadata, -ENOMEM if not
  */
 int get_edata_from_elist(int               *evlist_size,
                          struct event_data *edata_list,
@@ -1788,56 +1799,62 @@ int get_edata_from_elist(int               *evlist_size,
 int __sx_core_match_port_vlan_listener(struct listener_port_vlan_entry *entry_one,
                                        struct listener_port_vlan_entry *entry_two)
 {
-    switch(entry_one->match_crit){
-        case PORT_VLAN_MATCH_PORT_VALID:
-            if ((entry_two->match_crit == PORT_VLAN_MATCH_PORT_VALID) &&
-                    (entry_one->sysport == entry_two->sysport)) {
-                return 1;
-            }
-            break;
-        case PORT_VLAN_MATCH_LAG_VALID:
-            if ((entry_two->match_crit == PORT_VLAN_MATCH_LAG_VALID) &&
-                    (entry_one->lag_id == entry_two->lag_id)) {
-                return 1;
-            }
-            break;
-        case PORT_VLAN_MATCH_VLAN_VALID:
-            if ((entry_two->match_crit == PORT_VLAN_MATCH_VLAN_VALID) &&
-                    (entry_one->vlan == entry_two->vlan)) {
-                return 1;
-            }
-            break;
-        case PORT_VLAN_MATCH_GLOBAL:
-            if(entry_two->match_crit == PORT_VLAN_MATCH_GLOBAL){
-                return 1;
-            }
-            break;
+    switch (entry_one->match_crit) {
+    case PORT_VLAN_MATCH_PORT_VALID:
+        if ((entry_two->match_crit == PORT_VLAN_MATCH_PORT_VALID) &&
+            (entry_one->sysport == entry_two->sysport)) {
+            return 1;
+        }
+        break;
+
+    case PORT_VLAN_MATCH_LAG_VALID:
+        if ((entry_two->match_crit == PORT_VLAN_MATCH_LAG_VALID) &&
+            (entry_one->lag_id == entry_two->lag_id)) {
+            return 1;
+        }
+        break;
+
+    case PORT_VLAN_MATCH_VLAN_VALID:
+        if ((entry_two->match_crit == PORT_VLAN_MATCH_VLAN_VALID) &&
+            (entry_one->vlan == entry_two->vlan)) {
+            return 1;
+        }
+        break;
+
+    case PORT_VLAN_MATCH_GLOBAL:
+        if (entry_two->match_crit == PORT_VLAN_MATCH_GLOBAL) {
+            return 1;
+        }
+        break;
     }
     return 0;
 }
 
 
-static void __init_port_vlan_listener_counters(u16 hw_synd,
-                                               struct listener_port_vlan_entry *port_vlan_listener)
+static void __init_port_vlan_listener_counters(u16 hw_synd, struct listener_port_vlan_entry *port_vlan_listener)
 {
     char cat_name[MAX_COUNTER_CATEGORY_NAME_LEN];
 
     switch (port_vlan_listener->match_crit) {
-        case PORT_VLAN_MATCH_PORT_VALID:
-            snprintf(cat_name, sizeof(cat_name), "trap %u [sysport %u]", hw_synd, port_vlan_listener->sysport);
-            break;
-        case PORT_VLAN_MATCH_LAG_VALID:
-            snprintf(cat_name, sizeof(cat_name), "trap %u [lag %u]", hw_synd, port_vlan_listener->lag_id);
-            break;
-        case PORT_VLAN_MATCH_VLAN_VALID:
-            snprintf(cat_name, sizeof(cat_name), "trap %u [vlan %u]", hw_synd, port_vlan_listener->vlan);
-            break;
-        case PORT_VLAN_MATCH_GLOBAL:
-            snprintf(cat_name, sizeof(cat_name), "trap %u [global]", hw_synd);
-            break;
-        default:
-            snprintf(cat_name, sizeof(cat_name), "trap %u [N/A]", hw_synd);
-            break;
+    case PORT_VLAN_MATCH_PORT_VALID:
+        snprintf(cat_name, sizeof(cat_name), "trap %u [sysport %u]", hw_synd, port_vlan_listener->sysport);
+        break;
+
+    case PORT_VLAN_MATCH_LAG_VALID:
+        snprintf(cat_name, sizeof(cat_name), "trap %u [lag %u]", hw_synd, port_vlan_listener->lag_id);
+        break;
+
+    case PORT_VLAN_MATCH_VLAN_VALID:
+        snprintf(cat_name, sizeof(cat_name), "trap %u [vlan %u]", hw_synd, port_vlan_listener->vlan);
+        break;
+
+    case PORT_VLAN_MATCH_GLOBAL:
+        snprintf(cat_name, sizeof(cat_name), "trap %u [global]", hw_synd);
+        break;
+
+    default:
+        snprintf(cat_name, sizeof(cat_name), "trap %u [N/A]", hw_synd);
+        break;
     }
 
     sx_core_counter_category_init(&port_vlan_listener->counters.category, cat_name);
@@ -2010,25 +2027,25 @@ static void __deinit_port_vlan_listener_counters(struct listener_port_vlan_entry
  *	   !0 error
  *
  */
-int sx_core_add_synd(u8                        swid,
-                     u16                       hw_synd,
-                     enum l2_type              type,
-                     u8                        is_default,
-                     union ku_filter_critireas crit,
-                     cq_handler                handler,
-                     void                     *context,
-                     check_dup_e               check_dup,
-                     struct sx_dev           * sx_dev,
+int sx_core_add_synd(u8                          swid,
+                     u16                         hw_synd,
+                     enum l2_type                type,
+                     u8                          is_default,
+                     union ku_filter_critireas   crit,
+                     cq_handler                  handler,
+                     void                       *context,
+                     check_dup_e                 check_dup,
+                     struct sx_dev             * sx_dev,
                      struct ku_port_vlan_params *port_vlan)
 {
-    unsigned long          flags;
-    struct listener_entry *new_listener = NULL;
+    unsigned long                    flags;
+    struct listener_entry           *new_listener = NULL;
     struct listener_port_vlan_entry *new_port_vlan_listener;
-    struct list_head      *pos, *port_vlan_pos;
-    struct listener_entry *listener;
+    struct list_head                *pos, *port_vlan_pos;
+    struct listener_entry           *listener;
     struct listener_port_vlan_entry *port_vlan_listener = NULL;
-    unsigned int           found_same_listener = 0;
-    unsigned int           found_same_port_vlan_listener = 0;
+    unsigned int                     found_same_listener = 0;
+    unsigned int                     found_same_port_vlan_listener = 0;
 
     /* if NULL use default sx_dev */
     if (sx_dev == NULL) {
@@ -2067,37 +2084,37 @@ int sx_core_add_synd(u8                        swid,
     new_port_vlan_listener = kmalloc(sizeof(*new_port_vlan_listener), GFP_ATOMIC);
     if (!new_port_vlan_listener) {
         printk(KERN_WARNING PFX "sx_core_add_synd: Failed allocating memory for the new port vlan listener\n");
-		spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
+        spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
+        kfree(new_listener);
         return -ENOMEM;
     }
 
     memset(new_port_vlan_listener, 0, sizeof(*new_port_vlan_listener));
 
-    if(port_vlan){
+    if (port_vlan) {
         new_port_vlan_listener->match_crit = port_vlan->port_vlan_type;
         new_port_vlan_listener->sysport = port_vlan->sysport;
         new_port_vlan_listener->lag_id = port_vlan->lag_id;
         new_port_vlan_listener->vlan = port_vlan->vlan;
-    }
-    else{
+    } else {
         new_port_vlan_listener->match_crit = PORT_VLAN_MATCH_GLOBAL;
     }
     if (is_default) {
-        if (!list_empty(&sx_glb.listeners_db[hw_synd].list)){
+        if (!list_empty(&sx_glb.listeners_db[hw_synd].list)) {
             list_for_each(port_vlan_pos, &sx_glb.listeners_db[hw_synd].list) {
                 port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener, new_port_vlan_listener);
-                if(found_same_port_vlan_listener){
+                found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener,
+                                                                                   new_port_vlan_listener);
+                if (found_same_port_vlan_listener) {
                     list_add_tail(&(new_listener->list),
                                   &(port_vlan_listener->listener.list));
                     break;
                 }
             }
         }
-        if(found_same_port_vlan_listener == 1){
+        if (found_same_port_vlan_listener == 1) {
             kfree(new_port_vlan_listener);
-        }
-        else {
+        } else {
             list_add_tail(&(new_port_vlan_listener->list),
                           &(sx_glb.listeners_db[hw_synd].list));
             INIT_LIST_HEAD(&new_port_vlan_listener->listener.list);
@@ -2107,15 +2124,16 @@ int sx_core_add_synd(u8                        swid,
             __init_port_vlan_listener_counters(hw_synd, new_port_vlan_listener);
         }
     } else {
-        if(!list_empty(&sx_glb.listeners_db[hw_synd].list)){
-                list_for_each(port_vlan_pos, &sx_glb.listeners_db[hw_synd].list) {
-                    port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                    found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener, new_port_vlan_listener);
-                    if(found_same_port_vlan_listener){
-                        break;
-                    }
+        if (!list_empty(&sx_glb.listeners_db[hw_synd].list)) {
+            list_for_each(port_vlan_pos, &sx_glb.listeners_db[hw_synd].list) {
+                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
+                found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener,
+                                                                                   new_port_vlan_listener);
+                if (found_same_port_vlan_listener) {
+                    break;
                 }
             }
+        }
         if ((check_dup == CHECK_DUP_ENABLED_E) && found_same_port_vlan_listener) {
             list_for_each(pos, &port_vlan_listener->listener.list) {
                 listener = list_entry(pos, struct listener_entry, list);
@@ -2128,18 +2146,17 @@ int sx_core_add_synd(u8                        swid,
         }
 
         if (found_same_listener == 0) {
-            if(found_same_port_vlan_listener == 0){
+            if (found_same_port_vlan_listener == 0) {
                 list_add(&(new_port_vlan_listener->list),
-                              &(sx_glb.listeners_db[hw_synd].list));
+                         &(sx_glb.listeners_db[hw_synd].list));
                 INIT_LIST_HEAD(&new_port_vlan_listener->listener.list);
                 list_add(&(new_listener->list),
-                              &(new_port_vlan_listener->listener.list));
+                         &(new_port_vlan_listener->listener.list));
 
                 __init_port_vlan_listener_counters(hw_synd, new_port_vlan_listener);
-            }
-            else{/**found_same_port_vlan_listener == 1*/
+            } else { /**found_same_port_vlan_listener == 1*/
                 list_add(&(new_listener->list),
-                              &(port_vlan_listener->listener.list));
+                         &(port_vlan_listener->listener.list));
                 kfree(new_port_vlan_listener);
             }
         } else {
@@ -2152,8 +2169,6 @@ int sx_core_add_synd(u8                        swid,
     return 0;
 }
 EXPORT_SYMBOL(sx_core_add_synd);
-
-
 static int is_to_remove_listener(u8                        swid,
                                  enum l2_type              type,
                                  u8                        is_default,
@@ -2224,32 +2239,32 @@ static int is_to_remove_listener(u8                        swid,
         break;
     }
 
-    if (handler != NULL && listener->handler != handler) {
+    if ((handler != NULL) && (listener->handler != handler)) {
         return false;
     }
 
     return true;
 }
 
-int sx_core_remove_synd(u8                        	swid,
-                        u16                       	hw_synd,
-                        enum l2_type              	type,
-                        u8                        	is_default,
-                        union ku_filter_critireas 	critireas,
-                        void                     	*context,
-                        struct sx_dev            	*sx_dev,
-                        cq_handler                	handler,
-						struct ku_port_vlan_params  *port_vlan)
+int sx_core_remove_synd(u8                          swid,
+                        u16                         hw_synd,
+                        enum l2_type                type,
+                        u8                          is_default,
+                        union ku_filter_critireas   critireas,
+                        void                       *context,
+                        struct sx_dev              *sx_dev,
+                        cq_handler                  handler,
+                        struct ku_port_vlan_params *port_vlan)
 {
-    unsigned long                   flags;
-    struct listener_entry           *listener = NULL;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos, *port_vlan_pos;
-    struct list_head                *q, *port_vlan_q;
-    int                             listener_removed = 0;
-    int                             entry = 0;
-    int                             found_same_port_vlan_listener = 0;
-    static struct listener_port_vlan_entry      port_vlan_tmp;
+    unsigned long                          flags;
+    struct listener_entry                 *listener = NULL;
+    struct listener_port_vlan_entry       *port_vlan_listener;
+    struct list_head                      *pos, *port_vlan_pos;
+    struct list_head                      *q, *port_vlan_q;
+    int                                    listener_removed = 0;
+    int                                    entry = 0;
+    int                                    found_same_port_vlan_listener = 0;
+    static struct listener_port_vlan_entry port_vlan_tmp;
 
     /*
      * if NULL use default sx_dev
@@ -2262,28 +2277,27 @@ int sx_core_remove_synd(u8                        	swid,
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
 
     memset(&port_vlan_tmp, 0, sizeof(port_vlan_tmp));
-    if(port_vlan){
+    if (port_vlan) {
         port_vlan_tmp.match_crit = port_vlan->port_vlan_type;
         port_vlan_tmp.sysport = port_vlan->sysport;
         port_vlan_tmp.lag_id = port_vlan->lag_id;
         port_vlan_tmp.vlan = port_vlan->vlan;
-    }
-    else{
+    } else {
         port_vlan_tmp.match_crit = PORT_VLAN_MATCH_GLOBAL;
     }
 
     /* Used to be "is_default ? NUM_HW_SYNDROMES : hw_synd;" removed, since we
-       would like to use is_default for PUDE */
+     *  would like to use is_default for PUDE */
     entry = hw_synd;
     if (!list_empty(&(sx_glb.listeners_db[entry].list))) {
         list_for_each_safe(port_vlan_pos, port_vlan_q, &sx_glb.listeners_db[entry].list) {
             port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
             found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener, &port_vlan_tmp);
-            if(found_same_port_vlan_listener){
+            if (found_same_port_vlan_listener) {
                 break;
             }
         }
-        if(found_same_port_vlan_listener){
+        if (found_same_port_vlan_listener) {
             list_for_each_safe(pos, q, &(port_vlan_listener->listener.list)){
                 listener = list_entry(pos, struct listener_entry, list);
                 if (is_to_remove_listener(swid, type, is_default,
@@ -2296,7 +2310,7 @@ int sx_core_remove_synd(u8                        	swid,
                     break;
                 }
             }
-            if(list_empty(&(port_vlan_listener->listener.list))){
+            if (list_empty(&(port_vlan_listener->listener.list))) {
                 list_del(port_vlan_pos);
 
                 __deinit_port_vlan_listener_counters(port_vlan_listener);
@@ -2352,9 +2366,9 @@ void sx_cq_handle_event_data_prepare(struct event_data      *edata_p,
 
 static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profile)
 {
-    int i, j;
+    int     i, j;
     uint8_t rdq_num = 0;
-    int rc = 0;
+    int     rc = 0;
 
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
         for (j = 0; j < NUMBER_OF_ETCLASSES; j++) {
@@ -2380,12 +2394,12 @@ static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profil
     }
 
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
-    	/* Normalize the RDQ number according chip capability */
-		if (profile->rdq_count[i] > (dev->dev_cap.max_num_rdqs-1)) {
-			printk(KERN_WARNING PFX "Normalize rdq num %d to dev_cap_max_num_rdq %d\n",
-					profile->rdq_count[i], dev->dev_cap.max_num_rdqs);
-			profile->rdq_count[i] = dev->dev_cap.max_num_rdqs - 1;
-		}
+        /* Normalize the RDQ number according chip capability */
+        if (profile->rdq_count[i] > (dev->dev_cap.max_num_rdqs - 1)) {
+            printk(KERN_WARNING PFX "Normalize rdq num %d to dev_cap_max_num_rdq %d\n",
+                   profile->rdq_count[i], dev->dev_cap.max_num_rdqs);
+            profile->rdq_count[i] = dev->dev_cap.max_num_rdqs - 1;
+        }
 
         for (j = 0; j < profile->rdq_count[i]; j++) {
             if (profile->rdq[i][j] >= dev->dev_cap.max_num_rdqs) {
@@ -2451,13 +2465,13 @@ static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profil
 
 int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
 {
-    int                 i;
-    int                 err = 0;
+    int                  i;
+    int                  err = 0;
     union sx_event_data *event_data = NULL;
     union sx_event_data *tca_init_event_data = NULL;
-    u8                  first_ib_swid;
+    u8                   first_ib_swid;
 
-    if (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB ) {
+    if (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB) {
         event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
         if (!event_data) {
             err = -ENOMEM;
@@ -2494,8 +2508,7 @@ int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
                 }
             }
         }
-    }
-    else{
+    } else {
         printk(KERN_INFO PFX "Error: try to send IB_SWID_UP event on swid %d from non-IB type %d, ",
                swid, dev->profile.swid_type[swid]);
         err = -EINVAL;
@@ -2517,14 +2530,14 @@ out:
 
 int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac)
 {
-    int                 i;
-    int                 err = 0;
-    u8                  dqn;
-    u32                 dq_bitmap = 0;
-    struct sx_dq       *dq;
+    int                  i;
+    int                  err = 0;
+    u8                   dqn;
+    u32                  dq_bitmap = 0;
+    struct sx_dq        *dq;
     union sx_event_data *event_data = NULL;
-    unsigned long       flags;
-    u8                  dev_profile_set;
+    unsigned long        flags;
+    u8                   dev_profile_set;
 
     /* IF PCI-E path is not valid, no need to open DQs */
     if (!sx_dpt_is_path_valid(sx_dev_id, DPT_PATH_PCI_E)) {
@@ -2536,7 +2549,6 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
 
     /* TODO: handle errors */
     for (i = 0; i < NUMBER_OF_ETCLASSES; i++) {
-
         err = sx_get_sqd_num(dev, swid, i, &dqn);
         if (err) {
             printk(KERN_ERR PFX "Error retrieving sx_get_sdq_cb callback structure! err=[%d]\n", err);
@@ -2568,9 +2580,9 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
         spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
         if (!dq) {
             err = sx_core_create_rdq(dev, dev->profile.rdq_properties[dqn].number_of_entries,
-								 dqn, &dq);
+                                     dqn, &dq);
             if (err) {
-            	printk(KERN_ERR PFX "Failed to create RDQ %d \n", dqn);
+                printk(KERN_ERR PFX "Failed to create RDQ %d \n", dqn);
                 goto out;
             }
 
@@ -2593,8 +2605,8 @@ send_events:
     }
     dev_profile_set = dev->dev_profile_set;
     spin_unlock(&dev->profile_lock);
-    if ( (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB) &&
-         dev_profile_set ) {
+    if ((dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB) &&
+        dev_profile_set) {
         err = sx_send_enable_ib_swid_events(dev, swid);
         if (err) {
             spin_lock(&dev->profile_lock);
@@ -2623,12 +2635,12 @@ out:
 
 void sx_disable_swid(struct sx_dev *dev, u8 swid)
 {
-    int                 i;
-    u8                  dqn;
-    struct sx_dq       *dq;
+    int                  i;
+    u8                   dqn;
+    struct sx_dq        *dq;
     union sx_event_data *event_data = NULL;
-    u8                  dev_profile_set;
-    int err = 0;
+    u8                   dev_profile_set;
+    int                  err = 0;
 
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
@@ -2642,7 +2654,6 @@ void sx_disable_swid(struct sx_dev *dev, u8 swid)
     }
 
     for (i = 0; i < NUMBER_OF_ETCLASSES; i++) {
-
         err = sx_get_sqd_num(dev, swid, i, &dqn);
         if (err) {
             printk(KERN_ERR PFX "Error retrieving sx_get_sdq_cb callback structure! err=[%d]\n", err);
@@ -2675,7 +2686,7 @@ void sx_disable_swid(struct sx_dev *dev, u8 swid)
     spin_unlock(&dev->profile_lock);
     event_data->ib_swid_change.swid = swid;
     event_data->ib_swid_change.dev_id = dev->profile.dev_id;
-    if (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB && dev_profile_set ) {
+    if ((dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB) && dev_profile_set) {
         sx_core_dispatch_event(dev, SX_DEV_EVENT_IB_SWID_DOWN, event_data);
     } else if (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_ETH) {
         sx_core_dispatch_event(dev, SX_DEV_EVENT_ETH_SWID_DOWN, event_data);
@@ -2690,13 +2701,13 @@ out:
 }
 
 /*
- *  Workaround for rdq stucked because of wqe_too_short error.
+ *  Workaround for rdq stuck because of wqe_too_short error.
  *  Force rdq size to be SX_MAX_MSG_SIZE on SX
  */
 void __sx_adjust_rdq_size(struct sx_dev *dev)
 {
-    int i;
-    int rc = 0;
+    int     i;
+    int     rc = 0;
     uint8_t rdq_num = 0;
 
     rc = sx_core_get_rdq_num_max(dev, &rdq_num);
@@ -2744,7 +2755,7 @@ int sx_handle_set_profile(struct sx_dev *dev)
 
         dqn = dev->profile.emad_rdq;
         err = sx_core_create_rdq(dev, dev->profile.rdq_properties[dqn].number_of_entries,
-							dqn, &rdq);
+                                 dqn, &rdq);
         if (err) {
             printk(KERN_ERR PFX "create EMAD rdq %d failed. err: %d\n",
                    dqn, err);
@@ -2765,19 +2776,19 @@ static int sx_core_get_hw_etclass_impl(struct isx_meta *meta, u8* hw_etclass)
     return 0;
 }
 
-static int get_ib_system_port_mid(struct sx_dev *dev,u16 ib_port, u16* system_port_mid)
+static int get_ib_system_port_mid(struct sx_dev *dev, u16 ib_port, u16* system_port_mid)
 {
-	*system_port_mid = ib_port;
+    *system_port_mid = ib_port;
 
-	return 0;
+    return 0;
 }
 
-static int get_ib_system_port_mid_with_fix_up(struct sx_dev *dev,u16 ib_port, u16* system_port_mid)
+static int get_ib_system_port_mid_with_fix_up(struct sx_dev *dev, u16 ib_port, u16* system_port_mid)
 {
-	*system_port_mid =
-			MAX_ROUTER_MID_TABLE_SIZE - MAX_IB_PORT + ib_port;
+    *system_port_mid =
+        MAX_ROUTER_MID_TABLE_SIZE - MAX_IB_PORT + ib_port;
 
-	return 0;
+    return 0;
 }
 
 
@@ -2853,12 +2864,11 @@ static int get_rp_vid_from_ci(struct sx_dev *dev, struct completion_info *comp_i
 static int get_swid_from_db(struct sx_dev *dev, struct completion_info *comp_info, u8 *swid)
 {
     enum sx_packet_type pkt_type = comp_info->pkt_type;
-    u8 is_lag = comp_info->is_lag;
-    u16 sysport_lag_id = comp_info->sysport;
-    u16 lag_port_id = comp_info->lag_subport;
-
-    u16 system_port, local_port, ib_port;
-    unsigned long   flags;
+    u8                  is_lag = comp_info->is_lag;
+    u16                 sysport_lag_id = comp_info->sysport;
+    u16                 lag_port_id = comp_info->lag_subport;
+    u16                 system_port, local_port, ib_port;
+    unsigned long       flags;
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
@@ -2867,8 +2877,7 @@ static int get_swid_from_db(struct sx_dev *dev, struct completion_info *comp_inf
     case PKT_TYPE_FCoETH:
         if (is_lag) {
             local_port = sx_priv(dev)->lag_member_to_local_db[sysport_lag_id][lag_port_id];
-        }
-        else{
+        } else {
             system_port = sysport_lag_id;
             local_port = sx_priv(dev)->system_to_local_db[system_port];
         }
@@ -2884,9 +2893,10 @@ static int get_swid_from_db(struct sx_dev *dev, struct completion_info *comp_inf
         break;
 
     default:
-        if (printk_ratelimit())
+        if (printk_ratelimit()) {
             printk(KERN_WARNING PFX "Received packet type is FC, "
-                "and therefore unsupported right now\n");
+                   "and therefore unsupported right now\n");
+        }
         spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
         return 0;
     }
@@ -2906,38 +2916,42 @@ static int get_swid_from_ci(struct sx_dev *dev, struct completion_info *comp_inf
 /* Used for SX */
 static int sx_get_lag_mid(u16 lag_id, u16 *mid)
 {
-    if (mid)
+    if (mid) {
         *mid = lag_id + 0xC000 + sx_glb.profile.max_mid;
+    }
     return 0;
 }
 
 /* Used for Spectrum */
 static int sdk_get_lag_mid(u16 lag_id, u16 *mid)
 {
-    if (mid)
+    if (mid) {
         *mid = lag_id + 0x100;
+    }
     return 0;
 }
 
 
 static u8 max_cpu_etclass_for_unlimited_mtu_switchx(void)
 {
-	return 1; /* PRM 2.8.1 "Egress Traffic Class Allocation" */
+    return 1; /* PRM 2.8.1 "Egress Traffic Class Allocation" */
 }
 
 
 static u8 max_cpu_etclass_for_unlimited_mtu_spectrum(void)
 {
-	return 3; /* PRM 2.8.1 "Egress Traffic Class Allocation" */
+    return 3; /* PRM 2.8.1 "Egress Traffic Class Allocation" */
 }
 
-static void sx_set_device_profile_update_cqe_v0(struct ku_profile* profile, struct profile_driver_params *driver_params)
+static void sx_set_device_profile_update_cqe_v0(struct ku_profile           * profile,
+                                                struct profile_driver_params *driver_params)
 {
     profile->set_mask_0_63 = profile->set_mask_0_63 | 0x100000000;
     driver_params->cqe_version = 0;
 }
 
-static void sx_set_device_profile_update_cqe_v2(struct ku_profile* profile, struct profile_driver_params *driver_params)
+static void sx_set_device_profile_update_cqe_v2(struct ku_profile           * profile,
+                                                struct profile_driver_params *driver_params)
 {
     profile->set_mask_0_63 = profile->set_mask_0_63 | 0x100000000;
     driver_params->cqe_version = 1;
@@ -3040,9 +3054,9 @@ int sx_core_get_rdq_num_max(struct sx_dev *dev, uint8_t *rdq_num_max_p)
         return rc;
     }
 
-    /* We don't use lock because the following function will return hardcoded
-       value and nothing will be changed after we will init switch with
-       appropriate callback, hence lock will be redundant here. */
+    /* We don't use lock because the following function will return hard-coded
+     *  value and nothing will be changed after we will init switch with
+     *  appropriate callback, hence lock will be redundant here. */
 
     if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_rdq_max_cb != NULL)) {
         *rdq_num_max_p = sx_priv(dev)->dev_specific_cb.sx_get_rdq_max_cb();
@@ -3054,7 +3068,6 @@ int sx_core_get_rdq_num_max(struct sx_dev *dev, uint8_t *rdq_num_max_p)
     return rc;
 }
 EXPORT_SYMBOL(sx_core_get_rdq_num_max);
-
 static int is_eqn_cmd_ifc_only(int eqn, u8 *is_cmd_ifc_only)
 {
     if (!is_cmd_ifc_only) {
@@ -3096,7 +3109,6 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .sx_get_rdq_max_cb = sx_get_rdq_max,
     .is_eqn_cmd_ifc_only_cb = NULL
 };
-
 struct dev_specific_cb spec_cb_sx_a2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl,
     .sx_build_isx_header_cb = sx_build_isx_header_v0,
@@ -3122,7 +3134,6 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .sx_get_rdq_max_cb = sx_get_rdq_max,
     .is_eqn_cmd_ifc_only_cb = NULL
 };
-
 struct dev_specific_cb spec_cb_pelican = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
     .sx_build_isx_header_cb = sx_build_isx_header_v0,
@@ -3148,7 +3159,6 @@ struct dev_specific_cb spec_cb_pelican = {
     .sx_get_rdq_max_cb = sx_get_rdq_max,
     .is_eqn_cmd_ifc_only_cb = NULL
 };
-
 struct dev_specific_cb spec_cb_quantum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
     .sx_build_isx_header_cb = sx_build_isx_header_v0,
@@ -3174,7 +3184,6 @@ struct dev_specific_cb spec_cb_quantum = {
     .sx_get_rdq_max_cb = sx_get_rdq_max,
     .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
 };
-
 struct dev_specific_cb spec_cb_spectrum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
     .sx_build_isx_header_cb = sx_build_isx_header_v1,
@@ -3200,8 +3209,32 @@ struct dev_specific_cb spec_cb_spectrum = {
     .sx_get_rdq_max_cb = sx_get_rdq_max,
     .is_eqn_cmd_ifc_only_cb = NULL
 };
-
 struct dev_specific_cb spec_cb_spectrum2 = {
+    .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
+    .sx_build_isx_header_cb = sx_build_isx_header_v1,
+    .max_cpu_etclass_for_unlimited_mtu = max_cpu_etclass_for_unlimited_mtu_spectrum,
+    .sx_get_sdq_cb = sx_get_sdq_per_traffic_type,
+    .sx_get_sdq_num_cb = sx_get_sdq_num_per_etclasss,
+    .get_send_to_port_as_data_supported_cb = sx_core_get_send_to_port_as_data_supported_spectrum,
+    .get_rp_vid_cb = get_rp_vid_from_ci,
+    .get_swid_cb = get_swid_from_ci,
+    .get_lag_mid_cb = sdk_get_lag_mid,
+    .get_ib_system_port_mid = NULL,
+    .sx_ptp_init = NULL,
+    .sx_ptp_cleanup = NULL,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
+    .sx_init_cq_db_cb = sx_init_cq_db_spc,
+    .sx_printk_cqe_cb = sx_printk_cqe_v2,
+    .is_sw_rate_limiter_supported = NULL,
+    .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
+    .sx_fill_params_from_cqe_cb = sx_fill_params_from_cqe_v2,
+    .sx_disconnect_all_trap_groups_cb = sx_disconnect_all_trap_groups_spectrum,
+    .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
+    .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
+    .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
+};
+struct dev_specific_cb spec_cb_spectrum3 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
     .sx_build_isx_header_cb = sx_build_isx_header_v1,
     .max_cpu_etclass_for_unlimited_mtu = max_cpu_etclass_for_unlimited_mtu_spectrum,
@@ -3234,11 +3267,11 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
-    if (!force && dev->dev_specific_cb_init_done == 1){
-		printk(KERN_ERR PFX "init callbacks called but just was initialized, chip_type [%d].\n",
-				chip_type);
-		goto out;
-	}
+    if (!force && (dev->dev_specific_cb_init_done == 1)) {
+        printk(KERN_ERR PFX "init callbacks called but just was initialized, chip_type [%d].\n",
+               chip_type);
+        goto out;
+    }
 
     memset(&(sx_priv(dev)->dev_specific_cb), 0, sizeof(sx_priv(dev)->dev_specific_cb));
 
@@ -3264,19 +3297,27 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
         /* for pelican/eagle add specific cb */
         sx_priv(dev)->dev_specific_cb = spec_cb_pelican;
         break;
+
     case SXD_CHIP_TYPE_QUANTUM:
         /* for quantum add specific cb */
         sx_priv(dev)->dev_specific_cb = spec_cb_quantum;
         break;
+
     case SXD_CHIP_TYPE_SPECTRUM:
     case SXD_CHIP_TYPE_SPECTRUM_A1:
         /* for condor add specific cb */
         sx_priv(dev)->dev_specific_cb = spec_cb_spectrum;
         break;
+
     case SXD_CHIP_TYPE_SPECTRUM2:
         /* for spectrum2 add specific cb */
         sx_priv(dev)->dev_specific_cb = spec_cb_spectrum2;
-    	break;
+        break;
+
+    case SXD_CHIP_TYPE_SPECTRUM3:
+        /* for spectrum3 add specific cb */
+        sx_priv(dev)->dev_specific_cb = spec_cb_spectrum3;
+        break;
 
     default:
         err = -EINVAL;
@@ -3293,8 +3334,13 @@ out:
 
     /*      we take the reference in init and release in deinit to get event
      * in case refcnt is 0
-    */
-    __sx_core_dev_specific_cb_get_reference(dev);
+     */
+    if (__sx_core_dev_specific_cb_get_reference(dev) != 0) {
+        printk(KERN_ERR "could not get specific cb reference!\n");
+        if (!err) { /* if no error till now, assign an error to return */
+            err = -EFAULT;
+        }
+    }
 
     return err;
 }
@@ -3306,10 +3352,10 @@ static int sx_core_dev_deinit_switchx_cb(struct sx_dev *dev)
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
-    if (dev->dev_specific_cb_init_done == 0){
-           printk(KERN_ERR PFX "deinit callbacks called before was initialized. \n");
-           spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
-           goto out;
+    if (dev->dev_specific_cb_init_done == 0) {
+        printk(KERN_ERR PFX "deinit callbacks called before was initialized. \n");
+        spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+        goto out;
     }
 
     dev->dev_specific_cb_init_done = 0;
@@ -3319,16 +3365,16 @@ static int sx_core_dev_deinit_switchx_cb(struct sx_dev *dev)
     __sx_core_dev_specific_cb_release_reference(dev);
 
     /*
-    * wait for refcnt == 0
-    * In case of timeout , wait_event_timeout return with a value of 0
-    * regardless of how condition evaluates.
-    */
-    if(!wait_event_timeout(sx_priv(dev)->dev_specific_cb_not_in_use,
-                   !atomic_read(&sx_priv(dev)->dev_specific_cb_refcnt),
-                   SX_CORE_DEV_CB_FINISH_WAIT_TIMEOUT)){
-           printk(KERN_ERR PFX "sx_core_dev_specific_cb_deinit_timeout.\n");
-           err = -EBUSY;
-           goto out;
+     * wait for refcnt == 0
+     * In case of timeout , wait_event_timeout return with a value of 0
+     * regardless of how condition evaluates.
+     */
+    if (!wait_event_timeout(sx_priv(dev)->dev_specific_cb_not_in_use,
+                            !atomic_read(&sx_priv(dev)->dev_specific_cb_refcnt),
+                            SX_CORE_DEV_CB_FINISH_WAIT_TIMEOUT)) {
+        printk(KERN_ERR PFX "sx_core_dev_specific_cb_deinit_timeout.\n");
+        err = -EBUSY;
+        goto out;
     }
 
     memset(&(sx_priv(dev)->dev_specific_cb), 0, sizeof(sx_priv(dev)->dev_specific_cb));
@@ -3343,12 +3389,12 @@ out:
 int __sx_core_dev_specific_cb_get_reference(struct sx_dev *dev)
 {
     unsigned long flags;
-    u8 err = 0;
+    u8            err = 0;
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
     if (!dev->dev_specific_cb_init_done) {
-    	spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+        spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
         printk(KERN_INFO PFX "dev_specific_cb is not init\n");
         goto out;
     }
@@ -3562,17 +3608,16 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
             err = sx_send_loopback(dev, &write_data, filp);
             if (err) {
                 printk(KERN_WARNING PFX "sx_core_write: "
-                       "Failed seding loopback packet\n");
+                       "Failed sending loopback packet\n");
                 goto out;
             }
 
-			if (dev) {
-				loopback_packets_counter++;
-            	dev->loopback_packets_counter++;
-			}
-			else if (sx_glb.tmp_dev_ptr) {
+            if (dev) {
+                loopback_packets_counter++;
+                dev->loopback_packets_counter++;
+            } else if (sx_glb.tmp_dev_ptr) {
                 sx_glb.tmp_dev_ptr->loopback_packets_counter++;
-			}
+            }
             user_buffer_copied_size += sizeof(write_data);
             continue;
         }
@@ -3638,11 +3683,11 @@ out:
 
 void sx_monitor_flush(struct sx_rsc *file, struct sx_dq *bound_monitor_rdq)
 {
-    unsigned long     flags;
+    unsigned long      flags;
     struct list_head  *pos = NULL, *q = NULL;
     struct event_data *entry = NULL;
 
-	bound_monitor_rdq->mon_rx_start = bound_monitor_rdq->mon_rx_count;
+    bound_monitor_rdq->mon_rx_start = bound_monitor_rdq->mon_rx_count;
 
     /* update start point for total counter */
     bound_monitor_rdq->mon_rx_start_total = bound_monitor_rdq->mon_rx_count;
@@ -3720,20 +3765,21 @@ static ssize_t sx_core_read(struct file *filp, char __user *buf, size_t count, l
     multi_packet_read_enable = atomic_read(&file->multi_packet_read_enable);
     INIT_LIST_HEAD(&edata_list.list);
     err = get_edata_from_elist(&file->evlist_size, &edata_list,
-                         &file->evlist.list, count, multi_packet_read_enable);
+                               &file->evlist.list, count, multi_packet_read_enable);
     spin_unlock_irqrestore(&file->lock, flags);
 
     /*
-        not enough room for single packet (meta + packet)
-	but enough room for meta
-    */
+     *   not enough room for single packet (meta + packet)
+     *  but enough room for meta
+     */
     if (err > 0) {
-        struct ku_read 	metadata;
+        struct ku_read metadata;
 
         memset(&metadata, 0, sizeof(metadata));
         metadata.length = err;
-        if (copy_to_user(buf, &metadata, sizeof(metadata)))
+        if (copy_to_user(buf, &metadata, sizeof(metadata))) {
             return -EFAULT;
+        }
         return 0;
     }
     /* not enough room for meta */
@@ -3745,22 +3791,22 @@ static ssize_t sx_core_read(struct file *filp, char __user *buf, size_t count, l
 }
 
 
-/** 
- * This function is used for reading Monitor RDQ statistics 
- * (e.g. the total number of discarded packets). It count the 
- * total number of discarded packets for real HW cyclic queue 
+/**
+ * This function is used for reading Monitor RDQ statistics
+ * (e.g. the total number of discarded packets). It count the
+ * total number of discarded packets for real HW cyclic queue
  * and number of discarded packets for SW cyclic buffer.
- *  
+ *
  * @param[in] dev  - sx_dev struct to use for handling the data
- * @param[in] data - retrieved data from user 
- *  
- * @return err 
+ * @param[in] data - retrieved data from user
+ *
+ * @return err
  */
 int sx_core_ioctl_monitor_rdq_stat_get(struct file *filp, struct sx_dev *dev, unsigned long data)
 {
-    int err = 0;
+    int                                     err = 0;
     struct ku_monitor_trap_group_stat_ioctl ku;
-    struct sx_dq                 *monitor_dq;
+    struct sx_dq                           *monitor_dq;
 
     SX_CORE_UNUSED_PARAM(filp);
 
@@ -3785,7 +3831,8 @@ int sx_core_ioctl_monitor_rdq_stat_get(struct file *filp, struct sx_dev *dev, un
         goto out;
     }
 
-    ku.discarded_pkts_total_num = monitor_dq->mon_rx_count - monitor_dq->mon_rx_start_total + monitor_dq->sw_dup_evlist_total_cnt;
+    ku.discarded_pkts_total_num = monitor_dq->mon_rx_count - monitor_dq->mon_rx_start_total +
+                                  monitor_dq->sw_dup_evlist_total_cnt;
 
     if (ku.clear_after_read == true) {
         monitor_dq->mon_rx_start_total = monitor_dq->mon_rx_count;
@@ -3828,7 +3875,7 @@ static unsigned int sx_core_poll(struct file *filp, poll_table *wait)
         mask |= POLLIN | POLLRDNORM;  /* readable */
     }
     if (file->evlist_size < SX_EVENT_LIST_SIZE) {
-        mask |= POLLOUT | POLLWRNORM; /* writeable */
+        mask |= POLLOUT | POLLWRNORM; /* writable */
     }
     spin_unlock_irqrestore(&file->lock, flags);
 
@@ -3837,17 +3884,17 @@ static unsigned int sx_core_poll(struct file *filp, poll_table *wait)
 
 static int sx_core_close(struct inode *inode, struct file *filp)
 {
-    struct event_data     *edata;
-    unsigned long          flags;
-    struct listener_entry *listener;
+    struct event_data               *edata;
+    unsigned long                    flags;
+    struct listener_entry           *listener;
     struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head      *pos, *q;
-    struct list_head      *port_vlan_pos, *port_vlan_q;
-    int                    entry;
-    struct sx_rsc         *file = filp->private_data;
-    struct sx_dev         *dev = sx_glb.tmp_dev_ptr;
-    struct sx_dq          *dq;
-    uint8_t                i;
+    struct list_head                *pos, *q;
+    struct list_head                *port_vlan_pos, *port_vlan_q;
+    int                              entry;
+    struct sx_rsc                   *file = filp->private_data;
+    struct sx_dev                   *dev = sx_glb.tmp_dev_ptr;
+    struct sx_dq                    *dq;
+    uint8_t                          i;
 
 #ifdef SX_DEBUG
     printk(KERN_DEBUG PFX " sx_core_close() \n");
@@ -3870,7 +3917,7 @@ static int sx_core_close(struct inode *inode, struct file *filp)
                         kfree(listener);
                     }
                 }
-                if(list_empty(&(port_vlan_listener->listener.list))){
+                if (list_empty(&(port_vlan_listener->listener.list))) {
                     list_del(port_vlan_pos);
                     __deinit_port_vlan_listener_counters(port_vlan_listener);
                     kfree(port_vlan_listener);
@@ -3894,13 +3941,13 @@ static int sx_core_close(struct inode *inode, struct file *filp)
         spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
         for (i = 0; i < dev->dev_cap.max_num_rdqs; ++i) {
             dq = sx_priv(dev)->rdq_table.dq[i];
-            if (dq && dq->is_monitor && dq->file_priv_p == file) {
+            if (dq && dq->is_monitor && (dq->file_priv_p == file)) {
                 unset_monitor_rdq(dq);
             }
         }
         spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
     }
-    
+
     file->owner = NULL;
     kfree(file);
     SX_CORE_UNUSED_PARAM(inode);
@@ -3910,12 +3957,12 @@ static int sx_core_close(struct inode *inode, struct file *filp)
 
 int sx_core_flush_synd_by_context(void * context)
 {
-    unsigned long          flags;
-    struct listener_entry *listener;
+    unsigned long                    flags;
+    struct listener_entry           *listener;
     struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head      *pos, *q;
-    struct list_head      *port_vlan_pos, *port_vlan_q;
-    int                    entry;
+    struct list_head                *pos, *q;
+    struct list_head                *port_vlan_pos, *port_vlan_q;
+    int                              entry;
 
     /* delete all listener entries belong to this context */
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
@@ -3933,7 +3980,7 @@ int sx_core_flush_synd_by_context(void * context)
                         kfree(listener);
                     }
                 }
-                if(list_empty(&(port_vlan_listener->listener.list))){
+                if (list_empty(&(port_vlan_listener->listener.list))) {
                     list_del(port_vlan_pos);
                     __deinit_port_vlan_listener_counters(port_vlan_listener);
                     kfree(port_vlan_listener);
@@ -3950,12 +3997,12 @@ EXPORT_SYMBOL(sx_core_flush_synd_by_context);
 
 int sx_core_flush_synd_by_handler(cq_handler handler)
 {
-    unsigned long          flags;
-    struct listener_entry *listener;
+    unsigned long                    flags;
+    struct listener_entry           *listener;
     struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head      *pos, *q;
-    struct list_head      *port_vlan_pos, *port_vlan_q;
-    int                    entry;
+    struct list_head                *pos, *q;
+    struct list_head                *port_vlan_pos, *port_vlan_q;
+    int                              entry;
 
     /* delete all listener entries belong to this context */
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
@@ -3967,13 +4014,13 @@ int sx_core_flush_synd_by_handler(cq_handler handler)
                 list_for_each_safe(pos, q,
                                    &(port_vlan_listener->listener.list)){
                     listener = list_entry(pos,
-                                              struct listener_entry, list);
+                                          struct listener_entry, list);
                     if (listener->handler == handler) {
                         list_del(pos);
                         kfree(listener);
                     }
                 }
-                if(list_empty(&(port_vlan_listener->listener.list))){
+                if (list_empty(&(port_vlan_listener->listener.list))) {
                     list_del(port_vlan_pos);
                     __deinit_port_vlan_listener_counters(port_vlan_listener);
                     kfree(port_vlan_listener);
@@ -3999,7 +4046,7 @@ static const struct file_operations sx_core_fops = {
     .open = sx_core_open,
     .read = sx_core_read,
     .write = sx_core_write,
-	.unlocked_ioctl	 =	sx_core_ioctl,
+    .unlocked_ioctl = sx_core_ioctl,
     .compat_ioctl = sx_core_ioctl,
     .poll = sx_core_poll,
     .release = sx_core_close
@@ -4033,11 +4080,9 @@ err_free:
     return err;
 }
 
-static int sx_core_init_cb(struct sx_dev *dev,
-                           uint16_t device_id,
-                           uint16_t device_hw_revision)
+static int sx_core_init_cb(struct sx_dev *dev, uint16_t device_id, uint16_t device_hw_revision)
 {
-    int err = 0;
+    int                 err = 0;
     enum sxd_chip_types chip_type;
 
     switch (device_id) {
@@ -4062,26 +4107,33 @@ static int sx_core_init_cb(struct sx_dev *dev,
         break;
 
     case SXD_MGIR_HW_DEV_ID_SPECTRUM:
-    	  if (device_hw_revision == 0xA1) {
-    	            chip_type = SXD_CHIP_TYPE_SPECTRUM_A1;
-    	        } else if (device_hw_revision == 0xA0) {
-    	        	chip_type = SXD_CHIP_TYPE_SPECTRUM;
-    	        } else {
-    	            printk(KERN_ERR PFX "The Spectrum device revision (0x%x) "
-    	                   "is not supported by SX driver\n", device_hw_revision);
-    	            return -EFAULT;
-    	        }
+        if (device_hw_revision == 0xA1) {
+            chip_type = SXD_CHIP_TYPE_SPECTRUM_A1;
+        } else if (device_hw_revision == 0xA0) {
+            chip_type = SXD_CHIP_TYPE_SPECTRUM;
+        } else {
+            printk(KERN_ERR PFX "The Spectrum device revision (0x%x) "
+                   "is not supported by SX driver\n", device_hw_revision);
+            return -EFAULT;
+        }
         break;
 
     case SXD_MGIR_HW_DEV_ID_SWITCH_IB2:
-		chip_type = SXD_CHIP_TYPE_SWITCH_IB2;
-		break;
+        chip_type = SXD_CHIP_TYPE_SWITCH_IB2;
+        break;
+
     case SXD_MGIR_HW_DEV_ID_QUANTUM:
-    	chip_type = SXD_CHIP_TYPE_QUANTUM;
-    	break;
+        chip_type = SXD_CHIP_TYPE_QUANTUM;
+        break;
+
     case SXD_MGIR_HW_DEV_ID_SPECTRUM2:
- 		chip_type = SXD_CHIP_TYPE_SPECTRUM2;
- 		break;
+        chip_type = SXD_CHIP_TYPE_SPECTRUM2;
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
+        chip_type = SXD_CHIP_TYPE_SPECTRUM3;
+        break;
+
     default:
         printk(KERN_ERR PFX "ERROR: Unresolved chip type. device_id (%u)\n", device_id);
         return -EFAULT;
@@ -4105,15 +4157,15 @@ static int sx_init_board(struct sx_dev *dev)
     int                       retry_num = 0;
 
     /*
-        This is a workaround to race condition happens when FW
-        boot isn't finished and we start to read MGIR.
-        We post the in_mailbox but FW zero GO bit. So we think
-        that command is done.
-        After this race we get 0 in all MGIR fields.
-        The temporary solution is to reread again.
-        The real solution should provide interface to read HEALTH
-        bits which will indicate that FW boot is finished.
-    */
+     *   This is a workaround to race condition happens when FW
+     *   boot isn't finished and we start to read MGIR.
+     *   We post the in_mailbox but FW zero GO bit. So we think
+     *   that command is done.
+     *   After this race we get 0 in all MGIR fields.
+     *   The temporary solution is to reread again.
+     *   The real solution should provide interface to read HEALTH
+     *   bits which will indicate that FW boot is finished.
+     */
     while (retry_num < 3) {
         memset(&reg_data, 0, sizeof(reg_data));
         reg_data.dev_id = dev->device_id;
@@ -4142,13 +4194,13 @@ static int sx_init_board(struct sx_dev *dev)
             break;
         }
 
-        msleep(500*retry_num);
+        msleep(500 * retry_num);
         retry_num++;
     }
 
     chip_info_type = reg_data.mgir_reg.hw_info.device_id;
     chip_info_revision = reg_data.mgir_reg.hw_info.device_hw_revision;
-    strncpy(chip_info_psid, (const char*) reg_data.mgir_reg.fw_info.psid, sizeof(chip_info_psid));
+    strncpy(chip_info_psid, (const char*)reg_data.mgir_reg.fw_info.psid, sizeof(chip_info_psid) - 1);
 
     err = sx_core_init_cb(dev, reg_data.mgir_reg.hw_info.device_id,
                           reg_data.mgir_reg.hw_info.device_hw_revision);
@@ -4251,13 +4303,13 @@ static int sx_map_doorbell_area(struct sx_dev *dev)
                 + dev->bar0_dbregs_offset,
                 SX_DBELL_REGION_SIZE);
     if (!dev->db_base) {
-        printk(KERN_ERR "%s(): bar: %d virt: is NULL \n",
+        printk(KERN_ERR "%s(): bar: %d doorbell base: is NULL \n",
                __func__, dev->bar0_dbregs_bar);
 
         return -EINVAL;
     }
 
-    printk(KERN_DEBUG "%s(): bar: %d dev->db_base phys: 0x%llx , virt: %p \n",
+    printk(KERN_DEBUG "%s(): bar: %d dev->db_base phys: 0x%llx , doorbell base: %p \n",
            __func__,
            dev->bar0_dbregs_bar,
            pci_resource_start(dev->pdev, dev->bar0_dbregs_bar)
@@ -4385,17 +4437,22 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         dev_err(&pdev->dev, "Cannot enable PCI device, aborting.\n");
         goto err_enable_pdev;
     }
-
-    /* Check for BARs.  We expect 0: 1MB in Baz, 4MB in Pelican 16MB in Quantom */
+#if defined(SPECTRUM3_BU)
+    printk(KERN_INFO "%s(): BAR0 Init: Flags:%#lx Len:%#llx \n", __func__,
+           pci_resource_flags(pdev, 0), pci_resource_len(pdev, 0));
+#else
+    /* TODO: update after SPECTRUM3_BU - length of PCI space: LOG2_CR_BAR_SIZE */
+    /* Check for BARs.  We expect 0: 1MB in Baz, 4MB in Pelican 16MB in Quantum */
     if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
         ((pci_resource_len(pdev, 0) != 1 << 20) &&
          (pci_resource_len(pdev, 0) != 1 << 22) &&
-		 (pci_resource_len(pdev, 0) != 1 << 24))) {
-        dev_err(&pdev->dev, "Missing BAR0, aborting.\n");
+         (pci_resource_len(pdev, 0) != 1 << 24))) {
+        dev_err(&pdev->dev, "Missing BAR0, aborting. Flags: %#lx Len: %#llx \n",
+                pci_resource_flags(pdev, 0), pci_resource_len(pdev, 0));
         err = -ENODEV;
         goto err_disable_pdev;
     }
-
+#endif
     err = pci_request_region(pdev, 0, DRV_NAME);
     if (err) {
         dev_err(&pdev->dev, "Cannot request control region, "
@@ -4446,19 +4503,19 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
     err = sx_dpt_init_dev_pci(dev);
     if (err) {
         sx_err(dev, "Failed initializing default PCI device "
-               "attibutes in the DPT, aborting.\n");
+               "attributes in the DPT, aborting.\n");
         goto err_free_pool;
     }
 
-/*#if defined(PD_BU)
+#if defined(PD_BU) && defined(SPECTRUM3_BU)
     printk(KERN_INFO PFX "Performing SW reset is SKIPPED in PD mode.\n");
-#else */
+#else
     err = sx_reset(dev, __perform_chip_reset);
     if (err) {
-	sx_err(dev, "Failed to reset HW, aborting.\n");
-	goto err_free_pool;
+        sx_err(dev, "Failed to reset HW, aborting.\n");
+        goto err_free_pool;
     }
-/* #endif */
+#endif
 
     err = sx_init_board(dev);
     if (err) {
@@ -4502,6 +4559,9 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
     }
 
     __pci_probe_state = PCI_PROBE_STATE_SUCCESS_E;
+
+    /* udev event for system management purpose */
+    kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
 
     return 0;
 
@@ -4595,7 +4655,7 @@ int sx_core_init_one(struct sx_priv **sx_priv)
     err = sx_dpt_init_default_dev(dev);
     if (err) {
         sx_err(dev, "Failed initializing default device "
-               "attibutes in the DPT, aborting.\n");
+               "attributes in the DPT, aborting.\n");
         goto out_free_priv;
     }
 
@@ -4700,7 +4760,7 @@ void sx_core_remove_one(struct sx_priv *priv)
     list_del(&dev->list);
     spin_unlock(&sx_glb.pci_devs_lock);
 
-    /*Freeing the memmory for the device tables*/
+    /*Freeing the memory for the device tables*/
     sx_destroy_sx(dev);
 #endif
 
@@ -4710,42 +4770,42 @@ void sx_core_remove_one(struct sx_priv *priv)
     vfree(priv);
 }
 
-static void sx_disconnect_all_trap_groups_spectrum(struct sx_dev  *dev)
+static void sx_disconnect_all_trap_groups_spectrum(struct sx_dev *dev)
 {
-	int i;
-	struct ku_access_htgt_reg reg_data;
-	int err;
+    int                       i;
+    struct ku_access_htgt_reg reg_data;
+    int                       err;
 
-	memset(&reg_data, 0, sizeof(reg_data));
-	reg_data.dev_id = 255;
-	sx_cmd_set_op_tlv(&reg_data.op_tlv, HTGT_REG_ID, 2);/* 2 - write */
-	reg_data.htgt_reg.swid = 0;
-	reg_data.htgt_reg.type = HTGT_NULL_PATH;
+    memset(&reg_data, 0, sizeof(reg_data));
+    reg_data.dev_id = 255;
+    sx_cmd_set_op_tlv(&reg_data.op_tlv, HTGT_REG_ID, 2); /* 2 - write */
+    reg_data.htgt_reg.swid = 0;
+    reg_data.htgt_reg.type = HTGT_NULL_PATH;
 
-	for (i=0; i<NUM_OF_TRAP_GROUPS; i++){
-		reg_data.htgt_reg.trap_group = i;
-		err = sx_ACCESS_REG_HTGT(dev, &reg_data);
-		if (err){
-			printk(KERN_ERR PFX "sx_disconnect_all_trap_groups: failed to disconnect trap group %d \n",i);
-			return;
-		}
-	}
-	printk(KERN_DEBUG PFX "sx_disconnect_all_trap_groups: succeeded \n");
+    for (i = 0; i < NUM_OF_TRAP_GROUPS; i++) {
+        reg_data.htgt_reg.trap_group = i;
+        err = sx_ACCESS_REG_HTGT(dev, &reg_data);
+        if (err) {
+            printk(KERN_ERR PFX "sx_disconnect_all_trap_groups: failed to disconnect trap group %d \n", i);
+            return;
+        }
+    }
+    printk(KERN_DEBUG PFX "sx_disconnect_all_trap_groups: succeeded \n");
 }
 
 void sx_core_disconnect_all_trap_groups(struct sx_dev *dev)
 {
-	int err;
+    int err;
 
-    if (dev == NULL){
-    	printk(KERN_ERR PFX "sx_core_disconnect_all_trap_groups: dev is NULL \n");
-    	return;
+    if (dev == NULL) {
+        printk(KERN_ERR PFX "sx_core_disconnect_all_trap_groups: dev is NULL \n");
+        return;
     }
 
     err = __sx_core_dev_specific_cb_get_reference(dev);
     if (err) {
-    	printk(KERN_ERR PFX " dev_specific_cb_get_ref failed. Failed disconnect trap groups.\n");
-    	return;
+        printk(KERN_ERR PFX " dev_specific_cb_get_ref failed. Failed disconnect trap groups.\n");
+        return;
     }
 
     if (sx_priv(dev)->dev_specific_cb.sx_disconnect_all_trap_groups_cb != NULL) {
@@ -4755,23 +4815,23 @@ void sx_core_disconnect_all_trap_groups(struct sx_dev *dev)
 }
 
 
-int sx_core_ptp_cleanup(struct sx_dev  *dev)
+int sx_core_ptp_cleanup(struct sx_dev *dev)
 {
-	int err = 0;
-	struct sx_priv *priv = sx_priv(dev);
+    int             err = 0;
+    struct sx_priv *priv = sx_priv(dev);
 
-	err = __sx_core_dev_specific_cb_get_reference(dev);
-	if (err) {
-		printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-		return err;
-	}
+    err = __sx_core_dev_specific_cb_get_reference(dev);
+    if (err) {
+        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
+        return err;
+    }
 
-	if ((IS_PTP_MODE_EVENTS || IS_PTP_MODE_POLLING) && priv->dev_specific_cb.sx_ptp_cleanup != NULL) {
-		priv->dev_specific_cb.sx_ptp_cleanup(priv);
-	}
+    if ((IS_PTP_MODE_EVENTS || IS_PTP_MODE_POLLING) && (priv->dev_specific_cb.sx_ptp_cleanup != NULL)) {
+        priv->dev_specific_cb.sx_ptp_cleanup(priv);
+    }
 
-	__sx_core_dev_specific_cb_release_reference(dev);
-	return err;
+    __sx_core_dev_specific_cb_release_reference(dev);
+    return err;
 }
 
 static void sx_core_remove_one_pci(struct pci_dev *pdev)
@@ -4779,6 +4839,9 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     struct sx_priv *priv;
     struct sx_dev  *dev;
     int             i;
+
+    /* udev event for system management purpose */
+    kobject_uevent(&pdev->dev.kobj, KOBJ_REMOVE);
 
     spin_lock(&sx_glb.pci_devs_lock);
     dev = pci_get_drvdata(pdev);
@@ -4798,8 +4861,8 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     }
 
     /*
-	 * Disconnect all trap groups before flush and destroy
-	 */
+     * Disconnect all trap groups before flush and destroy
+     */
     sx_core_disconnect_all_trap_groups(dev);
 
     dev->global_flushing = 1;
@@ -4836,24 +4899,24 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
 
 void sx_core_clear_internal_data(void)
 {
-	int dev_id;
+    int dev_id;
 
-	/* dpt clean up except local devices LOCAL_DEVICE_ID_MIN..LOCAL_DEVICE_ID_MAX */
-	for (dev_id=0;dev_id<LOCAL_DEVICE_ID_MIN;dev_id++){
-		memset(&sx_glb.sx_dpt.dpt_info[dev_id], 0, sizeof(sx_glb.sx_dpt.dpt_info[0]));
-	}
+    /* dpt clean up except local devices LOCAL_DEVICE_ID_MIN..LOCAL_DEVICE_ID_MAX */
+    for (dev_id = 0; dev_id < LOCAL_DEVICE_ID_MIN; dev_id++) {
+        memset(&sx_glb.sx_dpt.dpt_info[dev_id], 0, sizeof(sx_glb.sx_dpt.dpt_info[0]));
+    }
 
-	/* clear global stats */
-	memset(&sx_glb.stats, 0, sizeof(sx_glb.stats));
+    /* clear global stats */
+    memset(&sx_glb.stats, 0, sizeof(sx_glb.stats));
 
-	/* kernel db is cleared in sx_core_remove_one_pci */
+    /* kernel db is cleared in sx_core_remove_one_pci */
 }
 
 int sx_restart_one_pci(struct pci_dev *pdev)
 {
     int err = 0;
 
-    if (pdev == NULL){
+    if (pdev == NULL) {
         printk(KERN_ERR PFX "sx_restart_one_pci error: pdev == NULL, exit \n");
         return -ENODEV;
     }
@@ -4872,13 +4935,15 @@ void sx_core_cleanup_dynamic_data(void)
     sx_core_clear_internal_data();
 }
 EXPORT_SYMBOL(sx_core_cleanup_dynamic_data);
-
 struct pci_device_id sx_pci_table[] = {
     /* Spectrum PCI device ID */
     { PCI_VDEVICE(MELLANOX, SPECTRUM_PCI_DEV_ID) },
 
     /* Spectrum2 PCI device ID */
     { PCI_VDEVICE(MELLANOX, SPECTRUM2_PCI_DEV_ID) },
+
+    /* Spectrum3 PCI device ID */
+    { PCI_VDEVICE(MELLANOX, SPECTRUM3_PCI_DEV_ID) },
 
     /* SwitchIB PCI device ID */
     { PCI_VDEVICE(MELLANOX, SWITCH_IB_PCI_DEV_ID) },
@@ -4903,9 +4968,7 @@ static struct pci_driver sx_driver = {
     .shutdown = sx_core_shutdown
 #endif
 };
-
-
-struct pci_device_id sx_oob_pci_table[] = {
+struct pci_device_id     sx_oob_pci_table[] = {
     /* SwitchX PCI device ID */
     { PCI_VDEVICE(MELLANOX, SWITCHX_PCI_DEV_ID) },
     { 0, }
@@ -4955,7 +5018,7 @@ int sx_oob_pci_init(void)
     }
 #endif
 
-    printk(KERN_INFO "OOB: SwitchX device was successully initialized on PCI\n");
+    printk(KERN_INFO "OOB: SwitchX device was successfully initialized on PCI\n");
     sx_glb.pci_drivers_in_use |= PCI_DRIVER_F_SX_OOB_DRIVER;
 
 out:
@@ -4971,20 +5034,19 @@ static void __sx_oob_pci_deinit(void)
 
 
 int sx_core_send_mad_sync(struct sx_dev *dev,
-                          int dev_id,
-                          u32 in_modifier,
-                          u8 op_modifier,
-                          void *in_mad,
-                          int in_size,
-                          void *out_mad,
-                          int out_size)
+                          int            dev_id,
+                          u32            in_modifier,
+                          u8             op_modifier,
+                          void          *in_mad,
+                          int            in_size,
+                          void          *out_mad,
+                          int            out_size)
 {
     int err = 0;
 
     if (is_sgmii_supported()) {
         err = sgmii_simulate_sync_mad_ifc(dev, dev_id, in_modifier, in_mad, in_size, out_mad, out_size);
-    }
-    else {
+    } else {
         err = sx_cmd_send_mad_sync(dev, dev_id, in_modifier, op_modifier, in_mad, in_size, out_mad, out_size);
     }
 
@@ -5052,12 +5114,10 @@ int register_driver_with_pci(void)
     if (__pci_probe_state == PCI_PROBE_STATE_NONE_E) {
         printk(KERN_EMERG "pci_register_driver() returned successfully but probe function not called\n");
         pci_unregister_driver(&sx_driver);
-    }
-    else if (__pci_probe_state == PCI_PROBE_STATE_STARTED_E) {
+    } else if (__pci_probe_state == PCI_PROBE_STATE_STARTED_E) {
         printk(KERN_EMERG "pci_register_driver() returned successfully but probe function failed\n");
         return -1;
-    }
-    else {
+    } else {
         sx_glb.pci_drivers_in_use |= PCI_DRIVER_F_SX_DRIVER;
     }
 #endif
@@ -5078,8 +5138,9 @@ static void sx_core_shutdown(struct pci_dev *pdev)
 static int __init sx_core_init(void)
 {
     struct sx_priv *priv = NULL;
-    int ret = 0;
-    int i = 0;
+    int             ret = 0;
+    int             i = 0;
+
 #if defined(NO_PCI)
     const int no_pci = 1;
 #else
@@ -5141,16 +5202,14 @@ static int __init sx_core_init(void)
             if (__pci_probe_state == PCI_PROBE_STATE_NONE_E) {
                 printk(KERN_ERR "pci_register_driver() returned successfully but probe function not called\n");
                 pci_unregister_driver(&sx_driver);
-            }
-            else if (__pci_probe_state == PCI_PROBE_STATE_STARTED_E) {
+            } else if (__pci_probe_state == PCI_PROBE_STATE_STARTED_E) {
                 printk(KERN_ERR "pci_register_driver() returned successfully but probe function failed\n");
                 ret = -1;
                 goto out_unreg_pci;
             }
 
             printk(KERN_ERR "real PCI device is idle. creating a temporary SX device\n");
-        }
-        else { /* NO_PCI, create a default device to work with */
+        } else { /* NO_PCI, create a default device to work with */
             printk(KERN_INFO "PCI is disabled. creating a SX device.\n");
         }
 
@@ -5173,8 +5232,7 @@ static int __init sx_core_init(void)
         }
 
         sx_glb.tmp_dev_ptr = &priv->dev;
-    }
-    else {
+    } else {
         sx_glb.pci_drivers_in_use |= PCI_DRIVER_F_SX_DRIVER;
     }
 
@@ -5207,12 +5265,12 @@ out_close_proc:
 
 static void sx_core_listeners_cleanup(void)
 {
-    unsigned long          flags;
-    struct listener_entry *listener;
+    unsigned long                    flags;
+    struct listener_entry           *listener;
     struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head      *pos, *q;
-    struct list_head      *port_vlan_pos, *port_vlan_q;
-    int                    entry;
+    struct list_head                *pos, *q;
+    struct list_head                *port_vlan_pos, *port_vlan_q;
+    int                              entry;
 
     printk(KERN_INFO PFX "sx_core_listeners_cleanup \n");
 
