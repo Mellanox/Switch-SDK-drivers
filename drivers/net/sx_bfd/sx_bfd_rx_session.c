@@ -69,7 +69,7 @@ void rx_delayed_work_dispatch(struct sx_bfd_rx_session * session)
     spin_unlock_bh(&rx_sess_lock);
 }
 
-/* Function which called when timeout interval occures */
+/* Function which called when timeout interval occurs */
 static void rx_timeout_handler(uint32_t session_id)
 {
     struct sx_bfd_rx_session * session = NULL;
@@ -201,7 +201,7 @@ struct sx_bfd_rx_session * sx_bfd_rx_sess_get_by_id(uint32_t session_id)
     /* protect critical DB */
     spin_lock_bh(&rx_sess_lock);
 
-    /* Get session DS from DB accroding session_id*/
+    /* Get session DS from DB according session_id*/
     entry = sx_bfd_rx_sess_lkp_entry_by_id(session_id);
     if (!entry) {
         spin_unlock_bh(&rx_sess_lock);
@@ -260,7 +260,7 @@ void sx_bfd_rx_sess_put(struct sx_bfd_rx_session * session)
     spin_unlock_bh(&rx_sess_lock);
 }
 
-static int rx_sess_add(struct bfd_offload *request_hdr, char *data, int update, void *stats)
+static int rx_sess_add(struct bfd_offload_info *request_hdr, char *data, int update, void *stats)
 {
     struct sx_bfd_rx_session       *session = NULL;
     struct sx_bfd_rx_session_entry *entry_session = NULL;
@@ -291,7 +291,7 @@ static int rx_sess_add(struct bfd_offload *request_hdr, char *data, int update, 
     }
 
     /* Update packet itself */
-    err = copy_from_user(session->packet, data + sizeof(struct bfd_offload), request_hdr->size);
+    err = copy_from_user(session->packet, data + sizeof(struct bfd_offload_info), request_hdr->size);
     if (err < 0) {
         printk(KERN_ERR "Failed to copy RX packet from user.\n");
         goto bail;
@@ -342,7 +342,7 @@ static int rx_sess_add(struct bfd_offload *request_hdr, char *data, int update, 
         goto bail;
     }
 
-    /* Spinlock initialisation for protection of DB
+    /* Spinlock initialization for protection of DB
      * in user context (process) && soft_IRQ (frames from socket)*/
     spin_lock_bh(&rx_sess_lock);
 
@@ -385,7 +385,7 @@ static int rx_sess_add(struct bfd_offload *request_hdr, char *data, int update, 
     }
 
 
-    /* Initialise entry_session DS for hash */
+    /* Initialize entry_session DS for hash */
     INIT_HLIST_NODE(&entry_session->node);
     entry_session->sess = session;
     entry_session->session_id = request_hdr->session_id;
@@ -402,7 +402,7 @@ static int rx_sess_add(struct bfd_offload *request_hdr, char *data, int update, 
     }
     spin_unlock_bh(&rx_sess_lock);
 
-    /* Queue delayed work initialisation*/
+    /* Queue delayed work initialization*/
     rx_delayed_work_dispatch(session);
 
     /* set everything to NULL for not freeing it in bail */
@@ -430,8 +430,8 @@ bail:
 
 int sx_bfd_rx_sess_add(char * data)
 {
-    struct bfd_offload request_hdr;
-    int                err = 0;
+    struct bfd_offload_info request_hdr;
+    int                     err = 0;
 
     /* Mutex lock for protection of DB in user context (process)
      * We prevent of executing more than 1 commands of add_rx_session/del_rx_session
@@ -441,7 +441,7 @@ int sx_bfd_rx_sess_add(char * data)
     /* Prepare session DS for DB*/
 
     /* Copy data from user space*/
-    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload));
+    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload_info));
     if (err < 0) {
         printk(KERN_ERR "Failed to copy RX offload request from user.\n");
         goto bail;
@@ -469,7 +469,7 @@ static int rx_sess_del(uint32_t session_id, int update, void *stats)
     if (update) {
         BUG_ON(stats == NULL);
     }
-    /* Spinlock initialisation for protection of DB
+    /* Spinlock initialization for protection of DB
      * in user context (process) && soft_IRQ (frames from socket)*/
     spin_lock_bh(&rx_sess_lock);
 
@@ -542,8 +542,8 @@ static int rx_sess_del(uint32_t session_id, int update, void *stats)
 
 int sx_bfd_rx_sess_del(char * data)
 {
-    int                err = 0;
-    struct bfd_offload request_hdr;
+    int                     err = 0;
+    struct bfd_offload_info request_hdr;
 
 
     /* Mutex lock for protection of DB in user context (process)
@@ -552,7 +552,7 @@ int sx_bfd_rx_sess_del(char * data)
     mutex_lock(&rx_db_lock);
 
     /* <data> was received from ioctl */
-    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload));
+    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload_info));
     if (err) {
         printk(KERN_ERR "Failed to copy RX offload request from user.\n");
         goto bail;
@@ -663,7 +663,7 @@ int sx_bfd_rx_sess_update(char *data)
 {
     struct bfd_offload_session_stats session_stats;
     int                              err = 0;
-    struct bfd_offload               request_hdr;
+    struct bfd_offload_info          request_hdr;
 
 
     /* Mutex lock for protection of DB in user context (process)
@@ -674,7 +674,7 @@ int sx_bfd_rx_sess_update(char *data)
     memset(&session_stats, 0, sizeof(struct bfd_offload_session_stats));
 
     /* <data> was received from ioctl */
-    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload));
+    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload_info));
     if (err) {
         printk(KERN_ERR "Failed to copy RX offload request from user.\n");
         goto bail;

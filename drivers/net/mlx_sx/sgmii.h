@@ -51,7 +51,7 @@ void sgmii_deinit(void);
 uint8_t is_sgmii_supported(void);
 
 /* *************************************************************************************** */
-/* Device databse functions                                                                */
+/* Device database functions                                                                */
 /* *************************************************************************************** */
 
 int sgmii_dev_add(int dev_id, const struct ku_dpt_sgmii_info *dpt_sgmii_info);
@@ -68,35 +68,35 @@ int sgmii_dev_set_mft_info(const struct ku_sgmii_mft_info *mft_info);
 
 int sgmii_set_system_cfg(const struct ku_sgmii_system_cfg *sgmii_system_cfg);
 
-int sgmii_send_emad(int dev_id,
-                    struct sk_buff *skb,
+int sgmii_send_emad(int                    dev_id,
+                    struct sk_buff        *skb,
                     const struct isx_meta *meta);
 
-int sgmii_send_mad(int dev_id,
-                   struct sk_buff *skb,
+int sgmii_send_mad(int                    dev_id,
+                   struct sk_buff        *skb,
                    const struct isx_meta *meta);
 
 int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
-                                int dev_id,
-                                u32 in_modifier,
-                                void *in_mad,
-                                int in_size,
-                                void *out_mad,
-                                int out_size);
+                                int            dev_id,
+                                u32            in_modifier,
+                                void          *in_mad,
+                                int            in_size,
+                                void          *out_mad,
+                                int            out_size);
 
-int sgmii_send_misc(int dev_id,
-                    struct sk_buff *skb,
+int sgmii_send_misc(int                    dev_id,
+                    struct sk_buff        *skb,
                     const struct isx_meta *meta);
 
-int sgmii_send_cr_space_read(int dev_id,
+int sgmii_send_cr_space_read(int      dev_id,
                              uint32_t address,
-                             void *buf,
-                             int size);
+                             void    *buf,
+                             int      size);
 
-int sgmii_send_cr_space_write(int dev_id,
+int sgmii_send_cr_space_write(int      dev_id,
                               uint32_t address,
-                              void *buf,
-                              int size);
+                              void    *buf,
+                              int      size);
 
 /* *************************************************************************************** */
 /* External (OOB) access-reg functions from outside the SGMII subsystem                    */
@@ -109,10 +109,9 @@ int sgmii_emad_access_spzr(int dev_id, const struct ku_spzr_reg *reg_spzr);
 /* *************************************************************************************** */
 
 int sgmii_get_mad_header_info(const uint8_t *buff,
-                              uint32_t buff_len,
-                              uint32_t *mad_hdr_offset,
-                              uint64_t *tr_id,
-                              uint16_t *attr_id);
+                              uint32_t       buff_len,
+                              uint32_t      *mad_hdr_offset,
+                              uint64_t      *tr_id,
+                              uint16_t      *attr_id);
 
 #endif /* __SGMII_H__ */
-

@@ -112,7 +112,7 @@ SX_CORE_IOCTL_ACCESS_REG_HANDLER(QPCR, ku_access_qpcr_reg);
 
 
 const ioctl_handler_cb_t
-ioctl_reg_handler_table[CTRL_CMD_ACCESS_REG_MAX - CTRL_CMD_ACCESS_REG_MIN + 1] = {
+    ioctl_reg_handler_table[CTRL_CMD_ACCESS_REG_MAX - CTRL_CMD_ACCESS_REG_MIN + 1] = {
     IOCTL_REG_HANDLER(PSPA),
     IOCTL_REG_HANDLER(QSPTC),
     IOCTL_REG_HANDLER(QSTCT),

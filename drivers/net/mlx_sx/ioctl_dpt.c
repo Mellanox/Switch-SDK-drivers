@@ -40,12 +40,12 @@
 long ctrl_cmd_add_dev_path(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_add dpt_path_add_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev         *dev;
+    int                    err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
-    err = copy_from_user(&dpt_path_add_data, (void*) data, sizeof(dpt_path_add_data));
+    err = copy_from_user(&dpt_path_add_data, (void*)data, sizeof(dpt_path_add_data));
     if (err) {
         goto out;
     }
@@ -63,8 +63,8 @@ out:
 long ctrl_cmd_remove_dev_path(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_add dpt_path_add_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev         *dev;
+    int                    err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -83,8 +83,8 @@ out:
 long ctrl_cmd_remove_dev(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_add dpt_path_add_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev         *dev;
+    int                    err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -103,8 +103,8 @@ out:
 long ctrl_cmd_set_cmd_path(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_modify dpt_path_modify_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev            *dev;
+    int                       err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -123,8 +123,8 @@ out:
 long ctrl_cmd_set_mad_path(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_modify dpt_path_modify_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev            *dev;
+    int                       err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -143,8 +143,8 @@ out:
 long ctrl_cmd_set_emad_path(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_modify dpt_path_modify_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev            *dev;
+    int                       err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -163,8 +163,8 @@ out:
 long ctrl_cmd_set_cr_access_path(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_dpt_path_modify dpt_path_modify_data;
-    struct sx_dev *dev;
-    int err;
+    struct sx_dev            *dev;
+    int                       err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -184,7 +184,7 @@ long ctrl_cmd_cr_space_read(struct file *file, unsigned int cmd, unsigned long d
 {
     struct ku_cr_space_read read_data;
     unsigned char          *buf = NULL;
-    int err;
+    int                     err;
 
     err = copy_from_user(&read_data, (void*)data, sizeof(read_data));
     if (err) {
@@ -216,7 +216,7 @@ long ctrl_cmd_cr_space_write(struct file *file, unsigned int cmd, unsigned long 
 {
     struct ku_cr_space_write write_data;
     unsigned char           *buf = NULL;
-    int err;
+    int                      err;
 
     err = copy_from_user(&write_data, (void*)data, sizeof(write_data));
     if (err) {

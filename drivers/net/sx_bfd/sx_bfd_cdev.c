@@ -36,11 +36,9 @@
 #include <linux/cdev.h>
 
 
-static struct cdev  cdev;
+static struct cdev    cdev;
 static parse_cmd_func parse_func;
-
-static bool g_initialized = false;
-
+static bool           g_initialized = false;
 static long sx_bfd_ioctl(struct file *fp __attribute__((unused)), unsigned int cmd, unsigned long data)
 {
     int err = 0;
@@ -56,14 +54,14 @@ bail:
 }
 
 
-static const struct file_operations sx_bfd_fops ={
-        .owner = THIS_MODULE,
-        .unlocked_ioctl = sx_bfd_ioctl  /* As of Linux kernel 2.6.11 need to use unlocked_ioctl */
+static const struct file_operations sx_bfd_fops = {
+    .owner = THIS_MODULE,
+    .unlocked_ioctl = sx_bfd_ioctl      /* As of Linux kernel 2.6.11 need to use unlocked_ioctl */
 };
 
 int sx_bfd_cdev_init(parse_cmd_func func)
 {
-    int err = 0;
+    int          err = 0;
     static dev_t char_dev;
 
     if (!g_initialized) {
@@ -113,5 +111,5 @@ void sx_bfd_cdev_deinit(void)
         g_initialized = false;
     }
 
-	return;
+    return;
 }

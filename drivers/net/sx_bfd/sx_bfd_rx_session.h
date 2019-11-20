@@ -39,46 +39,29 @@
 #include <linux/sx_bfd/sx_bfd_ctrl_cmds.h>
 
 struct ip_addr {
-        uint8_t family;
-        union {
-                struct in_addr ipv4;
-                struct in6_addr ipv6;
-        };
+    uint8_t family;
+    union {
+        struct in_addr  ipv4;
+        struct in6_addr ipv6;
+    };
 };
-
 struct sx_bfd_rx_session {
-     uint32_t vrf_id;
-
-     uint32_t session_id;
-
-     uint8_t  deleted;
-
-     struct completion free_wait;
-
-     char *packet;
-
-     uint32_t packet_len;
-
-     uint32_t interval;
-
-     uint32_t ref_count;
-
-     sx_bfd_delayed_work_t * dwork;
-
-     uint64_t session_opaque_data;
-
-     struct ip_addr ip_addr;
-
-     atomic64_t rx_counter;
-
-     atomic64_t dropped_packets;
-
-     uint64_t last_time; /* last time a packet was received */
-
-     atomic_t remote_heard;
-
-     unsigned long bfd_pid;
-
+    uint32_t                vrf_id;
+    uint32_t                session_id;
+    uint8_t                 deleted;
+    struct completion       free_wait;
+    char                   *packet;
+    uint32_t                packet_len;
+    uint32_t                interval;
+    uint32_t                ref_count;
+    sx_bfd_delayed_work_t * dwork;
+    uint64_t                session_opaque_data;
+    struct ip_addr          ip_addr;
+    atomic64_t              rx_counter;
+    atomic64_t              dropped_packets;
+    uint64_t                last_time; /* last time a packet was received */
+    atomic_t                remote_heard;
+    unsigned long           bfd_pid;
 };
 
 int sx_bfd_rx_session_init(void);
@@ -86,9 +69,8 @@ int sx_bfd_rx_session_init(void);
 int sx_bfd_rx_session_deinit(void);
 
 struct sx_bfd_rx_session * sx_bfd_rx_sess_get_by_ip_vrf(struct ip_addr * ip_addr,
-                                                        uint32_t vrf_id,
-                                                        struct socket *t_sock);
-
+                                                        uint32_t         vrf_id,
+                                                        struct socket   *t_sock);
 struct sx_bfd_rx_session * sx_bfd_rx_sess_get_by_id(uint32_t session_id);
 
 void sx_bfd_rx_sess_put(struct sx_bfd_rx_session * session);

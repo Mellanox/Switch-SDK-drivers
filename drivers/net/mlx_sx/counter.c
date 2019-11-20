@@ -51,13 +51,12 @@ typedef void (*counter_iterator_cb)(struct sx_core_counter *counter, void *conte
 typedef int (*counter_dump_filter_cb)(const struct sx_core_counter *counter, u64 since_startup);
 
 struct dump_counters_context {
-    struct seq_file *m;
-    void *v;
-    counter_dump_filter_cb filter_cb;
+    struct seq_file                 *m;
+    void                            *v;
+    counter_dump_filter_cb           filter_cb;
     struct sx_core_counter_category *last_category;
 };
-
-static const char *severity_to_str(enum sx_core_counter_severity severity)
+static const char * severity_to_str(enum sx_core_counter_severity severity)
 {
     static const char *sev_to_str[] = {
         [COUNTER_SEV_NONE] = "",
@@ -89,7 +88,7 @@ static u8 __category_exists(const struct sx_core_counter_category *counter_categ
 
 
 static u8 __counter_exists(const struct sx_core_counter_category *counter_category,
-                           const struct sx_core_counter *counter)
+                           const struct sx_core_counter          *counter)
 {
     const struct sx_core_counter *iter_counter;
 
@@ -106,14 +105,13 @@ static u8 __counter_exists(const struct sx_core_counter_category *counter_catego
 static int __sx_core_counter_category_register(struct sx_core_counter_category *counter_category)
 {
     unsigned long flags;
-    int ret = 0;
+    int           ret = 0;
 
     spin_lock_irqsave(&__sx_core_counter_lock, flags);
     if (__category_exists(counter_category)) {
         printk(KERN_ERR "counter category %s already exists\n", counter_category->name);
         ret = -EEXIST;
-    }
-    else {
+    } else {
         list_add_tail(&counter_category->list_categories, &sx_core_counter_category_list);
     }
 
@@ -124,9 +122,9 @@ static int __sx_core_counter_category_register(struct sx_core_counter_category *
 
 int sx_core_counter_category_init(struct sx_core_counter_category* counter_category, const char* name)
 {
-    if (!counter_category || !name || strlen(name) > MAX_COUNTER_CATEGORY_NAME_LEN) {
+    if (!counter_category || !name || (strlen(name) > MAX_COUNTER_CATEGORY_NAME_LEN)) {
         printk(KERN_ERR "failed to init counter category [%s] - invalid parameter\n",
-               (name? name: "<NULL>"));
+               (name ? name : "<NULL>"));
         return -EINVAL;
     }
 
@@ -143,7 +141,7 @@ EXPORT_SYMBOL(sx_core_counter_category_init);
 int sx_core_counter_category_deinit(struct sx_core_counter_category *counter_category)
 {
     unsigned long flags;
-    int ret = 0;
+    int           ret = 0;
 
     if (!counter_category) {
         printk(KERN_ERR "NULL counter category\n");
@@ -155,8 +153,7 @@ int sx_core_counter_category_deinit(struct sx_core_counter_category *counter_cat
         printk(KERN_ERR "failed to deinit counter category %s - category not empty\n",
                counter_category->name);
         ret = -ENOTEMPTY;
-    }
-    else {
+    } else {
         list_del(&counter_category->list_categories);
     }
 
@@ -168,10 +165,10 @@ EXPORT_SYMBOL(sx_core_counter_category_deinit);
 
 
 static int __sx_core_counter_register(struct sx_core_counter_category *counter_category,
-                                      struct sx_core_counter* counter)
+                                      struct sx_core_counter         * counter)
 {
     unsigned long flags;
-    int ret = 0;
+    int           ret = 0;
 
     spin_lock_irqsave(&__sx_core_counter_lock, flags);
     if (!__category_exists(counter_category)) {
@@ -201,13 +198,13 @@ done:
 
 
 int sx_core_counter_init(struct sx_core_counter_category *counter_category,
-                         struct sx_core_counter *counter,
-                         const char *name,
-                         enum sx_core_counter_severity severity)
+                         struct sx_core_counter          *counter,
+                         const char                      *name,
+                         enum sx_core_counter_severity    severity)
 {
-    if (!counter_category || !counter || !name || strlen(name) > MAX_COUNTER_NAME_LEN) {
+    if (!counter_category || !counter || !name || (strlen(name) > MAX_COUNTER_NAME_LEN)) {
         printk(KERN_ERR "failed to init counter [%s] - invalid argument\n",
-               (name? name: "<NULL>"));
+               (name ? name : "<NULL>"));
         return -EINVAL;
     }
 
@@ -223,8 +220,6 @@ int sx_core_counter_init(struct sx_core_counter_category *counter_category,
 }
 
 EXPORT_SYMBOL(sx_core_counter_init);
-
-
 static void __sx_core_counter_unregister(struct sx_core_counter *counter)
 {
     unsigned long flags;
@@ -266,16 +261,16 @@ EXPORT_SYMBOL(sx_core_counter_increment);
 static void __msecs_to_human_time(unsigned long j, char* human_time, u32 humen_time_size)
 {
     unsigned long msecs = jiffies_to_msecs(j);
-    u16 _msecs;
-    u8 _secs;
-    u8 _mins;
-    u8 _hours;
-    u16 _days;
+    u16           _msecs;
+    u8            _secs;
+    u8            _mins;
+    u8            _hours;
+    u16           _days;
 
-#define MSEC_IN_SEC		(1000U)
-#define MSEC_IN_MIN		(60000U)
-#define MSEC_IN_HOUR	(3600000U)
-#define MSEC_IN_DAY		(86400000U)
+#define MSEC_IN_SEC  (1000U)
+#define MSEC_IN_MIN  (60000U)
+#define MSEC_IN_HOUR (3600000U)
+#define MSEC_IN_DAY  (86400000U)
 
     _days = msecs / MSEC_IN_DAY;
     msecs -= _days * MSEC_IN_DAY;
@@ -289,7 +284,7 @@ static void __msecs_to_human_time(unsigned long j, char* human_time, u32 humen_t
     _secs = msecs / MSEC_IN_SEC;
     msecs -= _secs * MSEC_IN_SEC;
 
-    _msecs = (u16) msecs;
+    _msecs = (u16)msecs;
 
     snprintf(human_time, humen_time_size, "%uD %02u:%02u:%02u.%03u",
              _days, _hours, _mins, _secs, _msecs);
@@ -299,7 +294,7 @@ static void __msecs_to_human_time(unsigned long j, char* human_time, u32 humen_t
 static void __iterate_counters(counter_iterator_cb iter_cb, void *context)
 {
     struct sx_core_counter_category *counter_category;
-    struct sx_core_counter *counter;
+    struct sx_core_counter          *counter;
 
     spin_lock_bh(&__sx_core_counter_lock);
 
@@ -315,10 +310,10 @@ static void __iterate_counters(counter_iterator_cb iter_cb, void *context)
 
 static void __dump_one_counter(struct sx_core_counter *counter, void *context)
 {
-    struct dump_counters_context *dmp_ctx = (struct dump_counters_context*) context;
-    u8 print_category_name = (counter->counter_category != dmp_ctx->last_category);
-    char str_last_time[20] = "";
-    u64 since_startup = atomic64_read(&counter->since_startup);
+    struct dump_counters_context *dmp_ctx = (struct dump_counters_context*)context;
+    u8                            print_category_name = (counter->counter_category != dmp_ctx->last_category);
+    char                          str_last_time[20] = "";
+    u64                           since_startup = atomic64_read(&counter->since_startup);
 
     if (dmp_ctx->filter_cb && dmp_ctx->filter_cb(counter, since_startup)) {
         return;
@@ -330,7 +325,7 @@ static void __dump_one_counter(struct sx_core_counter *counter, void *context)
 
     seq_printf(dmp_ctx->m,
                "%-36s %-8s %-48s %-20s %-20llu %-20llu %-20llu\n",
-               (print_category_name? counter->counter_category->name: ""),
+               (print_category_name ? counter->counter_category->name : ""),
                severity_to_str(counter->severity),
                counter->name,
                str_last_time,
@@ -343,9 +338,7 @@ static void __dump_one_counter(struct sx_core_counter *counter, void *context)
 }
 
 
-static void __dump_counters(struct seq_file *m,
-                            void *v,
-                            counter_dump_filter_cb filter_cb)
+static void __dump_counters(struct seq_file *m, void *v, counter_dump_filter_cb filter_cb)
 {
     struct dump_counters_context context = {
         .m = m,
@@ -431,7 +424,7 @@ static int proc_clear_counters(struct seq_file *m, void *v)
 
 static size_t __counters_seq_file_size(void)
 {
-	return __seq_file_size;
+    return __seq_file_size;
 }
 
 

@@ -52,7 +52,8 @@
 #include "counter.h"
 #include <linux/interrupt.h>
 #include <linux/version.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,13,0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
+    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
     #include <linux/timecounter.h>
 #endif
 #include <linux/clocksource.h>
@@ -97,13 +98,13 @@
 #define SWITCH_IB_FLASH_MODE_PCI_DEV_ID 0x0247
 
 /* SwitchIB2 PCI device ID */
-#define SWITCH_IB2_PCI_DEV_ID 		0xcf08
+#define SWITCH_IB2_PCI_DEV_ID 0xcf08
 
 /* SwitchIB2 in flash recovery mode */
 #define SWITCH_IB2_FLASH_MODE_PCI_DEV_ID 0x024B
 
 /* Quantum PCI device ID */
-#define QUANTUM_PCI_DEV_ID 		0xd2f0
+#define QUANTUM_PCI_DEV_ID 0xd2f0
 
 /* Quantum in flash recovery mode */
 #define QUANTUM_FLASH_MODE_PCI_DEV_ID 0x024D
@@ -118,11 +119,11 @@
 
 #ifdef CONFIG_SX_DEBUG
 extern int sx_debug_level;
-#define sx_dbg(mdev, format, arg ...)                       \
-    do {                                                    \
-        if (sx_debug_level) {                               \
-            dev_printk(KERN_DEBUG,                          \
-                       &(mdev)->pdev->dev, "%s.%d: " format, __func__, __LINE__,## arg); } \
+#define sx_dbg(mdev, format, arg ...)                                                       \
+    do {                                                                                    \
+        if (sx_debug_level) {                                                               \
+            dev_printk(KERN_DEBUG,                                                          \
+                       &(mdev)->pdev->dev, "%s.%d: " format, __func__, __LINE__, ## arg); } \
     } while (0)
 
 #else /* CONFIG_SX_DEBUG */
@@ -250,7 +251,6 @@ struct event_data {
     u8               dest_is_lag;
     u8               dest_lag_subport;
 };
-
 struct sx_rsc { /* sx  resource */
     struct event_data evlist;           /* event list           */
     int               evlist_size;      /* the current size     */
@@ -259,8 +259,8 @@ struct sx_rsc { /* sx  resource */
     atomic_t          multi_packet_read_enable;
     atomic_t          read_blocking_state;
     struct semaphore  write_sem;
-    struct sx_dq       *bound_monitor_rdq;
-    struct file*      owner;
+    struct sx_dq     *bound_monitor_rdq;
+    struct file     * owner;
 };
 struct tx_base_header_v0 {
     u8  ctl_mc;
@@ -286,7 +286,7 @@ struct tx_base_header_v1 {
 struct sx_bitmap {
     u32           max;
     spinlock_t    lock;   /* bitmap lock */
-    unsigned long table[2];
+    unsigned long table[4];
 };
 struct sx_buf_list {
     void      *buf;
@@ -329,9 +329,7 @@ struct sx_eq_table {
 /************************************************
  * CQ - Structs
  ***********************************************/
-
 union sx_cqe;
-
 struct sx_cq_bkp_poll {
     atomic_t curr_num_cq_polls;
     int      last_interval_num_cq_polls;
@@ -354,33 +352,32 @@ struct sx_cq {
     struct sx_cq_bkp_poll bkp_poll_data;
     u8                    cqe_version;
     size_t                cqe_sizeof;
-    void (*sx_next_cqe_cb)(struct sx_cq *cq, union sx_cqe *cqe_p);
-    void (*sx_fill_poll_one_params_from_cqe_cb)(union sx_cqe *u_cqe, u16 *trap_id, u8 *is_err,
-                                                 u8 *is_send, u8 *dqn, u16 *wqe_counter, u16 *byte_count);
-    u8 (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
-    void (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
-    struct timespec*      cqe_ts_arr;
+    void                  (*sx_next_cqe_cb)(struct sx_cq *cq, union sx_cqe *cqe_p);
+    void                  (*sx_fill_poll_one_params_from_cqe_cb)(union sx_cqe *u_cqe, u16 *trap_id, u8 *is_err,
+                                                                 u8 *is_send, u8 *dqn, u16 *wqe_counter,
+                                                                 u16 *byte_count);
+    u8               (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
+    void             (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
+    struct timespec* cqe_ts_arr;
 };
-
 struct cpu_traffic_priority {
-    struct sx_bitmap high_prio_cq_bitmap;        /* CPU high priority CQs */
-    struct sx_bitmap active_high_prio_cq_bitmap; /* high priority CQs that hold CQEs to handle */
-    struct sx_bitmap active_low_prio_cq_bitmap;  /* low priority CQs that hold CQEs to handle */
-    atomic_t high_prio_cq_in_load;               /* is high prio traffic in heave CPU load? */
+    struct sx_bitmap    high_prio_cq_bitmap;     /* CPU high priority CQs */
+    struct sx_bitmap    active_high_prio_cq_bitmap; /* high priority CQs that hold CQEs to handle */
+    struct sx_bitmap    active_low_prio_cq_bitmap; /* low priority CQs that hold CQEs to handle */
+    atomic_t            high_prio_cq_in_load;    /* is high prio traffic in heave CPU load? */
     struct task_struct *low_prio_cq_thread;      /* low priority CQs handling thread */
     struct task_struct *monitor_cq_thread;      /* low priority CQs handling thread */
-    struct semaphore low_prio_cq_thread_sem;     /* semaphore to signal the low priority CQs handling thread */
-    struct semaphore monitor_cq_thread_sem;     /* semaphore to signal the low priority CQs handling thread */
-    struct timer_list sampling_timer;
+    struct semaphore    low_prio_cq_thread_sem;  /* semaphore to signal the low priority CQs handling thread */
+    struct semaphore    monitor_cq_thread_sem;  /* semaphore to signal the low priority CQs handling thread */
+    struct timer_list   sampling_timer;
 };
-
 struct sx_cq_table {
-    struct sx_bitmap               bitmap;
-    struct sx_bitmap               ts_bitmap; /* time stamp enabled/disabled */
-    struct timespec               *timestamps;
-    struct cpu_traffic_priority    cpu_traffic_prio;
-    spinlock_t                     lock;  /* cq_table lock */
-    struct sx_cq                 **cq;
+    struct sx_bitmap            bitmap;
+    struct sx_bitmap            ts_bitmap;    /* time stamp enabled/disabled */
+    struct timespec            *timestamps;
+    struct cpu_traffic_priority cpu_traffic_prio;
+    spinlock_t                  lock;     /* cq_table lock */
+    struct sx_cq              **cq;
 };
 
 /************************************************
@@ -434,21 +431,21 @@ struct sx_dq {
     enum dq_state           state;
     atomic_t                refcount;
     struct completion       free;
-    unsigned long		  	last_completion; /* time stamp that marks when last completion received */
-    unsigned long		  	last_full_queue; /* time stamp that marks when was last time the queue was full */
-    int						is_monitor;		 /* rdq is cyclyc monitor rdq. non valid for sdq */
-    int						is_monitor_stopped;
-    uint32_t				mon_rx_count;
-    uint32_t				mon_rx_start;
-    uint32_t				mon_rx_start_total; /* start point to calculate total number of discarded packets per RDQ */
-    struct sx_rsc*			file_priv_p;
-    uint8_t					cpu_tclass;
+    unsigned long           last_completion; /* time stamp that marks when last completion received */
+    unsigned long           last_full_queue; /* time stamp that marks when was last time the queue was full */
+    int                     is_monitor;      /* rdq is cyclic monitor rdq. non valid for sdq */
+    int                     is_monitor_stopped;
+    uint32_t                mon_rx_count;
+    uint32_t                mon_rx_start;
+    uint32_t                mon_rx_start_total; /* start point to calculate total number of discarded packets per RDQ */
+    struct sx_rsc         * file_priv_p;
+    uint8_t                 cpu_tclass;
 
-    /* SW queue used for storing discarded packets which may be consumed by NOS, 
+    /* SW queue used for storing discarded packets which may be consumed by NOS,
      * since current HW doesn't allow to store such packet in multiple RDQs. */
-    struct event_data      *sw_dup_evlist_p;
-    uint32_t                sw_dup_evlist_cnt;       /* number of discarded packets in the SW cyclic buffer */
-    uint32_t                sw_dup_evlist_total_cnt; /* total number of discarded packets per SW cyclic buffer (could be greated than size of the cyclic buffer) */
+    struct event_data *sw_dup_evlist_p;
+    uint32_t           sw_dup_evlist_cnt;            /* number of discarded packets in the SW cyclic buffer */
+    uint32_t           sw_dup_evlist_total_cnt;      /* total number of discarded packets per SW cyclic buffer (could be greater than size of the cyclic buffer) */
 };
 struct sx_dq_table {
     struct sx_bitmap bitmap;
@@ -566,28 +563,24 @@ union swid_data {
 
 /* Timestamp to implement SW correction mechanism to the HW clock */
 struct sx_tstamp {
-    struct cyclecounter     cycles; /* hardware abstraction for a free running counter */
-    struct timecounter      clock; /* layer above a %struct cyclecounter which counts nanoseconds */
-    u32                     nominal_c_mult; /* Hardware nominal mult */
-    int                     freq_adj; /* diff of frequency adjustment */
-    bool                    time_adj; /* is there any time adjustment recently? */
-    struct sx_dev          *dev;
-    struct ptp_clock       *ptp;
-    struct ptp_clock_info   ptp_info;
-    u8                      is_ptp_enable;
-    spinlock_t              lock;   /* R/W lock */
-    struct delayed_work     overflow_work;
-    unsigned long           overflow_period;
-
+    struct cyclecounter   cycles;   /* hardware abstraction for a free running counter */
+    struct timecounter    clock;   /* layer above a %struct cyclecounter which counts nanoseconds */
+    u32                   nominal_c_mult;   /* Hardware nominal mult */
+    int                   freq_adj;   /* diff of frequency adjustment */
+    bool                  time_adj;   /* is there any time adjustment recently? */
+    struct sx_dev        *dev;
+    struct ptp_clock     *ptp;
+    struct ptp_clock_info ptp_info;
+    u8                    is_ptp_enable;
+    spinlock_t            lock;     /* R/W lock */
+    struct delayed_work   overflow_work;
+    unsigned long         overflow_period;
 };
-
-
 struct ber_work_data {
-        struct sx_dev *dev;
-        u8 local_port;
-        struct delayed_work dwork;
+    struct sx_dev      *dev;
+    u8                  local_port;
+    struct delayed_work dwork;
 };
-
 struct sx_priv;
 /* Note - all these callbacks are called when the db_lock spinlock is locked! */
 struct dev_specific_cb {
@@ -596,28 +589,27 @@ struct dev_specific_cb {
     u8  (*max_cpu_etclass_for_unlimited_mtu)(void);
     int (*sx_get_sdq_cb)(struct sx_dev *dev, enum ku_pkt_type type,
                          u8 swid, u8 etclass, u8 *stclass, u8 *sdq);
-    int (*sx_get_sdq_num_cb)(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq);
-    int (*get_send_to_port_as_data_supported_cb)(u8 *send_to_port_as_data_supported);
-    int (*get_rp_vid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u16 *vid);
-    int (*get_swid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u8 *swid);
-    int (*get_lag_mid_cb)(u16 lag_id, u16 *mid);
-    int (*get_ib_system_port_mid)(struct sx_dev *dev, u16 ib_port, u16* sys_port_mid);
-    int (*sx_ptp_init)(struct sx_priv *priv, ptp_mode_t ptp_mode);
-    int (*sx_ptp_cleanup)(struct sx_priv *priv);
+    int  (*sx_get_sdq_num_cb)(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq);
+    int  (*get_send_to_port_as_data_supported_cb)(u8 *send_to_port_as_data_supported);
+    int  (*get_rp_vid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u16 *vid);
+    int  (*get_swid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u8 *swid);
+    int  (*get_lag_mid_cb)(u16 lag_id, u16 *mid);
+    int  (*get_ib_system_port_mid)(struct sx_dev *dev, u16 ib_port, u16* sys_port_mid);
+    int  (*sx_ptp_init)(struct sx_priv *priv, ptp_mode_t ptp_mode);
+    int  (*sx_ptp_cleanup)(struct sx_priv *priv);
     void (*sx_set_device_profile_update_cb)(struct ku_profile* profile, struct profile_driver_params *driver_params);
     void (*sx_init_cq_db_cb)(struct sx_cq *cq, u8 cqn, u8 *cqe_ver);
     void (*sx_printk_cqe_cb)(union sx_cqe *u_cqe);
     u8   (*is_sw_rate_limiter_supported)(void);
     void (*sx_fill_ci_from_cqe_cb)(struct completion_info *ci, union sx_cqe *u_cqe);
     void (*sx_fill_params_from_cqe_cb)(union sx_cqe *u_cqe, u16 *hw_synd_p, u8  *is_isx_p,
-                                    u16 *byte_count_p, u8 *dqn_p, u8 *crc_present_p);
-    void (*sx_disconnect_all_trap_groups_cb)(struct sx_dev  *dev);
-    int (*sx_get_phy_port_max_cb)(uint16_t *port);
-    int (*sx_get_lag_max_cb)(uint16_t *max_lag_p, uint16_t *max_port_lags_p);
+                                       u16 *byte_count_p, u8 *dqn_p, u8 *crc_present_p);
+    void    (*sx_disconnect_all_trap_groups_cb)(struct sx_dev *dev);
+    int     (*sx_get_phy_port_max_cb)(uint16_t *port);
+    int     (*sx_get_lag_max_cb)(uint16_t *max_lag_p, uint16_t *max_port_lags_p);
     uint8_t (*sx_get_rdq_max_cb)(void);
-    int (*is_eqn_cmd_ifc_only_cb)(int eqn, u8 *is_cmd_ifc_only);
+    int     (*is_eqn_cmd_ifc_only_cb)(int eqn, u8 *is_cmd_ifc_only);
 };
-
 struct sx_priv {
     struct sx_dev              dev;
     struct list_head           dev_list;
@@ -638,9 +630,9 @@ struct sx_priv {
     struct ku_l2_tunnel_params l2_tunnel_params;
 
     /* PTP clock */
-    struct sx_tstamp           tstamp;
-    void __iomem              *ptp_hw_frc_base;
-    int                        ptp_cqn;
+    struct sx_tstamp tstamp;
+    void __iomem    *ptp_hw_frc_base;
+    int              ptp_cqn;
 
     /* IB only */
     u8 ib_to_local_db[MAX_IBPORT_NUM + 1];
@@ -656,30 +648,30 @@ struct sx_priv {
     u16 rif_id_to_hwfid[MAX_RIFS_NUM];
 
     /* common */
-    long       cq_last_time_armed[NUMBER_OF_SDQS + NUMBER_OF_RDQS];
-    long       cq_last_time_event[NUMBER_OF_SDQS + NUMBER_OF_RDQS];
+    long             cq_last_time_armed[NUMBER_OF_SDQS + NUMBER_OF_RDQS];
+    long             cq_last_time_event[NUMBER_OF_SDQS + NUMBER_OF_RDQS];
     struct sx_bitmap cq_high_priority;
-    u8         local_to_swid_db[MAX_PHYPORT_NUM + 1];
-    spinlock_t db_lock;                  /* Lock for all DBs */
-    u16        pvid_sysport_db[MAX_SYSPORT_NUM];
-    u16        pvid_lag_db[MAX_LAG_NUM];
+    u8               local_to_swid_db[MAX_PHYPORT_NUM + 1];
+    spinlock_t       db_lock;            /* Lock for all DBs */
+    u16              pvid_sysport_db[MAX_SYSPORT_NUM];
+    u16              pvid_lag_db[MAX_LAG_NUM];
 
 #if defined(PD_BU)
     /* Part of the PUDE WA for MLNX OS (PUDE event are handled manually):
      * - should be removed before Phoenix bring up;
      * - field in kernel DB to store port admin status;
      */
-    u8         admin_status_sysport_db[MAX_SYSPORT_NUM];
+    u8 admin_status_sysport_db[MAX_SYSPORT_NUM];
 #endif
 
-    u16        truncate_size_db[NUMBER_OF_RDQS];
-    u16        sysport_filter_db[NUM_HW_SYNDROMES][MAX_SYSTEM_PORTS_IN_FILTER];
-    u16        lag_filter_db[NUM_HW_SYNDROMES][MAX_LAG_PORTS_IN_FILTER];
-    u8         lag_oper_state[MAX_LAG_NUM];
-    u8         port_ber_monitor_bitmask[MAX_PHYPORT_NUM + 1];
-    u8         port_ber_monitor_state[MAX_PHYPORT_NUM + 1];
-    u8         tele_thrs_state[MAX_PHYPORT_NUM + 1];
-    u64        tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1];
+    u16 truncate_size_db[NUMBER_OF_RDQS];
+    u16 sysport_filter_db[NUM_HW_SYNDROMES][MAX_SYSTEM_PORTS_IN_FILTER];
+    u16 lag_filter_db[NUM_HW_SYNDROMES][MAX_LAG_PORTS_IN_FILTER];
+    u8  lag_oper_state[MAX_LAG_NUM];
+    u8  port_ber_monitor_bitmask[MAX_PHYPORT_NUM + 1];
+    u8  port_ber_monitor_state[MAX_PHYPORT_NUM + 1];
+    u8  tele_thrs_state[MAX_PHYPORT_NUM + 1];
+    u64 tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1];
     /* RP helper dbs */
     u8                     port_prio2tc[MAX_PHYPORT_NUM + 1][MAX_PRIO_NUM + 1];
     u8                     lag_prio2tc[MAX_LAG_NUM + 1][MAX_PRIO_NUM + 1];
@@ -694,17 +686,15 @@ struct sx_priv {
     u16                    port_vid_to_fid[MAX_PHYPORT_NUM + 1][SXD_MAX_VLAN_NUM];
     atomic_t               cq_backup_polling_refcnt;
     struct dev_specific_cb dev_specific_cb;
-    atomic_t 			   dev_specific_cb_refcnt;
+    atomic_t               dev_specific_cb_refcnt;
     wait_queue_head_t      dev_specific_cb_not_in_use;
     /* ECMP redirect IP override */
     u32                   icmp_vlan2ip_db[SXD_MAX_VLAN_NUM];
     struct tasklet_struct intr_tasklet;
     u32                   monitor_rdqs_arr[MAX_MONITOR_RDQ_NUM];
     u32                   monitor_rdqs_count;
-    struct sx_bitmap 	  active_monitor_cq_bitmap;  	 /* WJH CQs that hold CQEs to handle */
+    struct sx_bitmap      active_monitor_cq_bitmap;      /* WJH CQs that hold CQEs to handle */
 };
-
-
 struct listener_entry {
     u8                        swid;
     enum l2_type              listener_type;
@@ -715,29 +705,28 @@ struct listener_entry {
     u64                       rx_pkts;
     struct list_head          list;
 };
-
 struct listener_port_vlan_entry {
     enum port_vlan_match match_crit;
-    u16 sysport;
-    u16 lag_id;
-    u16 vlan;
+    u16                  sysport;
+    u16                  lag_id;
+    u16                  vlan;
 
     struct {
         struct sx_core_counter_category category;
 
         struct {
-        	struct {
+            struct {
                 struct sx_core_counter global;
                 struct sx_core_counter sysport;
                 struct sx_core_counter lag;
                 struct sx_core_counter vlan;
-        	} accepted;
+            } accepted;
 
-        	struct {
-        		struct sx_core_counter sysport;
+            struct {
+                struct sx_core_counter sysport;
                 struct sx_core_counter lag;
                 struct sx_core_counter vlan;
-        	} mismtach;
+            } mismtach;
         } listener_port_vlan;
 
         struct {
@@ -775,27 +764,25 @@ struct listener_port_vlan_entry {
         } listener;
     } counters;
 
-    struct listener_entry   listener;
-    struct list_head        list;
+    struct listener_entry listener;
+    struct list_head      list;
 };
-
-
 struct sx_globals {
-    struct rw_semaphore   pci_restart_lock;
-    spinlock_t            pci_devs_lock;   /* the devs list lock */
-    struct list_head      pci_devs_list;
-    int                   pci_devs_cnt;
-    struct sx_dev        *tmp_dev_ptr;
-    struct sx_dev        *oob_backbone_dev; /* SwitchX that interconnects all OOB devices */
-    struct sx_dpt_s       sx_dpt;
-    struct sx_i2c_ifc     sx_i2c;
-    struct sx_stats       stats;
-    struct ku_profile     profile;
-    int                   index[SX_MAX_DEVICES];
+    struct rw_semaphore             pci_restart_lock;
+    spinlock_t                      pci_devs_lock; /* the devs list lock */
+    struct list_head                pci_devs_list;
+    int                             pci_devs_cnt;
+    struct sx_dev                  *tmp_dev_ptr;
+    struct sx_dev                  *oob_backbone_dev; /* SwitchX that interconnects all OOB devices */
+    struct sx_dpt_s                 sx_dpt;
+    struct sx_i2c_ifc               sx_i2c;
+    struct sx_stats                 stats;
+    struct ku_profile               profile;
+    int                             index[SX_MAX_DEVICES];
     struct listener_port_vlan_entry listeners_db[NUM_HW_SYNDROMES + 1];
-    spinlock_t            listeners_lock;   /* listeners' lock */
-    struct cdev           cdev;
-    u8                    pci_drivers_in_use;
+    spinlock_t                      listeners_lock; /* listeners' lock */
+    struct cdev                     cdev;
+    u8                              pci_drivers_in_use;
 };
 struct isx_specific_data {
     u8  version;

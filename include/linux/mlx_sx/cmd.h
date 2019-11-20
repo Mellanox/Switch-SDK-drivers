@@ -42,60 +42,60 @@
 #include <linux/mlx_sx/device.h>
 
 enum {
-	/* initialization and teardown commands */
-	SX_CMD_MAP_FA		= 0xfff,
-	SX_CMD_UNMAP_FA		= 0xffe,
-	SX_CMD_QUERY_FW		= 0x4,
-	SX_CMD_QUERY_BOARDINFO	= 0x6,
-	SX_CMD_QUERY_AQ_CAP	= 0x3,
-	SX_CMD_CONFIG_PROFILE	= 0x100,
-	SX_CMD_QUERY_RSRC	= 0x101,
-	SX_CMD_ISSU_FW          = 0x102,
+    /* initialization and teardown commands */
+    SX_CMD_MAP_FA = 0xfff,
+    SX_CMD_UNMAP_FA = 0xffe,
+    SX_CMD_QUERY_FW = 0x4,
+    SX_CMD_QUERY_BOARDINFO = 0x6,
+    SX_CMD_QUERY_AQ_CAP = 0x3,
+    SX_CMD_CONFIG_PROFILE = 0x100,
+    SX_CMD_QUERY_RSRC = 0x101,
+    SX_CMD_ISSU_FW = 0x102,
 
-	/* General commands */
-	SX_CMD_ACCESS_REG	= 0x40,
+    /* General commands */
+    SX_CMD_ACCESS_REG = 0x40,
 
-	/* port commands */
-	SX_CMD_CONF_PORT	= 0xc,
-	SX_CMD_INIT_PORT	= 0x9,
-	SX_CMD_CLOSE_PORT	= 0xa,
+    /* port commands */
+    SX_CMD_CONF_PORT = 0xc,
+    SX_CMD_INIT_PORT = 0x9,
+    SX_CMD_CLOSE_PORT = 0xa,
 
-	/* DQ commands */
-	SX_CMD_SW2HW_DQ		= 0x201,
-	SX_CMD_HW2SW_DQ		= 0x202,
-	SX_CMD_2ERR_DQ		= 0x1e,
-	SX_CMD_QUERY_DQ		= 0x22,
+    /* DQ commands */
+    SX_CMD_SW2HW_DQ = 0x201,
+    SX_CMD_HW2SW_DQ = 0x202,
+    SX_CMD_2ERR_DQ = 0x1e,
+    SX_CMD_QUERY_DQ = 0x22,
 
-	/* CQ commands */
-	SX_CMD_SW2HW_CQ		= 0x16,
-	SX_CMD_HW2SW_CQ		= 0x17,
-	SX_CMD_QUERY_CQ		= 0x18,
+    /* CQ commands */
+    SX_CMD_SW2HW_CQ = 0x16,
+    SX_CMD_HW2SW_CQ = 0x17,
+    SX_CMD_QUERY_CQ = 0x18,
 
-	/* EQ commands */
-	SX_CMD_SW2HW_EQ		= 0x13,
-	SX_CMD_HW2SW_EQ		= 0x14,
-	SX_CMD_QUERY_EQ		= 0x15,
+    /* EQ commands */
+    SX_CMD_SW2HW_EQ = 0x13,
+    SX_CMD_HW2SW_EQ = 0x14,
+    SX_CMD_QUERY_EQ = 0x15,
 
-	/* Infiniband commands */
-	SX_CMD_INIT_MAD_DEMUX	= 0x203,
-	SX_CMD_INIT_SYSTEM_M_KEY = 0x204,
-	SX_CMD_MAD_IFC		= 0x24,
+    /* Infiniband commands */
+    SX_CMD_INIT_MAD_DEMUX = 0x203,
+    SX_CMD_INIT_SYSTEM_M_KEY = 0x204,
+    SX_CMD_MAD_IFC = 0x24,
 };
 #ifndef INCREASED_TIMEOUT
 enum {
-	SX_CMD_TIME_CLASS_A	= 10000,
-	SX_CMD_TIME_CLASS_B	= 10000,
-	SX_CMD_TIME_CLASS_C	= 10000,
+    SX_CMD_TIME_CLASS_A = 10000,
+    SX_CMD_TIME_CLASS_B = 10000,
+    SX_CMD_TIME_CLASS_C = 10000,
 };
 #else
 enum {
-	SX_CMD_TIME_CLASS_A	= 10000,
-	SX_CMD_TIME_CLASS_B	= 10000,
-	SX_CMD_TIME_CLASS_C	= 10000,
+    SX_CMD_TIME_CLASS_A = 10000,
+    SX_CMD_TIME_CLASS_B = 10000,
+    SX_CMD_TIME_CLASS_C = 10000,
 };
 #endif
 enum {
-	SX_MAILBOX_SIZE	=  4096
+    SX_MAILBOX_SIZE = 4096
 };
 
 struct sx_dev;
@@ -104,19 +104,17 @@ struct sx_dev;
 /************************************************
  * Structs
  ***********************************************/
-
 struct sx_cmd_mailbox {
-	void		*buf;
-	dma_addr_t	dma;
-	u64		imm_data;
-	u8      is_in_param_imm;
-	u8      is_out_param_imm;
+    void      *buf;
+    dma_addr_t dma;
+    u64        imm_data;
+    u8         is_in_param_imm;
+    u8         is_out_param_imm;
 };
-
 struct sx_board {
-	u16  vsd_vendor_id;
-	char board_id[SX_BOARD_ID_LEN];
-	u8   inta_pin;
+    u16  vsd_vendor_id;
+    char board_id[SX_BOARD_ID_LEN];
+    u8   inta_pin;
 };
 
 typedef void generic_reg_data;
@@ -126,30 +124,38 @@ typedef int (*sx_ACCESS_REG_generic)(struct sx_dev *dev, generic_reg_data *reg_d
  * Functions
  ***********************************************/
 int __sx_cmd(struct sx_dev *dev, int sx_dev_id,
-		struct sx_cmd_mailbox *in_param,
-		struct sx_cmd_mailbox *out_param,
-		int out_is_imm, u32 in_modifier, u8 op_modifier,
-		u16 op, unsigned long timeout, int in_mb_size);
+             struct sx_cmd_mailbox *in_param,
+             struct sx_cmd_mailbox *out_param,
+             int out_is_imm, u32 in_modifier, u8 op_modifier,
+             u16 op, unsigned long timeout, int in_mb_size);
 
 /* Invoke a command with no output parameter */
-static inline int sx_cmd(struct sx_dev *dev, int sx_dev_id,
-		struct sx_cmd_mailbox *in_param,
-		u32 in_modifier, u8 op_modifier, u16 op,
-		unsigned long timeout, int in_mb_size)
+static inline int sx_cmd(struct sx_dev         *dev,
+                         int                    sx_dev_id,
+                         struct sx_cmd_mailbox *in_param,
+                         u32                    in_modifier,
+                         u8                     op_modifier,
+                         u16                    op,
+                         unsigned long          timeout,
+                         int                    in_mb_size)
 {
-	return __sx_cmd(dev, sx_dev_id, in_param, NULL, 0, in_modifier,
-			  op_modifier, op, timeout, in_mb_size);
+    return __sx_cmd(dev, sx_dev_id, in_param, NULL, 0, in_modifier,
+                    op_modifier, op, timeout, in_mb_size);
 }
 
 /* Invoke a command with an output mailbox */
-static inline int sx_cmd_box(struct sx_dev *dev, int sx_dev_id,
-		struct sx_cmd_mailbox *in_param,
-		struct sx_cmd_mailbox *out_param, u32 in_modifier,
-		u8 op_modifier, u16 op, unsigned long timeout,
-		int in_mb_size)
+static inline int sx_cmd_box(struct sx_dev         *dev,
+                             int                    sx_dev_id,
+                             struct sx_cmd_mailbox *in_param,
+                             struct sx_cmd_mailbox *out_param,
+                             u32                    in_modifier,
+                             u8                     op_modifier,
+                             u16                    op,
+                             unsigned long          timeout,
+                             int                    in_mb_size)
 {
-	return __sx_cmd(dev, sx_dev_id, in_param, out_param, 0, in_modifier,
-			  op_modifier, op, timeout, in_mb_size);
+    return __sx_cmd(dev, sx_dev_id, in_param, out_param, 0, in_modifier,
+                    op_modifier, op, timeout, in_mb_size);
 }
 
 /*
@@ -157,35 +163,39 @@ static inline int sx_cmd_box(struct sx_dev *dev, int sx_dev_id,
  * output into the caller's out_param pointer after the command
  * executes).
  */
-static inline int sx_cmd_imm(struct sx_dev *dev,
-		int sx_dev_id,
-		struct sx_cmd_mailbox *in_param,
-		struct sx_cmd_mailbox *out_param, u32 in_modifier,
-		u8 op_modifier, u16 op, unsigned long timeout, int in_mb_size)
+static inline int sx_cmd_imm(struct sx_dev         *dev,
+                             int                    sx_dev_id,
+                             struct sx_cmd_mailbox *in_param,
+                             struct sx_cmd_mailbox *out_param,
+                             u32                    in_modifier,
+                             u8                     op_modifier,
+                             u16                    op,
+                             unsigned long          timeout,
+                             int                    in_mb_size)
 {
-	return __sx_cmd(dev, sx_dev_id,  in_param, out_param, 1,
-			in_modifier, op_modifier, op, timeout, in_mb_size);
+    return __sx_cmd(dev, sx_dev_id,  in_param, out_param, 1,
+                    in_modifier, op_modifier, op, timeout, in_mb_size);
 }
 
 void sx_cmd_set_op_tlv(struct ku_operation_tlv *op_tlv, u32 reg_id, u8 method);
-struct sx_cmd_mailbox *sx_alloc_cmd_mailbox(struct sx_dev *dev, int sx_dev_id);
+struct sx_cmd_mailbox * sx_alloc_cmd_mailbox(struct sx_dev *dev, int sx_dev_id);
 void sx_free_cmd_mailbox(struct sx_dev *dev, struct sx_cmd_mailbox *mailbox);
 void sx_cmd_event(struct sx_dev *dev, u16 token, u8 status, u64 out_param);
 int sx_cmd_use_events(struct sx_dev *dev);
 void sx_cmd_use_polling(struct sx_dev *dev);
 
 int sx_cmd_send_mad_sync(struct sx_dev *dev,
-                         int dev_id,
-                         u32 in_modifier,
-                         u8 op_modifier,
-                         void *in_mad,
-                         int in_size,
-                         void *out_mad,
-                         int out_size);
+                         int            dev_id,
+                         u32            in_modifier,
+                         u8             op_modifier,
+                         void          *in_mad,
+                         int            in_size,
+                         void          *out_mad,
+                         int            out_size);
 
 int sx_ACCESS_REG_SPZR(struct sx_dev *dev, struct ku_access_spzr_reg *reg_data);
 int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw);
-int sx_QUERY_CQ(struct sx_dev *dev,u8 cqn, struct ku_query_cq *cq_context_p);
+int sx_QUERY_CQ(struct sx_dev *dev, u8 cqn, struct ku_query_cq *cq_context_p);
 int sx_QUERY_RSRC(struct sx_dev *dev, struct ku_query_rsrc* query_rsrc);
 int sx_QUERY_AQ_CAP(struct sx_dev *dev);
 int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct sx_board *adapter);
@@ -240,8 +250,8 @@ int sx_ACCESS_REG_SPVID(struct sx_dev *dev, struct ku_access_spvid_reg *reg_data
 int sx_ACCESS_REG_SFD(struct sx_dev *dev, struct ku_access_sfd_reg *reg_data);
 int sx_ACCESS_REG_PPSC(struct sx_dev *dev, struct ku_access_ppsc_reg *reg_data);
 int sx_ACCESS_REG_PLBF(struct sx_dev *dev, struct ku_access_plbf_reg *reg_data);
-int sx_ACCESS_REG_MHSR(struct sx_dev *dev,struct ku_access_mhsr_reg *reg_data);
-int sx_ACCESS_REG_SGCR(struct sx_dev *dev,struct ku_access_sgcr_reg *reg_data);
+int sx_ACCESS_REG_MHSR(struct sx_dev *dev, struct ku_access_mhsr_reg *reg_data);
+int sx_ACCESS_REG_SGCR(struct sx_dev *dev, struct ku_access_sgcr_reg *reg_data);
 int sx_ACCESS_REG_MSCI(struct sx_dev *dev, struct ku_access_msci_reg *reg_data);
 int sx_ACCESS_REG_MRSR(struct sx_dev *dev, struct ku_access_mrsr_reg *reg_data);
 int sx_ACCESS_REG_RGCR(struct sx_dev *dev, struct ku_access_rgcr_reg *reg_data);
