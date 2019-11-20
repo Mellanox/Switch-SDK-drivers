@@ -37,7 +37,11 @@
 #include "sx_bfd_socket.h"
 #include "sx_bfd_rx_session.h"
 
-void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session, char *packet, uint32_t size, struct metadata *metadata, unsigned long bfd_user_space_pid);
+void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
+                              char                     *packet,
+                              uint32_t                  size,
+                              struct metadata          *metadata,
+                              unsigned long             bfd_user_space_pid);
 void sx_bfd_event_send_timeout(struct sx_bfd_rx_session *session);
 
 #endif /* __SX_BFD_EVENT_H_ */

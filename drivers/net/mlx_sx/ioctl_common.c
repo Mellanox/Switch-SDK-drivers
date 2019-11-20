@@ -43,7 +43,7 @@
 
 int sx_core_ioctl_enable_swid(struct sx_dev *dev, unsigned long data)
 {
-    int err = 0;
+    int                    err = 0;
     struct ku_swid_details swid_data;
 
     err = copy_from_user(&swid_data, (void*)data,
@@ -76,8 +76,8 @@ out:
 
 int sx_core_ioctl_set_pci_profile(struct sx_dev *dev, unsigned long data, uint8_t set_profile)
 {
-    int err = 0;
-    struct ku_profile profile;
+    int                          err = 0;
+    struct ku_profile            profile;
     struct profile_driver_params addition_params;
 
     printk(KERN_DEBUG PFX "ioctl set pci profile called\n");
@@ -125,7 +125,7 @@ int sx_core_ioctl_set_pci_profile(struct sx_dev *dev, unsigned long data, uint8_
      * systems with CQE version other than 0, we should find a better solution.
      */
 
-    if (profile.dev_id != DEFAULT_DEVICE_ID && addition_params.cqe_version != 0 && set_profile) {
+    if ((profile.dev_id != DEFAULT_DEVICE_ID) && (addition_params.cqe_version != 0) && set_profile) {
         printk(KERN_DEBUG PFX "ioctl set pci profile: set cqe version (%u)\n",
                addition_params.cqe_version);
         err = sx_SET_PROFILE(dev, &profile, &addition_params);
@@ -143,8 +143,8 @@ int sx_core_ioctl_set_pci_profile(struct sx_dev *dev, unsigned long data, uint8_
         goto out;
     }
 
-    err = copy_to_user((void*)data,(void*)&dev->profile,
-                             sizeof(dev->profile));
+    err = copy_to_user((void*)data, (void*)&dev->profile,
+                       sizeof(dev->profile));
     if (err) {
         err = -ENOMEM;
         goto out;
@@ -157,8 +157,9 @@ out:
 
 int sx_core_ioctl_get_pci_profile(struct sx_dev *dev, unsigned long data)
 {
-    int err = 0;
+    int                        err = 0;
     struct ku_get_pci_profile *pci_prof = NULL;
+
     spin_lock(&dev->profile_lock);
     if (!dev->profile_set) {
         printk(KERN_WARNING PFX "Err: profile is not set\n");
@@ -168,7 +169,7 @@ int sx_core_ioctl_get_pci_profile(struct sx_dev *dev, unsigned long data)
     }
 
     pci_prof = kmalloc(sizeof(*pci_prof), GFP_ATOMIC);
-    if (pci_prof == NULL){
+    if (pci_prof == NULL) {
         printk(KERN_ERR PFX "Err: alloc of pci_prof is failed\n");
         spin_unlock(&dev->profile_lock);
         err = -ENOMEM;
@@ -181,8 +182,9 @@ int sx_core_ioctl_get_pci_profile(struct sx_dev *dev, unsigned long data)
     err = copy_to_user((struct ku_get_pci_profile *)data,
                        pci_prof, sizeof(*pci_prof));
 
-    if (pci_prof != NULL)
+    if (pci_prof != NULL) {
         kfree(pci_prof);
+    }
 
     if (err) {
         err = -ENOMEM;
@@ -196,73 +198,79 @@ out:
 
 int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
 {
-	union sx_event_data *event_data;
+    union sx_event_data *event_data;
 
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
         return -ENOMEM;
     }
 
-	event_data->eth_l3_synd.swid = swid;
-	event_data->eth_l3_synd.hw_synd = hw_synd;
-    switch(port_vlan_params->port_vlan_type){
-        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
-            event_data->eth_l3_synd.port = port_vlan_params->sysport;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
-            event_data->eth_l3_synd.port = port_vlan_params->lag_id;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
-            event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
-            break;
+    event_data->eth_l3_synd.swid = swid;
+    event_data->eth_l3_synd.hw_synd = hw_synd;
+    switch (port_vlan_params->port_vlan_type) {
+    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
+        event_data->eth_l3_synd.port = port_vlan_params->sysport;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
+        event_data->eth_l3_synd.port = port_vlan_params->lag_id;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
+        event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
     }
 
-	sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_L2_NETDEV, event_data);
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_L2_NETDEV, event_data);
     kfree(event_data);
 
-	return 0;
+    return 0;
 }
 
 
 int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
 {
-	union sx_event_data *event_data;
+    union sx_event_data *event_data;
 
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
         return -ENOMEM;
     }
 
-	event_data->eth_l3_synd.swid = swid;
-	event_data->eth_l3_synd.hw_synd = hw_synd;
-	switch(port_vlan_params->port_vlan_type){
-	    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
-	        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
-	        break;
-        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
-            event_data->eth_l3_synd.port = port_vlan_params->sysport;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
-            event_data->eth_l3_synd.port = port_vlan_params->lag_id;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
-            event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
-            break;
-	}
+    event_data->eth_l3_synd.swid = swid;
+    event_data->eth_l3_synd.hw_synd = hw_synd;
+    switch (port_vlan_params->port_vlan_type) {
+    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
+        break;
 
-	sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_NETDEV, event_data);
+    case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
+        event_data->eth_l3_synd.port = port_vlan_params->sysport;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
+        event_data->eth_l3_synd.port = port_vlan_params->lag_id;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
+        event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
+    }
+
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_NETDEV, event_data);
     kfree(event_data);
 
-	return 0;
+    return 0;
 }
 
 
@@ -277,22 +285,25 @@ int sx_core_add_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_por
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
-    switch(port_vlan_params->port_vlan_type){
-        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
-            event_data->eth_l3_synd.port = port_vlan_params->sysport;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
-            event_data->eth_l3_synd.port = port_vlan_params->lag_id;
-            break;
-        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
-            event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
-            event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
-            break;
+    switch (port_vlan_params->port_vlan_type) {
+    case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_PORT;
+        event_data->eth_l3_synd.port = port_vlan_params->sysport;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_LAG;
+        event_data->eth_l3_synd.port = port_vlan_params->lag_id;
+        break;
+
+    case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+        event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
+        event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
     }
 
     sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_PHY_NETDEV, event_data);

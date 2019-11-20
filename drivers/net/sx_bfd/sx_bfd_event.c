@@ -35,20 +35,24 @@
 #include "sx_bfd_event.h"
 #include <linux/sx_bfd/sx_bfd_ctrl_cmds.h>
 
-#define SX_BFD_USER_PORT          3786
+#define SX_BFD_USER_PORT             3786
 #define SX_TRAP_ID_BFD_TIMEOUT_EVENT 0x20f
-#define SX_TRAP_ID_BFD_PACKET_EVENT 0x210
+#define SX_TRAP_ID_BFD_PACKET_EVENT  0x210
 
-extern int send_trap(const void            *buf,
-              const uint32_t         buf_size,
-              uint16_t               trap_id);
+extern int send_trap(const void    *buf,
+                     const uint32_t buf_size,
+                     uint16_t       trap_id);
 
 
-void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session, char *packet, uint32_t size, struct metadata *metadata, unsigned long bfd_user_space_pid)
+void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
+                              char                     *packet,
+                              uint32_t                  size,
+                              struct metadata          *metadata,
+                              unsigned long             bfd_user_space_pid)
 {
     struct bfd_packet_event *event_msg = NULL;
-    uint8_t family;
-    int event_msg_size = 0;
+    uint8_t                  family;
+    int                      event_msg_size = 0;
 
     /*calculate the size of the packet which will be sent via packet event
      * which include not only packet received on the socket but additional
@@ -77,8 +81,8 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session, char *packet, u
     } else {
         /* Session doesn't exist*/
         /* opaque_data_valid - Show to user space BFD stack that the session
-           doesn't exist*/
-       event_msg->opaque_data_valid = 0;
+         *  doesn't exist*/
+        event_msg->opaque_data_valid = 0;
     }
 
     /* bfd_pid - to show to user space what VRF context is used*/
@@ -91,15 +95,19 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session, char *packet, u
         memcpy(&event_msg->peer_addr.peer_in.sin_addr, &metadata->peer_addr.peer_in.sin_addr, sizeof(struct in_addr));
     } else {
         event_msg->peer_addr.peer_in.sin_family = AF_INET6;
-        memcpy(&event_msg->peer_addr.peer_in6.sin6_addr, &metadata->peer_addr.peer_in6.sin6_addr, sizeof(struct in6_addr));
+        memcpy(&event_msg->peer_addr.peer_in6.sin6_addr, &metadata->peer_addr.peer_in6.sin6_addr,
+               sizeof(struct in6_addr));
     }
     family = ((struct sockaddr*)&metadata->local_addr)->sa_family;
     if (family == AF_INET) {
         event_msg->local_addr.local_in.sin_family = AF_INET;
-        memcpy(&event_msg->local_addr.local_in.sin_addr, &metadata->local_addr.local_in.sin_addr, sizeof(struct in_addr));
+        memcpy(&event_msg->local_addr.local_in.sin_addr,
+               &metadata->local_addr.local_in.sin_addr,
+               sizeof(struct in_addr));
     } else {
         event_msg->local_addr.local_in.sin_family = AF_INET6;
-        memcpy(&event_msg->local_addr.local_in6.sin6_addr, &metadata->local_addr.local_in6.sin6_addr, sizeof(struct in6_addr));
+        memcpy(&event_msg->local_addr.local_in6.sin6_addr, &metadata->local_addr.local_in6.sin6_addr,
+               sizeof(struct in6_addr));
     }
 
     /* Fill the rest of required parameters */
@@ -109,14 +117,15 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session, char *packet, u
     memcpy(event_msg->packet, packet, size);
 
     if (send_trap(event_msg,
-                    event_msg_size,
-                    SX_TRAP_ID_BFD_PACKET_EVENT) != 0) {
+                  event_msg_size,
+                  SX_TRAP_ID_BFD_PACKET_EVENT) != 0) {
         printk(KERN_ERR "Failed to send data trap 0x210 for session (%d).\n", session ? session->session_id : -1);
     }
 
 out:
-    if (event_msg)
+    if (event_msg) {
         kfree(event_msg);
+    }
 }
 
 void sx_bfd_event_send_timeout(struct sx_bfd_rx_session *session)
@@ -131,11 +140,9 @@ void sx_bfd_event_send_timeout(struct sx_bfd_rx_session *session)
 
     /*Send the trap */
     if (send_trap(&event,
-                    sizeof(struct bfd_timeout_event),
-                    SX_TRAP_ID_BFD_TIMEOUT_EVENT) != 0) {
+                  sizeof(struct bfd_timeout_event),
+                  SX_TRAP_ID_BFD_TIMEOUT_EVENT) != 0) {
         printk(KERN_ERR "Failed to send timeout trap for session_id %d and VRF %d.\n",
                session->session_id, session->vrf_id);
     }
-
 }
-

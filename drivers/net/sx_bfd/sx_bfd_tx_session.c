@@ -50,7 +50,6 @@ static DECLARE_HASHTABLE(tx_sessions, SX_BFD_SESSIONS_HASH_BITS);
 static DEFINE_SPINLOCK(tx_sess_lock);
 
 static bool g_initialized = false;
-
 static void sx_bfd_tx_sess_put_no_lock(struct sx_bfd_tx_session * session)
 {
     session->ref_count--;
@@ -80,8 +79,9 @@ static void tx_timeout_handler(uint32_t session_id)
         /* Noting to do, session is probably deleted */
         return;
     }
-   /* send packet */
-    if (sx_bfd_socket_send(session->sock, (char*)session->packet, session->packet_len, (struct sockaddr *)&session->peer_addr) == true) {
+    /* send packet */
+    if (sx_bfd_socket_send(session->sock, (char*)session->packet, session->packet_len,
+                           (struct sockaddr *)&session->peer_addr) == true) {
         /* statistics - raise statistics only if send packet success */
         atomic64_inc(&session->tx_counter);
     }
@@ -90,64 +90,63 @@ static void tx_timeout_handler(uint32_t session_id)
 
     /* Check if during this action was command to destroy session.
      * If this command was received - don't retrigger timer. */
-     if (session->deleted == 0) {
+    if (session->deleted == 0) {
         sx_bfd_delayed_work_cancel(session->dwork);
         sx_bfd_delayed_work_dispatch(session->dwork, usecs_to_jiffies(session->interval));
     }
     spin_unlock_bh(&tx_sess_lock);
     sx_bfd_tx_sess_put(session);
-
 }
 
 static struct sx_bfd_tx_session_entry * sx_bfd_tx_sess_lkp_entry(uint32_t session_id)
 {
-        static struct sx_bfd_tx_session_entry * entry;
-        unsigned long hash_key;
+    static struct sx_bfd_tx_session_entry * entry;
+    unsigned long                           hash_key;
 
-        hash_key = jhash(&session_id, sizeof(uint32_t), 0);
+    hash_key = jhash(&session_id, sizeof(uint32_t), 0);
 
-        hash_for_each_possible(tx_sessions, entry, node, hash_key) {
-            if (entry->session_id == session_id) {
-                return entry;
-            }
+    hash_for_each_possible(tx_sessions, entry, node, hash_key) {
+        if (entry->session_id == session_id) {
+            return entry;
         }
+    }
 
-        return NULL;
+    return NULL;
 }
 
 
 struct sx_bfd_tx_session * sx_bfd_tx_sess_get(uint32_t session_id)
 {
-        struct sx_bfd_tx_session_entry *entry = NULL;
+    struct sx_bfd_tx_session_entry *entry = NULL;
 
-        spin_lock_bh(&tx_sess_lock);
+    spin_lock_bh(&tx_sess_lock);
 
-        entry = sx_bfd_tx_sess_lkp_entry(session_id);
+    entry = sx_bfd_tx_sess_lkp_entry(session_id);
 
-        if (!entry) {
-            spin_unlock_bh(&tx_sess_lock);
-            printk(KERN_WARNING "TX Session %u doesn't exist.\n", session_id);
-            return NULL;
-        }
-
-        entry->sess->ref_count++;
-
+    if (!entry) {
         spin_unlock_bh(&tx_sess_lock);
+        printk(KERN_WARNING "TX Session %u doesn't exist.\n", session_id);
+        return NULL;
+    }
 
-        return entry->sess;
+    entry->sess->ref_count++;
+
+    spin_unlock_bh(&tx_sess_lock);
+
+    return entry->sess;
 }
 
 
 int sx_bfd_tx_sess_add(char *data, void* stats)
 {
-    struct bfd_offload request_hdr;
-    struct sx_bfd_tx_session *session = NULL;
+    struct bfd_offload_info         request_hdr;
+    struct sx_bfd_tx_session       *session = NULL;
     struct sx_bfd_tx_session_entry *entry = NULL;
-    unsigned long hash_key;
-    int err = 0;
+    unsigned long                   hash_key;
+    int                             err = 0;
 
     /* <data> was received from ioctl */
-    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload));
+    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload_info));
     if (err) {
         printk(KERN_ERR "Failed to copy TX offload request from user.\n");
         goto bail;
@@ -165,8 +164,8 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
 
     memset(session, 0, sizeof(struct sx_bfd_tx_session));
 
-    /* Allocate place to packet insode Tx session DS
-     * (this packet will be sent every timeout event) and initialise it */
+    /* Allocate place to packet inside Tx session DS
+     * (this packet will be sent every timeout event) and initialize it */
     session->packet = (char*)kmalloc(request_hdr.size, GFP_KERNEL);
     if (session->packet == NULL) {
         printk(KERN_ERR "Failed to allocate packet in TX session.\n");
@@ -174,19 +173,18 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
         goto bail;
     }
 
-    err = copy_from_user(session->packet, data + sizeof(struct bfd_offload), request_hdr.size);
+    err = copy_from_user(session->packet, data + sizeof(struct bfd_offload_info), request_hdr.size);
     if (err < 0) {
         printk(KERN_ERR "Failed to copy TX packet from user.\n");
         goto bail;
     }
 
-    /* Initialise peer address DS - destination identification */
+    /* Initialize peer address DS - destination identification */
     if (((struct sockaddr *)&request_hdr.peer_addr)->sa_family == AF_INET) {
         /*IPv4*/
         memcpy(&session->peer_addr.peer_in,
                &request_hdr.peer_addr.peer_in,
                sizeof(struct sockaddr_in));
-
     } else {
         /*IPv6*/
         memcpy(&session->peer_addr.peer_in6,
@@ -204,13 +202,17 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
     /* Create Tx socket - this socket is used to send the packets out.
      * As in User space we switched context to the correct namespace (VRF)
      * this socket will be create in the context of required namespace (VRF) */
-    err = sx_bfd_tx_socket_create((struct sockaddr *)&request_hdr.local_addr, request_hdr.ttl, request_hdr.dscp, &session->sock, ((struct sockaddr *)&request_hdr.peer_addr)->sa_family);
+    err = sx_bfd_tx_socket_create((struct sockaddr *)&request_hdr.local_addr,
+                                  request_hdr.ttl,
+                                  request_hdr.dscp,
+                                  &session->sock,
+                                  ((struct sockaddr *)&request_hdr.peer_addr)->sa_family);
     if (err < 0) {
         printk(KERN_ERR "Failed to create TX socket.\n");
         goto bail;
     }
 
-    /* Initialise the rest of the parameters of Tx session DS. */
+    /* Initialize the rest of the parameters of Tx session DS. */
     session->packet_len = request_hdr.size;
     session->interval = request_hdr.interval;
     session->ref_count = 1;
@@ -261,7 +263,7 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
     session = NULL;
     entry = NULL;
 
-    printk(KERN_DEBUG "TX Session %u was added succesfully.\n", request_hdr.session_id);
+    printk(KERN_DEBUG "TX Session %u was added successfully.\n", request_hdr.session_id);
 
 bail:
     if (session) {
@@ -286,9 +288,9 @@ static int tx_sess_del(uint32_t session_id, void *stats)
 {
     struct sx_bfd_tx_session_entry *entry = NULL;
 
-    /* Spinlock initialisation for protection of DB
-      * in user context (process) && soft_IRQ (frames from socket)*/
-      spin_lock_bh(&tx_sess_lock);
+    /* Spinlock initialization for protection of DB
+     * in user context (process) && soft_IRQ (frames from socket)*/
+    spin_lock_bh(&tx_sess_lock);
 
     /* Get entry session for freeing it after spin_unlock
      * (free can not be called inside spinlock).
@@ -302,7 +304,7 @@ static int tx_sess_del(uint32_t session_id, void *stats)
         return -ENOENT;
     }
 
-    /* Delete entry session from hash - so timeout event which is responsable
+    /* Delete entry session from hash - so timeout event which is responsible
      * to send packets every period of time  won't get the session
      * and those packets won't sent out*/
     hash_del(&entry->node);
@@ -347,12 +349,12 @@ static int tx_sess_del(uint32_t session_id, void *stats)
 
 int sx_bfd_tx_sess_del(char *data, void* stats)
 {
-    int err = 0;
-    struct bfd_offload request_hdr;
+    int                     err = 0;
+    struct bfd_offload_info request_hdr;
 
 
     /* <data> was received from ioctl */
-    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload));
+    err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload_info));
     if (err) {
         printk(KERN_ERR "Failed to copy TX offload request from user.\n");
         goto bail;
@@ -372,7 +374,6 @@ bail:
 
 int sx_bfd_tx_session_init(void)
 {
-
     if (!g_initialized) {
         hash_init(tx_sessions);
 
@@ -384,8 +385,8 @@ int sx_bfd_tx_session_init(void)
 
 static void sx_bfd_tx_sessions_flush(void)
 {
-    int i;
-    struct hlist_node *tmp;
+    int                                     i;
+    struct hlist_node                      *tmp;
     static struct sx_bfd_tx_session_entry * entry;
 
     hash_for_each_safe(tx_sessions, i, tmp, entry, node) {
@@ -408,9 +409,9 @@ int sx_bfd_tx_session_deinit(void)
 
 int sx_bfd_get_tx_sess_stats(char * data, uint8_t clear_stats)
 {
-    int err = 0;
+    int                          err = 0;
     struct bfd_offload_get_stats request_hdr;
-    struct sx_bfd_tx_session * session = NULL;
+    struct sx_bfd_tx_session   * session = NULL;
 
     /* <data> was received from ioctl */
     err = copy_from_user(&request_hdr, data, sizeof(struct bfd_offload_get_stats));
@@ -450,7 +451,7 @@ bail:
 int sx_bfd_tx_sess_update(char *data)
 {
     struct bfd_offload_session_stats session_stats;
-    int err = 0;
+    int                              err = 0;
 
     memset(&session_stats, 0, sizeof(struct bfd_offload_session_stats));
 
@@ -466,4 +467,3 @@ int sx_bfd_tx_sess_update(char *data)
 
     return err;
 }
-

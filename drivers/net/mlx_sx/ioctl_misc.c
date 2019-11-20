@@ -255,7 +255,7 @@ static uint8_t __sx_is_default_device(int dev_id)
         return (ret) ? 0 : (dev_id == default_dev_id);
     }
 
-    /* Chassis managed by PCI & inband network */
+    /* Chassis managed by PCI & in-band network */
     return (sx_glb.sx_dpt.dpt_info[dev_id].cmd_path == DPT_PATH_PCI_E);
 }
 

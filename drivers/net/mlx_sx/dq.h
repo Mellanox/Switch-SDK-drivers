@@ -49,15 +49,15 @@
 
 /* DQ (SDQ/RDQ context) */
 struct sx_dq_context {
-	u8      cq;
-	u8      sdq_tclass;
-	u8      reserved1;
-	u8      log2_dq_sz;
-	u32     reserved2;
-	u32     reserved3;
-	u32     reserved4;
-	__be64	dma_addr[8];  /* DQE buffer dma addresses */
-	/* Physical Address of Descriptor Queue page <i> (i=0,1,...,7) */
+    u8     cq;
+    u8     sdq_tclass;
+    u8     reserved1;
+    u8     log2_dq_sz;
+    u32    reserved2;
+    u32    reserved3;
+    u32    reserved4;
+    __be64 dma_addr[8];   /* DQE buffer dma addresses */
+    /* Physical Address of Descriptor Queue page <i> (i=0,1,...,7) */
 };
 
 /************************************************
@@ -68,9 +68,9 @@ void sx_core_repost_recv(struct sx_dq *rdq);
 int sx_core_init_sdq_table(struct sx_dev *dev);
 int sx_core_init_rdq_table(struct sx_dev *dev);
 int sx_core_create_sdq(struct sx_dev *dev, int nent,
-		u8 dqn, struct sx_dq **sdq_p);
+                       u8 dqn, struct sx_dq **sdq_p);
 int sx_core_create_rdq(struct sx_dev *dev, int nent,
-		u8 dqn, struct sx_dq **rdq_p);
+                       u8 dqn, struct sx_dq **rdq_p);
 
 void sx_core_destroy_sdq_table(struct sx_dev *dev, u8 free_table);
 void sx_core_destroy_rdq_table(struct sx_dev *dev, u8 free_table);

@@ -33,8 +33,8 @@
 #ifndef __SX_PROC_H__
 #define __SX_PROC_H__
 
-int 	sx_core_init_proc_fs(void);
-void 	sx_core_close_proc_fs(void);
+int sx_core_init_proc_fs(void);
+void sx_core_close_proc_fs(void);
 
 void sx_dpt_dump(void);
 void sx_dpt_set_cmd_dbg(int dev_id, int path);
@@ -47,20 +47,20 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev);
 void __dump_stats(struct sx_dev* sx_dev);
 int sx_proc_handle_access_reg_auto(struct sx_dev *dev, char *p,
                                    u32 dev_id, u32 reg_id, char *running);
-char *sx_proc_str_get_u32(char *buffer, u32 *val32);
+char * sx_proc_str_get_u32(char *buffer, u32 *val32);
 
-#define SX_DBG_PACKET_TYPE_ANY		 	0xFFFF
-#define SX_DBG_EMAD_TYPE_ANY		 	 0xFFFF
-#define SX_DBG_CMD_OP_TYPE_ANY		   0xFFFF
-#define SX_DBG_REG_TYPE_ANY				    0xFFFF
+#define SX_DBG_PACKET_TYPE_ANY 0xFFFF
+#define SX_DBG_EMAD_TYPE_ANY   0xFFFF
+#define SX_DBG_CMD_OP_TYPE_ANY 0xFFFF
+#define SX_DBG_REG_TYPE_ANY    0xFFFF
 
-#define SX_DBG_COUNT_UNLIMITED			0xFFFF
+#define SX_DBG_COUNT_UNLIMITED 0xFFFF
 
-#define SX_PROC_DUMP_PKT_DISABLE		0
-#define SX_PROC_DUMP_PKT_RX					 1
-#define SX_PROC_DUMP_PKT_TX					 2
+#define SX_PROC_DUMP_PKT_DISABLE 0
+#define SX_PROC_DUMP_PKT_RX      1
+#define SX_PROC_DUMP_PKT_TX      2
 
-#define SX_DBG_DISABLE								0
-#define SX_DBG_ENABLE								 1
+#define SX_DBG_DISABLE 0
+#define SX_DBG_ENABLE  1
 
 #endif
