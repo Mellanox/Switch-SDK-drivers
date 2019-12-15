@@ -36,8 +36,8 @@ extern struct sx_globals sx_glb;
 
 #define IOCTL_CMD_INDEX(cmd) ((cmd) - CTRL_CMD_MIN_VAL)
 #define IOCTL_REG_INDEX(cmd) ((cmd) - CTRL_CMD_ACCESS_REG_MIN)
-#define IOCTL_REG_HANDLER(reg_name)                       \
-    [IOCTL_REG_INDEX(CTRL_CMD_ACCESS_REG_ ## reg_name)] = \
+#define IOCTL_REG_HANDLER(reg_name)                                                \
+                             [IOCTL_REG_INDEX(CTRL_CMD_ACCESS_REG_ ## reg_name)] = \
         ctrl_cmd_access_reg_ ## reg_name
 
 typedef long (*ioctl_handler_cb_t)(struct file *file, unsigned int cmd, unsigned long data);
@@ -176,7 +176,7 @@ long ctrl_cmd_get_capabilities(struct file *file, unsigned int cmd, unsigned lon
 long ctrl_cmd_issu_fw(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_enable_swid(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long data);
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
 long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data);
 #endif /* PD_BU */
 long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long data);

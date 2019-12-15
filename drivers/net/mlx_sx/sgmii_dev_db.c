@@ -591,10 +591,6 @@ static int __sgmii_dev_proc_show(struct seq_file *m, void *v)
         dev_type_name = "Switch-IB-3";
         break;
 
-    case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
-        dev_type_name = "Switch-Spectrum-3";
-        break;
-
     default:
         dev_type_name = "N/A";
         break;

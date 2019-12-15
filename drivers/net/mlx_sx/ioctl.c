@@ -83,7 +83,7 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_PCI_PROFILE)] = ctrl_cmd_get_pci_profile,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_SWID_2_RDQ)] = ctrl_cmd_get_swid_2_rdq,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_DEFAULT_VID)] = ctrl_cmd_set_default_vid,
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
 #endif
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_VID_MEMBERSHIP)] = ctrl_cmd_set_vid_membership,

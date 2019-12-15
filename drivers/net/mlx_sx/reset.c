@@ -69,7 +69,7 @@ static int perform_dev_sw_reset(struct sx_dev *dev)
     int err = 0;
 
     if (!dev) {
-        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
+        sx_err(dev, "%s: dev argument is null, err [%d]\n", __func__, err);
         return -EINVAL;
     }
 
@@ -87,7 +87,6 @@ static int perform_dev_sw_reset(struct sx_dev *dev)
     /* Spectrum, SwitchIB */
     case SPECTRUM_PCI_DEV_ID:     /* no break */
     case SPECTRUM2_PCI_DEV_ID:     /* no break */
-    case SPECTRUM3_PCI_DEV_ID: /* no break */
     case SWITCH_IB_PCI_DEV_ID:     /* no break */
     case SWITCH_IB2_PCI_DEV_ID:
     case QUANTUM_PCI_DEV_ID:
@@ -210,8 +209,8 @@ static int sdk_sx_reset(struct sx_dev *dev)
         val = ioread32be(sys_status);
         if (SX_SYSTEM_STATUS_ENABLED == (val & SX_SYSTEM_STATUS_REG_MASK)) {
             system_enabled = true;
-            printk(KERN_INFO "reset: system_enabled change to [true], time: %u[ms]\n",
-                   jiffies_to_msecs(jiffies - start));
+            printk(KERN_INFO "reset: system_enabled change to [%s], time: %u[ms]\n",
+                   system_enabled ? "true" : "false", jiffies_to_msecs(jiffies - start));
             break;
         }
         cond_resched();
@@ -245,8 +244,8 @@ static int __save_headers_data(struct sx_dev *dev, u32* hca_header_p)
     int pcie_cap = 0;
 
     if (!dev) {
-        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
         return -EINVAL;
+        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
     }
 
     /* SwitchX */
@@ -295,8 +294,8 @@ static int __restore_headers_data(struct sx_dev *dev, u32* hca_header_p)
     u16 linkctl = 0;
 
     if (!dev) {
-        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
         return -EINVAL;
+        printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
     }
 
     /* SwitchX */
@@ -405,8 +404,6 @@ int legacy_sx_reset(struct sx_dev *dev)
 
     if (!dev->pdev) {
         sx_err(dev, "SW reset will not be executed since PCI device is not present");
-        err = -ENODEV;
-        goto out;
     }
 
 #define SX_RESET_BASE   0xf0000
@@ -476,7 +473,7 @@ int sx_reset(struct sx_dev *dev, u8 perform_chip_reset)
     int           err = 0;
 
     if ((dev == NULL) || !dev->pdev) {
-        printk(KERN_ERR "SW reset will not be executed since PCI device is not present\n");
+        sx_err(dev, "SW reset will not be executed since PCI device is not present");
         err = -ENODEV;
         goto out;
     }

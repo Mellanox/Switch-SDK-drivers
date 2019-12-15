@@ -768,29 +768,28 @@ static ssize_t __monitor_file_read(struct file     *filp,
 {
     unsigned long         flags;
     struct sx_rsc        *file = filp->private_data;
-    int                   err = 0, rc;
+    int                   err = 0;
     size_t                total_packets_cnt = 0;
     size_t                sw_total_packets_cnt = 0;
     size_t                buffers_count = 0;
     struct listener_entry force_listener;
     uint8_t             **tmp_buff_pp = NULL;
-    int                   i = 0, j = 0;
+    size_t                i = 0, j = 0;
     uint8_t               release_tmp_buff = false;
 
-    if (file_op == SX_FILE_OP_FLUSH) {
-        sx_monitor_flush(file, file->bound_monitor_rdq);
-        goto out;
-    }
-
-    if (buffers_count_p == NULL) {
+    if ((buffers_count_p == NULL) && (file_op != SX_FILE_OP_FLUSH)) {
         printk(KERN_ERR "%s(): buffers_count_p is  NULL \n", __func__);
         return -EINVAL;
     }
-
     buffers_count = *buffers_count_p;
 
     if (file_op == SX_FILE_OP_COUNT) {
         *buffers_count_p = sx_monitor_count_get(file->bound_monitor_rdq);
+        goto out;
+    }
+
+    if (file_op == SX_FILE_OP_FLUSH) {
+        sx_monitor_flush(file, file->bound_monitor_rdq);
         goto out;
     }
 
@@ -833,7 +832,7 @@ static ssize_t __monitor_file_read(struct file     *filp,
     for (i = 0; i < buffers_count; i++) {
         tmp_buff_pp[i] = (uint8_t*)kzalloc(buffer_size_list_p[i], GFP_KERNEL);
         if (tmp_buff_pp[i] == NULL) {
-            printk(KERN_ERR " Failed to allocate memory for local buffer tmp_buff_pp, index=%d.\n", i);
+            printk(KERN_ERR " Failed to allocate memory for local buffer tmp_buff_pp, index=%zu. \n", i);
 
             /* release those indexes which were already allocated */
             for (j = i - 1; j >= 0; j--) {
@@ -914,12 +913,8 @@ out:
     }
 
     /* connect trap group to rdq */
-    rc = sx_trap_group_path_set(file->bound_monitor_rdq, HTGT_LOCAL_PATH);
-    if (rc) {
-        if (!err) { /* if no errors till we got here, put 'rc' in 'err' to return */
-            err = rc;
-        }
-
+    err = sx_trap_group_path_set(file->bound_monitor_rdq, HTGT_LOCAL_PATH);
+    if (err) {
         printk(KERN_ERR "%s(): connect rdq %d to TG failed. err: %d \n",
                __func__, file->bound_monitor_rdq->dqn, err);
         goto out;

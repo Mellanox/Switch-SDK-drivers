@@ -201,21 +201,15 @@ static void __queue_skb_to_worker_thread(struct sk_buff *skb, enum sx_emad_dump_
 {
     struct skb_to_dump *skb_to_dump = kmalloc(sizeof(struct skb_to_dump), GFP_ATOMIC);
 
-    if (!skb_to_dump) {
-        if (net_ratelimit()) {
-            printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed to allocate skb to dump\n", direction);
-        }
-
+    if (!skb_to_dump && net_ratelimit()) {
+        printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed to allocate skb to dump\n", direction);
         return;
     }
 
     skb_to_dump->direction = direction;
     skb_to_dump->skb = skb_clone(skb, GFP_ATOMIC);
-    if (!skb_to_dump->skb) {
-        if (net_ratelimit()) {
-            printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed on skb_clone()\n", direction);
-        }
-
+    if (!skb_to_dump->skb && net_ratelimit()) {
+        printk(KERN_ERR "EMAD_DUMP [direction: %d]: failed on skb_clone()\n", direction);
         kfree(skb_to_dump);
         return;
     }

@@ -984,42 +984,13 @@ int __sx_cmd(struct sx_dev         *dev,
  */
 
 #ifdef PD_BU
-#ifdef SPECTRUM3_BU
-    if (0) { /* all registers are opened */
-        switch (op) {
-        case SX_CMD_ACCESS_REG:
-        {
-            u16 reg_id = be16_to_cpu(((struct emad_operation *)(in_param->buf))->register_id);
-            switch (reg_id) {
-            case MGIR_REG_ID:
-            case HTGT_REG_ID:
-            case HPKT_REG_ID:
-#ifdef SX_DEBUG
-                printk(KERN_INFO PFX "__sx_cmd: Running command %s with reg_id 0x%x\n", cmd_str(op), reg_id);
-#endif
-                break;
 
-            default:
-                printk(KERN_INFO PFX "__sx_cmd: command %s with reg_id 0x%x is not yet "
-                       "supported. Not running it\n", cmd_str(op), reg_id);
-                return 0;
-            }
-            break;
-        }
-
-        default:
-#ifdef SX_DEBUG
-            printk(KERN_INFO PFX "__sx_cmd: Running command %s\n", cmd_str(op));
-#endif
-            break;
-        }
-    }
+    /* all registers are opened */
 
 #ifdef SX_DEBUG
     printk(KERN_INFO PFX "__sx_cmd: Running command %s\n", cmd_str(op));
 #endif
 
-#endif /* #ifdef SPECTRUM3_BU */
 #endif /* #ifdef PD_BU */
 
     if (cmd_path == DPT_PATH_INVALID) {
@@ -1136,10 +1107,10 @@ int sx_cmd_use_events(struct sx_dev *dev)
     struct sx_priv *priv = sx_priv(dev);
     int             i;
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    /* The flow should be tested on Palladium/Protium once HW adds support */
-    return 0; /* No events yet... */
-#endif
+/* #if defined(PD_BU)
+ *   / The flow should be tested on Palladium/Protium once HW adds support /
+ *   return 0; / No events yet... /
+ #endif */
 
     if (priv->cmd.use_events == 1) {
         return 0;

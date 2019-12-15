@@ -164,8 +164,11 @@ static int sx_core_ioctl_set_netdev_trap_info(struct sx_dev *dev, struct ku_sx_c
                     sx_core_add_synd_phy(0, sx_core_db->trap_ids[uc_type][i], dev,
                                          &(sx_core_db->port_vlan_params[uc_type][i]));
                 break;
-            }
 
+            default:
+                err = -EINVAL;
+                break;
+            }
             if (err) {
                 goto out;
             }
@@ -425,6 +428,7 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     struct sx_dev        *dev;
     int                   i;
     unsigned long         flags;
+    bool                  db_locked = false;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -483,6 +487,7 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     }
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
+    db_locked = true;
     SX_CORE_IOCTL_MEMCPY(sysport_filter_db);
     SX_CORE_IOCTL_MEMCPY(lag_filter_db);
     SX_CORE_IOCTL_MEMCPY(pvid_sysport_db);
@@ -517,6 +522,7 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     SX_CORE_IOCTL_MEMCPY(fid_to_hwfid);
     SX_CORE_IOCTL_MEMCPY(rif_id_to_hwfid);
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    db_locked = false;
 
     err = sx_core_ioctl_set_rdq_properties(dev, sx_core_db);
     if (err) {
@@ -526,6 +532,10 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
 out:
     if (sx_core_db) {
         vfree(sx_core_db);
+    }
+
+    if (db_locked) {
+        spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
     }
 
     return err;

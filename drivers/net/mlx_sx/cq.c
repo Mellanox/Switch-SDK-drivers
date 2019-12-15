@@ -930,7 +930,7 @@ out:
     return err;
 }
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
 /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
  * - should be removed before Phoenix bring up;
  * - skip UP PUDE event on the port if port admin status is DOWN;
@@ -1044,7 +1044,7 @@ int rx_skb(void                  *context,
     ci->dev = sx_device;
     ci->hw_synd = hw_synd;
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
     /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
      * - should be removed before Phoenix bring up */
     if (__verify_hw_synd(priv, ci) != 0) {
@@ -1107,10 +1107,9 @@ int rx_skb(void                  *context,
          (rx_debug_emad_type ==
           be16_to_cpu(((struct sx_emad *)skb->data)->emad_op.register_id)))) {
         if (rx_cqev2_dbg) {
-            if (__sx_core_dev_specific_cb_get_reference(sx_device) == 0) {
-                priv->dev_specific_cb.sx_printk_cqe_cb(u_cqe);
-                __sx_core_dev_specific_cb_release_reference(sx_device);
-            }
+            __sx_core_dev_specific_cb_get_reference(sx_device);
+            priv->dev_specific_cb.sx_printk_cqe_cb(u_cqe);
+            __sx_core_dev_specific_cb_release_reference(sx_device);
         }
 
         printk(KERN_DEBUG PFX "rx_skb: swid = %d, "
@@ -1682,18 +1681,22 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
         idx = dq->tail & (dq->wqe_cnt - 1);
         while (idx != wqe_ctr) {
             if (printk_ratelimit()) {
-                printk(KERN_DEBUG PFX "sx_poll_one: Err "
-                       "wqe_ctr=[%u] "
-                       "!= dq->tail=[%u]\n",
-                       wqe_ctr, dq->tail);
+                printk(KERN_DEBUG PFX "sx_poll_one: Err wqe_ctr [%u] != idx [%u] (dq->tail [%u])\n",
+                       wqe_ctr, idx, dq->tail);
             }
-/*			idx = dq->tail & (dq->wqe_cnt - 1); */
+
+            dq->tail++; /* increment before sx_core_post_recv()/post_skb() */
             wqe_sync_for_cpu(dq, idx);
-            sx_skb_free(dq->sge[idx].skb);
-            dq->sge[idx].skb = NULL;
-            dq->tail++;
+
+            if (dq->is_monitor) {
+                sx_core_post_recv(dq, NULL);
+            } else {
+                sx_skb_free(dq->sge[idx].skb);
+                dq->sge[idx].skb = NULL;
+                post_skb(dq);
+            }
+
             idx = dq->tail & (dq->wqe_cnt - 1);
-            post_skb(dq);
         }
 
         ++dq->tail;
@@ -2518,15 +2521,12 @@ void sx_get_cqe_all_versions(struct sx_cq *cq, uint32_t n, union sx_cqe *cqe_p)
     switch (cq->cqe_version) {
     case 0:
         cqe_p->v0 = sx_get_cqe(cq, n & (cq->nent - 1));
-        break;
 
     case 1:
         cqe_p->v1 = sx_get_cqe(cq, n & (cq->nent - 1));
-        break;
 
     case 2:
         cqe_p->v2 = sx_get_cqe(cq, n & (cq->nent - 1));
-        break;
     }
 
     /* In case the CQ version isn't 0-2 return NULL */

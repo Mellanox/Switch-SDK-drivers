@@ -77,8 +77,12 @@ int sx_bfd_create_delayed_work(sx_bfd_delayed_work_t ** dwork, handler_func func
     t_dwork->data = data;
 
     *dwork = t_dwork;
+    t_dwork = NULL;
 
 bail:
+    if (t_dwork) {
+        kfree(t_dwork);
+    }
     return err;
 }
 

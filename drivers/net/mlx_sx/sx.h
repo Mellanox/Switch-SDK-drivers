@@ -92,11 +92,6 @@
 /* Spectrum2 in flash recovery mode */
 #define SPECTRUM2_FLASH_MODE_PCI_DEV_ID 0x024f
 
-/* Spectrum3 PCI device ID */
-#define SPECTRUM3_PCI_DEV_ID 0xcf70
-/* Spectrum3 in flash recovery mode */
-#define SPECTRUM3_FLASH_MODE_PCI_DEV_ID 0x0250
-
 /* SwitchIB PCI device ID */
 #define SWITCH_IB_PCI_DEV_ID 0xcb20
 /* SwitchIB in flash recovery mode */
@@ -661,7 +656,7 @@ struct sx_priv {
     u16              pvid_sysport_db[MAX_SYSPORT_NUM];
     u16              pvid_lag_db[MAX_LAG_NUM];
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
     /* Part of the PUDE WA for MLNX OS (PUDE event are handled manually):
      * - should be removed before Phoenix bring up;
      * - field in kernel DB to store port admin status;

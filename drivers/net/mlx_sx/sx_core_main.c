@@ -748,18 +748,13 @@ int sx_core_get_swid(struct sx_dev *dev, struct completion_info *comp_info, uint
 
     *swid = 0;
 
-    if (!dev) {
-        printk(KERN_ERR PFX "get_swid: dev is NULL\n");
-        return -EINVAL;
-    }
-
     rc = __sx_core_dev_specific_cb_get_reference(dev);
     if (rc) {
         printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
         return rc;
     }
 
-    if (sx_priv(dev)->dev_specific_cb.get_swid_cb != NULL) {
+    if (dev && (sx_priv(dev)->dev_specific_cb.get_swid_cb != NULL)) {
         sx_priv(dev)->dev_specific_cb.get_swid_cb(dev, comp_info, swid);
     } else {
         printk(KERN_ERR PFX "Error retrieving get_swid_cb callback\n");
@@ -775,11 +770,6 @@ EXPORT_SYMBOL(sx_core_get_swid);
 int sx_core_get_phy_port_max(struct sx_dev *dev, uint16_t *port)
 {
     int rc = 0;
-
-    if (dev == NULL) {
-        printk(KERN_ERR PFX "get phy port max: dev is NULL.\n");
-        return -EINVAL;
-    }
 
     if (port == NULL) {
         printk(KERN_ERR PFX "port is NULL.\n");
@@ -798,7 +788,7 @@ int sx_core_get_phy_port_max(struct sx_dev *dev, uint16_t *port)
      *  value and nothing will be changed after we will init switch with
      *  appropriate callback, hence lock will be redundant here. */
 
-    if (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb != NULL) {
+    if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb != NULL)) {
         if (sx_priv(dev)->dev_specific_cb.sx_get_phy_port_max_cb(port)) {
             printk(KERN_ERR PFX "Error retrieving max phy port number from sx_get_phy_port_max_cb callback\n");
             rc = -EINVAL;
@@ -817,11 +807,6 @@ EXPORT_SYMBOL(sx_core_get_phy_port_max);
 int sx_core_get_lag_max(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag)
 {
     int rc = 0;
-
-    if (dev == NULL) {
-        printk(KERN_ERR PFX "lag_max: dev is NULL.\n");
-        return -EINVAL;
-    }
 
     if (lags == NULL) {
         printk(KERN_ERR PFX "lags is NULL.\n");
@@ -843,7 +828,7 @@ int sx_core_get_lag_max(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_l
      *  value and nothing will be changed after we will init switch with
      *  appropriate callback, hence lock will be redundant here. */
 
-    if (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb != NULL) {
+    if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb != NULL)) {
         if (sx_priv(dev)->dev_specific_cb.sx_get_lag_max_cb(lags, pors_per_lag)) {
             printk(KERN_ERR PFX "Error retrieving max values for LAG from sx_get_lag_max_cb callback\n");
             rc = -EINVAL;
@@ -861,11 +846,6 @@ EXPORT_SYMBOL(sx_core_get_lag_max);
 int sx_core_get_lag_mid(struct sx_dev *dev, u16 lag_id, u16 *mid)
 {
     int rc;
-
-    if (!dev) {
-        printk(KERN_ERR PFX "get_lad_mid: dev is NULL\n");
-        return -EINVAL;
-    }
 
     rc = __sx_core_dev_specific_cb_get_reference(dev);
     if (rc) {
@@ -891,15 +871,16 @@ int sx_core_is_eqn_cmd_ifc_only(struct sx_dev *dev, int eqn, u8 *is_cmd_ifc_only
 {
     int rc = 0;
 
-    if (!dev) {
-        printk(KERN_ERR PFX "Error in sx_core_is_eqn_cmd_ifc_only: *dev is NULL.\n");
-        return -EINVAL;
-    }
-
     rc = __sx_core_dev_specific_cb_get_reference(dev);
     if (rc) {
         printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
         return rc;
+    }
+
+    if (!dev) {
+        printk(KERN_ERR PFX "Error in sx_core_is_eqn_cmd_ifc_only: *dev is NULL.\n");
+        __sx_core_dev_specific_cb_release_reference(dev);
+        return -EINVAL;
     }
 
     if (sx_priv(dev)->dev_specific_cb.is_eqn_cmd_ifc_only_cb != NULL) {
@@ -985,11 +966,6 @@ int sx_core_get_rp_vlan(struct sx_dev *dev, struct completion_info *comp_info, u
 {
     int rc;
 
-    if (!dev) {
-        printk(KERN_ERR PFX "get_rp_vlan: dev is NULL\n");
-        return -EINVAL;
-    }
-
     *vlan_id = 0;
 
     rc = __sx_core_dev_specific_cb_get_reference(dev);
@@ -998,7 +974,7 @@ int sx_core_get_rp_vlan(struct sx_dev *dev, struct completion_info *comp_info, u
         return rc;
     }
 
-    if (sx_priv(dev)->dev_specific_cb.get_rp_vid_cb != NULL) {
+    if (dev && (sx_priv(dev)->dev_specific_cb.get_rp_vid_cb != NULL)) {
         sx_priv(dev)->dev_specific_cb.get_rp_vid_cb(dev, comp_info, vlan_id);
     } else {
         printk(KERN_ERR PFX "Error retrieving get_rp_vid_cb callback\n");
@@ -3234,31 +3210,6 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
     .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
 };
-struct dev_specific_cb spec_cb_spectrum3 = {
-    .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
-    .sx_build_isx_header_cb = sx_build_isx_header_v1,
-    .max_cpu_etclass_for_unlimited_mtu = max_cpu_etclass_for_unlimited_mtu_spectrum,
-    .sx_get_sdq_cb = sx_get_sdq_per_traffic_type,
-    .sx_get_sdq_num_cb = sx_get_sdq_num_per_etclasss,
-    .get_send_to_port_as_data_supported_cb = sx_core_get_send_to_port_as_data_supported_spectrum,
-    .get_rp_vid_cb = get_rp_vid_from_ci,
-    .get_swid_cb = get_swid_from_ci,
-    .get_lag_mid_cb = sdk_get_lag_mid,
-    .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = NULL,
-    .sx_ptp_cleanup = NULL,
-    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
-    .sx_init_cq_db_cb = sx_init_cq_db_spc,
-    .sx_printk_cqe_cb = sx_printk_cqe_v2,
-    .is_sw_rate_limiter_supported = NULL,
-    .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
-    .sx_fill_params_from_cqe_cb = sx_fill_params_from_cqe_v2,
-    .sx_disconnect_all_trap_groups_cb = sx_disconnect_all_trap_groups_spectrum,
-    .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
-    .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
-    .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
-    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
-};
 
 int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_type, bool force)
 {
@@ -3314,11 +3265,6 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
         sx_priv(dev)->dev_specific_cb = spec_cb_spectrum2;
         break;
 
-    case SXD_CHIP_TYPE_SPECTRUM3:
-        /* for spectrum3 add specific cb */
-        sx_priv(dev)->dev_specific_cb = spec_cb_spectrum3;
-        break;
-
     default:
         err = -EINVAL;
         sx_err(dev, "ERROR:hw_ver: 0x%x unsupported. \n",
@@ -3335,12 +3281,7 @@ out:
     /*      we take the reference in init and release in deinit to get event
      * in case refcnt is 0
      */
-    if (__sx_core_dev_specific_cb_get_reference(dev) != 0) {
-        printk(KERN_ERR "could not get specific cb reference!\n");
-        if (!err) { /* if no error till now, assign an error to return */
-            err = -EFAULT;
-        }
-    }
+    __sx_core_dev_specific_cb_get_reference(dev);
 
     return err;
 }
@@ -4130,10 +4071,6 @@ static int sx_core_init_cb(struct sx_dev *dev, uint16_t device_id, uint16_t devi
         chip_type = SXD_CHIP_TYPE_SPECTRUM2;
         break;
 
-    case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
-        chip_type = SXD_CHIP_TYPE_SPECTRUM3;
-        break;
-
     default:
         printk(KERN_ERR PFX "ERROR: Unresolved chip type. device_id (%u)\n", device_id);
         return -EFAULT;
@@ -4437,22 +4374,17 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         dev_err(&pdev->dev, "Cannot enable PCI device, aborting.\n");
         goto err_enable_pdev;
     }
-#if defined(SPECTRUM3_BU)
-    printk(KERN_INFO "%s(): BAR0 Init: Flags:%#lx Len:%#llx \n", __func__,
-           pci_resource_flags(pdev, 0), pci_resource_len(pdev, 0));
-#else
-    /* TODO: update after SPECTRUM3_BU - length of PCI space: LOG2_CR_BAR_SIZE */
+
     /* Check for BARs.  We expect 0: 1MB in Baz, 4MB in Pelican 16MB in Quantum */
     if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
         ((pci_resource_len(pdev, 0) != 1 << 20) &&
          (pci_resource_len(pdev, 0) != 1 << 22) &&
          (pci_resource_len(pdev, 0) != 1 << 24))) {
-        dev_err(&pdev->dev, "Missing BAR0, aborting. Flags: %#lx Len: %#llx \n",
-                pci_resource_flags(pdev, 0), pci_resource_len(pdev, 0));
+        dev_err(&pdev->dev, "Missing BAR0, aborting.\n");
         err = -ENODEV;
         goto err_disable_pdev;
     }
-#endif
+
     err = pci_request_region(pdev, 0, DRV_NAME);
     if (err) {
         dev_err(&pdev->dev, "Cannot request control region, "
@@ -4507,15 +4439,15 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         goto err_free_pool;
     }
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    printk(KERN_INFO PFX "Performing SW reset is SKIPPED in PD mode.\n");
-#else
+/*#if defined(PD_BU)
+ *   printk(KERN_INFO PFX "Performing SW reset is SKIPPED in PD mode.\n");
+ #else */
     err = sx_reset(dev, __perform_chip_reset);
     if (err) {
         sx_err(dev, "Failed to reset HW, aborting.\n");
         goto err_free_pool;
     }
-#endif
+/* #endif */
 
     err = sx_init_board(dev);
     if (err) {
@@ -4941,9 +4873,6 @@ struct pci_device_id sx_pci_table[] = {
 
     /* Spectrum2 PCI device ID */
     { PCI_VDEVICE(MELLANOX, SPECTRUM2_PCI_DEV_ID) },
-
-    /* Spectrum3 PCI device ID */
-    { PCI_VDEVICE(MELLANOX, SPECTRUM3_PCI_DEV_ID) },
 
     /* SwitchIB PCI device ID */
     { PCI_VDEVICE(MELLANOX, SWITCH_IB_PCI_DEV_ID) },

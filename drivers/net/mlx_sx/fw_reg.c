@@ -2457,7 +2457,6 @@ EXPORT_SYMBOL(sx_ACCESS_REG_QPRT);
 #define REG_HTGT_EP_MAC_47_32_OFFSET (REG_HTGT_PATH_OFFSET + 3)
 #define REG_HTGT_EP_MAC_31_0_OFFSET  (REG_HTGT_PATH_OFFSET + 7)
 #define REG_HTGT_EP_VID_OFFSET       (REG_HTGT_PATH_OFFSET + 0xb)
-#define REG_HTGT_MRR_PRO_RATE_OFFSET 0x54
 #define HTGT_REG_LEN                 0x11 /* number of 32-bits words that the register holds */
 
 static int __HTGT_encode(u8 *inbox, void *ku_reg, void *context)
@@ -2476,7 +2475,6 @@ static int __HTGT_encode(u8 *inbox, void *ku_reg, void *context)
     SX_PUT_REG_FIELD(inbox, htgt_reg->mirror_action, REG_HTGT_MRR_ACTION_OFFSET);
     SX_PUT_REG_FIELD(inbox, htgt_reg->mirror_agent, REG_HTGT_MRR_AGENT_OFFSET);
     SX_PUT_REG_FIELD(inbox, htgt_reg->priority, REG_HTGT_PRIO_OFFSET);
-    SX_PUT_REG_FIELD(inbox, htgt_reg->mirror_probability_rate, REG_HTGT_MRR_PRO_RATE_OFFSET);
 
     switch (htgt_reg->type) {
     case HTGT_LOCAL_PATH:
@@ -2530,7 +2528,6 @@ static int __HTGT_decode(u8 *outbox, void *ku_reg, void *context)
     SX_GET_REG_FIELD(htgt_reg->mirror_action, outbox, REG_HTGT_MRR_ACTION_OFFSET);
     SX_GET_REG_FIELD(htgt_reg->mirror_agent, outbox, REG_HTGT_MRR_AGENT_OFFSET);
     SX_GET_REG_FIELD(htgt_reg->priority, outbox, REG_HTGT_PRIO_OFFSET);
-    SX_GET_REG_FIELD(htgt_reg->mirror_probability_rate, outbox, REG_HTGT_MRR_PRO_RATE_OFFSET);
 
     switch (htgt_reg->type) {
     case HTGT_LOCAL_PATH:
@@ -3910,7 +3907,7 @@ static int __RITR_decode(u8 *outbox, void *ku_reg, void *context)
     ritr_reg->ingress_counter_set.type = tmp_val_u32 & 0xFFFFFF;
     SX_GET_REG_FIELD(tmp_val_u32, outbox, REG_EGRESS_CNTR_SET_OFFSET);
     ritr_reg->egress_counter_set.type = (tmp_val_u32 >> 24) & 0xFF;
-    ritr_reg->egress_counter_set.index = tmp_val_u32 & 0xFFFFFF;
+    ritr_reg->egress_counter_set.type = tmp_val_u32 & 0xFFFFFF;
 
     return 0;
 }

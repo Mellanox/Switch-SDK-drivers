@@ -688,7 +688,7 @@ void ptp_lookup_event(const u8 *mtpptr_buff, struct ptp_db *db)
         atomic64_inc(&ptp_counters[db->direction][PTP_COUNTER_FIFO_OVERFLOW]);
     }
 
-    if (num_rec <= SX_MAX_PTP_RECORDS) {
+    if ((num_rec >= 0) && (num_rec <= SX_MAX_PTP_RECORDS)) {
         atomic64_inc(&ptp_records_dist[db->direction][num_rec]);
     }
 

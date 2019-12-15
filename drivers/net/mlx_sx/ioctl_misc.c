@@ -142,7 +142,7 @@ long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long da
 }
 
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
 long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data)
 {
     /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):

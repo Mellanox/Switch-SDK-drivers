@@ -268,7 +268,7 @@ int sgmii_send(struct sgmii_dev               *sgmii_dev,
         return -EINVAL;
     }
 
-    if (!meta || ((meta->type < SX_PKT_TYPE_MIN) || (meta->type > SX_PKT_TYPE_MAX))) {
+    if (meta && ((meta->type < SX_PKT_TYPE_MIN) || (meta->type > SX_PKT_TYPE_MAX))) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_invalid_metadata);
         return -EINVAL;
     }
