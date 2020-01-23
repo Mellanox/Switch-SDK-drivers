@@ -36,8 +36,8 @@ extern struct sx_globals sx_glb;
 
 #define IOCTL_CMD_INDEX(cmd) ((cmd) - CTRL_CMD_MIN_VAL)
 #define IOCTL_REG_INDEX(cmd) ((cmd) - CTRL_CMD_ACCESS_REG_MIN)
-#define IOCTL_REG_HANDLER(reg_name)                                                \
-                             [IOCTL_REG_INDEX(CTRL_CMD_ACCESS_REG_ ## reg_name)] = \
+#define IOCTL_REG_HANDLER(reg_name)                       \
+    [IOCTL_REG_INDEX(CTRL_CMD_ACCESS_REG_ ## reg_name)] = \
         ctrl_cmd_access_reg_ ## reg_name
 
 typedef long (*ioctl_handler_cb_t)(struct file *file, unsigned int cmd, unsigned long data);
@@ -110,9 +110,21 @@ long ctrl_cmd_get_system_mkey(struct file *file, unsigned int cmd, unsigned long
 
 /* ioctl_common.c - ioctl() helper functions */
 int sx_core_ioctl_enable_swid(struct sx_dev *dev, unsigned long data);
-int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params);
-int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params);
-int sx_core_add_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params);
+int sx_core_add_synd_l2(u8                          swid,
+                        u16                         hw_synd,
+                        struct sx_dev              *dev,
+                        struct ku_port_vlan_params *port_vlan_params,
+                        u8                          is_register);
+int sx_core_add_synd_l3(u8                          swid,
+                        u16                         hw_synd,
+                        struct sx_dev              *dev,
+                        struct ku_port_vlan_params *port_vlan_params,
+                        u8                          is_register);
+int sx_core_add_synd_phy(u8                          swid,
+                         u16                         hw_synd,
+                         struct sx_dev              *dev,
+                         struct ku_port_vlan_params *port_vlan_params,
+                         u8                          is_register);
 int sx_core_ioctl_set_pci_profile(struct sx_dev *dev, unsigned long data, uint8_t set_profile);
 int sx_core_ioctl_get_pci_profile(struct sx_dev *dev, unsigned long data);
 
@@ -163,6 +175,7 @@ long ctrl_cmd_set_rdq_cpu_priority(struct file *file, unsigned int cmd, unsigned
 long ctrl_cmd_set_truncate_params(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_read_multi(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_skb_offload_fwd_mark_en(struct file *file, unsigned int cmd, unsigned long data);
@@ -176,11 +189,12 @@ long ctrl_cmd_get_capabilities(struct file *file, unsigned int cmd, unsigned lon
 long ctrl_cmd_issu_fw(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_enable_swid(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long data);
-#if defined(PD_BU)
-long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data);
-#endif /* PD_BU */
 long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_sw_ib_node_desc(struct file *file, unsigned int cmd, unsigned long data);
+#ifdef SW_PUDE_EMULATION
+/* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
+long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data);
+#endif /* SW_PUDE_EMULATION */
 
 /* ioctl_pci.c */
 long ctrl_cmd_set_pci_profile(struct file *file, unsigned int cmd, unsigned long data);

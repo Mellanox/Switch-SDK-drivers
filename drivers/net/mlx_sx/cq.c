@@ -63,6 +63,7 @@
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
+#include "trace_func.h"
 
 #include <linux/module.h>
 #include <linux/timer.h>
@@ -76,6 +77,15 @@
  ***********************************************/
 
 #define MAX_MATCHING_LISTENERS 100
+
+static inline int PORT_VLAN_BIT_IS_SET(u64* arr, u64 num)
+{
+    u64 tmp;
+
+    tmp = (arr)[(num) / 64];
+    return tmp & (1ULL << ((num) % 64)) ? 1 : 0;
+}
+
 
 #ifdef CONFIG_SX_DEBUG
 int sx_debug_cqn;
@@ -184,6 +194,11 @@ void sx_fill_ci_from_cqe_v0(struct completion_info *ci, union sx_cqe *u_cqe)
     ci->dest_sysport = 0xFFFF;
     ci->dest_is_lag = 0;
     ci->dest_lag_subport = 0;
+    ci->mirror_reason = 0;
+    ci->mirror_cong = 0xFFFF;
+    ci->mirror_lantency = 0xFFFFFF;
+    ci->mirror_tclass = 0x1F;
+    ci->timestamp_type = 0;
 }
 
 void sx_fill_ci_from_cqe_v2(struct completion_info *ci, union sx_cqe *u_cqe)
@@ -198,6 +213,15 @@ void sx_fill_ci_from_cqe_v2(struct completion_info *ci, union sx_cqe *u_cqe)
     ci->dest_sysport = be16_to_cpu(u_cqe->v2->ep_system_port_lag_id);
     ci->dest_is_lag = u_cqe->v2->mirror_tclass_mirror_elph_ep_lag & 0x1;
     ci->dest_lag_subport = (ci->dest_is_lag) ? u_cqe->v2->ep_lag_subport & 0x1F : 0;
+    ci->mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
+    ci->mirror_cong = (be16_to_cpu(u_cqe->v2->vlan_mirror_cong2) & 0xF) << 12;
+    ci->mirror_cong |= (be32_to_cpu(u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) >> 20) & 0xFFF;
+    ci->mirror_lantency = (be16_to_cpu(u_cqe->v2->mirror_latency2) << 8) | u_cqe->v2->mirror_latency1;
+    ci->mirror_tclass = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 3) & 0x1F;
+    ci->timestamp_type = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 22) & 0x3;
+    ci->hw_utc_timestamp.tv_nsec = ((be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) & 0x3FFF) << 16)
+                                   | be16_to_cpu(u_cqe->v2->time_stamp1);
+    ci->hw_utc_timestamp.tv_sec = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 14) & 0xFF;
 }
 
 void sx_fill_params_from_cqe_v0(union sx_cqe *u_cqe,
@@ -282,59 +306,57 @@ static u8 check_trap_port_in_filter_db(struct sx_dev *dev, u16 hw_synd, u8 is_la
     return ret;
 }
 
-static void cpu_loopback_work_handler(struct work_struct *work)
+static void sx_cpu_port_loopback(struct completion_info *ci)
 {
-    struct cpu_loopback_data *cpu_lp_wdata = container_of(work, struct cpu_loopback_data, dwork.work);
-    struct isx_meta           meta;
-    struct sk_buff           *skb = cpu_lp_wdata->ci->skb;
-    struct sk_buff           *tmp_skb = NULL;
-    int                       len = 0;
-    int                       err = 0;
+    struct isx_meta meta;
+    struct sk_buff *skb = ci->skb;
+    struct sk_buff *tmp_skb = NULL;
+    int             len = 0;
+    int             err = 0;
+
+    /*
+     * check if called from tasklet context drop the packet
+     */
+    if (in_softirq()) {
+        err = -EINVAL;
+        goto out;
+    }
 
     memset(&meta, 0, sizeof(meta));
     meta.dev_id = 1;
     meta.type = SX_PKT_TYPE_ETH_CTL_UC;
 
     /* No LAG support */
-    meta.system_port_mid = cpu_lp_wdata->ci->sysport;
+    meta.system_port_mid = ci->sysport;
 
     len = skb->len;
     tmp_skb = alloc_skb(ISX_HDR_SIZE + len, GFP_KERNEL);
     if (!tmp_skb) {
-        sx_skb_free(skb);
         printk(KERN_INFO PFX "%s: fail to alloc_skb\n", __func__);
+        err = -ENOMEM;
         goto out;
     }
 
     skb_reserve(tmp_skb, ISX_HDR_SIZE);
     memcpy(skb_put(tmp_skb, len), skb->data, len);
-    sx_skb_free(skb);
 
-    err = sx_core_post_send(cpu_lp_wdata->ci->dev, tmp_skb, &meta);
+    err = sx_core_post_send(ci->dev, tmp_skb, &meta);
     if (err) {
         printk(KERN_INFO PFX "%s: sx_core_post_send FAILED\n", __func__);
+        goto out;
     }
+
+    ci->dev->stats.tx_loopback_ok_by_synd[ci->hw_synd]++;
 
 out:
-    /* Free memory */
-    kfree(cpu_lp_wdata->ci);
-    kfree(cpu_lp_wdata);
-}
 
-static void sx_cpu_port_loopback(struct completion_info *ci)
-{
-    struct cpu_loopback_data *cpu_lp_wdata = NULL;
-
-    cpu_lp_wdata = kzalloc(sizeof(*cpu_lp_wdata), GFP_ATOMIC);
-    if (!cpu_lp_wdata) {
-        printk(KERN_ERR PFX "%s: Fail to alloc memory to loopback trap\n", __func__);
-        return;
+    if (err) {
+        ci->dev->stats.tx_loopback_dropped_by_synd[ci->hw_synd]++;
     }
 
-    cpu_lp_wdata->ci = ci;
-    INIT_DELAYED_WORK(&cpu_lp_wdata->dwork, cpu_loopback_work_handler);
-
-    queue_delayed_work(ci->dev->generic_wq, &cpu_lp_wdata->dwork, 0);
+    /* Free memory */
+    sx_skb_free(skb);
+    kfree(ci);
 }
 
 static void ber_monitor_work_handler(struct work_struct *work)
@@ -454,6 +476,7 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
     unsigned short             type_len, ethertype;
     u64                        old_tc_vec = 0, tc_vec = 0, new_tc_vec = 0;
     u8                         entity = 0, fp = 0, maybe_flag = 0, port_state = 0;
+    u8                         dir_ing = 0;
     struct sx_priv            *priv = sx_priv((struct sx_dev *)ci->dev);
     unsigned long              flags;
 
@@ -475,18 +498,17 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
                sbctr->local_port, MAX_PHYPORT_NUM);
         return;
     }
-
+    dir_ing = sbctr->dir_ing & 0x1;
     entity = sbctr->fp_entity & 0x3;
     fp = (sbctr->fp_entity >> 4) & 0x1;
     tc_vec = be64_to_cpu(sbctr->tc_vec);
 
+    spin_lock_irqsave(&priv->db_lock, flags);
     if (entity == 0) { /* entity is port tc */
         /* Update DB only upon port_tc event */
-        spin_lock_irqsave(&priv->db_lock, flags);
-        old_tc_vec = priv->tele_thrs_tc_vec[sbctr->local_port];
-        priv->tele_thrs_tc_vec[sbctr->local_port] = tc_vec;
-        port_state = priv->tele_thrs_state[sbctr->local_port];
-        spin_unlock_irqrestore(&priv->db_lock, flags);
+        old_tc_vec = priv->tele_thrs_tc_vec[sbctr->local_port][dir_ing];
+        priv->tele_thrs_tc_vec[sbctr->local_port][dir_ing] = tc_vec;
+        port_state = priv->tele_thrs_state[sbctr->local_port][dir_ing];
 
         if (tc_vec == old_tc_vec) {
             /* No change in tc_vec state */
@@ -506,7 +528,8 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
         } else {
             /* Set new tc_vec:
              * High 32 bits marks the changed TCs
-             * Low 32 bits keeps TCs value */
+             * Low 32 bits keeps TCs value
+             * Valid bits [0..15] */
             new_tc_vec = ((old_tc_vec ^ tc_vec) << 32) | (tc_vec & 0xFFFF);
 
             /* re-write the event */
@@ -518,13 +541,12 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
     }
 
     /* Update port state field */
-    spin_lock_irqsave(&priv->db_lock, flags);
     if (maybe_flag) {
-        SX_TELE_THRS_MAYBE_SET(priv->tele_thrs_state[sbctr->local_port]);
+        SX_TELE_THRS_MAYBE_SET(priv->tele_thrs_state[sbctr->local_port][dir_ing]);
     } else {
-        SX_TELE_THRS_MAYBE_CLR(priv->tele_thrs_state[sbctr->local_port]);
+        SX_TELE_THRS_MAYBE_CLR(priv->tele_thrs_state[sbctr->local_port][dir_ing]);
     }
-    SX_TELE_THRS_FIRST_EVENT_SET(priv->tele_thrs_state[sbctr->local_port]);
+    SX_TELE_THRS_FIRST_EVENT_SET(priv->tele_thrs_state[sbctr->local_port][dir_ing]);
     spin_unlock_irqrestore(&priv->db_lock, flags);
 }
 
@@ -581,122 +603,76 @@ static u32 get_qpn(u16 hw_synd, struct sk_buff *skb)
 
     return qpn;
 }
-static int is_port_Vlan_matching(struct completion_info *ci, struct listener_port_vlan_entry *listener)
+
+
+static int listener_register_filter_entry_match_dispatch(struct completion_info                *ci,
+                                                         struct listener_register_filter_entry *listener_register_filter)
 {
-    switch (listener->match_crit) {
-    case PORT_VLAN_MATCH_GLOBAL:
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.global);
-        break;
-
-    case PORT_VLAN_MATCH_PORT_VALID:
-        if (ci->sysport != listener->sysport) {
-            COUNTER_INC(&listener->counters.listener_port_vlan.mismtach.sysport);
-            return 0;
-        }
-
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.sysport);
-        break;
-
-    case PORT_VLAN_MATCH_LAG_VALID:
-        if (!(ci->is_lag) || (ci->sysport != listener->lag_id)) {
-            COUNTER_INC(&listener->counters.listener_port_vlan.mismtach.lag);
-            return 0;
-        }
-
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.lag);
-        break;
-
-    case PORT_VLAN_MATCH_VLAN_VALID:
-        if (ci->vid != listener->vlan) {
-            COUNTER_INC(&listener->counters.listener_port_vlan.mismtach.vlan);
-            return 0;
-        }
-
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.vlan);
-        break;
+    if ((listener_register_filter->is_global_filter) ||
+        PORT_VLAN_BIT_IS_SET(listener_register_filter->ports_filters, ci->sysport) ||
+        ((ci->is_lag) && PORT_VLAN_BIT_IS_SET(listener_register_filter->lags_filters, ci->sysport)) ||
+        (PORT_VLAN_BIT_IS_SET(listener_register_filter->vlans_filters, ci->vid))) {
+        return 0;
     }
-
-    return 1;
+    if ((listener_register_filter->is_global_register) ||
+        (PORT_VLAN_BIT_IS_SET(listener_register_filter->ports_registers, ci->sysport) ||
+         ((ci->is_lag) && PORT_VLAN_BIT_IS_SET(listener_register_filter->lags_registers, ci->sysport)) ||
+         (PORT_VLAN_BIT_IS_SET(listener_register_filter->vlans_registers, ci->vid)))) {
+        return 1;
+    }
+    return 0;
 }
 
-static int is_matching(struct completion_info          *ci,
-                       struct listener_port_vlan_entry *listener_port_vlan,
-                       struct listener_entry           *listener)
+static int is_matching(struct completion_info *ci, struct listener_entry *listener)
 {
     if ((listener->swid != ci->swid) &&
         (listener->swid != SWID_NUM_DONT_CARE)) {
-        COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.common.swid);
         return 0;
     }
-
     /* If the packet came from a user (loopback), don't return it to the same user */
     if ((ci->context != NULL) && (listener->context == ci->context)) {
-        COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.common.context);
         return 0;
     }
-
     switch (listener->listener_type) {
     case L2_TYPE_DONT_CARE:
         if (listener->critireas.dont_care.drop_enable && ci->info.dont_care.drop_enable) {
             break;
         }
-
-        if (listener->critireas.dont_care.sysport ==
-            SYSPORT_DONT_CARE_VALUE) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_dont_care);
-            return 1;
-        }
-
-        /* LAGs will also work in the same way */
-        if (ci->sysport != listener->critireas.dont_care.sysport) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_dont_care.sysport);
-            break;
-        }
-
-        COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_dont_care);
         return 1;
 
     case L2_TYPE_ETH:
         if ((ci->pkt_type != PKT_TYPE_ETH) &&
             (ci->pkt_type != PKT_TYPE_FCoETH)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.no_eth);
             break;
         }
 
         if ((ci->info.eth.ethtype != listener->critireas.eth.ethtype) &&
             (listener->critireas.eth.ethtype !=
              ETHTYPE_DONT_CARE_VALUE)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.ethtype);
             break;
         }
 
         if ((ci->info.eth.dmac != listener->critireas.eth.dmac)
             && (listener->critireas.eth.dmac !=
                 DMAC_DONT_CARE_VALUE)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.dmac);
             break;
         }
 
         if ((listener->critireas.eth.emad_tid != TID_DONT_CARE_VALUE) &&
             (ci->info.eth.emad_tid !=
              listener->critireas.eth.emad_tid)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.emad_tid);
             break;
         }
 
         if ((listener->critireas.eth.from_rp != IS_RP_DONT_CARE_E) &&
             (ci->info.eth.from_rp != listener->critireas.eth.from_rp)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.from_rp);
             break;
         }
 
         if ((listener->critireas.eth.from_bridge != IS_BRIDGE_DONT_CARE_E) &&
             (ci->info.eth.from_bridge != listener->critireas.eth.from_bridge)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.from_bridge);
             break;
         }
-
-        COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_eth);
         return 1;
 
     case L2_TYPE_IB:
@@ -710,18 +686,11 @@ static int is_matching(struct completion_info          *ci,
                 (listener->critireas.ib.is_oob_originated_mad != 255) /* don't care */) {
                 break;
             }
-
             if ((ci->info.ib.qpn == listener->critireas.ib.qpn) ||
                 (listener->critireas.ib.qpn == QPN_DONT_CARE_VALUE)) {
-                COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_ib);
                 return 1;
             }
-
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_ib.qpn);
-        } else {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_ib.no_ib);
         }
-
         break;
 
     default:
@@ -736,15 +705,13 @@ static int is_matching(struct completion_info          *ci,
  */
 int dispatch_pkt(struct sx_dev *dev, struct completion_info *ci, u16 entry, int dispatch_default)
 {
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos;
-    struct list_head                *port_vlan_pos;
-    unsigned long                    flags;
-    cq_handler                       listener_handler; /*The completion handler*/
-    void                            *listener_context; /*to pass to the handler*/
-    int                              num_found = 0;
-    u8                               is_default;
+    struct listener_entry *listener;
+    struct list_head      *pos;
+    unsigned long          flags;
+    cq_handler             listener_handler;           /*The completion handler*/
+    void                  *listener_context;           /*to pass to the handler*/
+    int                    num_found = 0;
+    u8                     is_default;
 
     /* validate the syndrome range */
     if (entry > NUM_HW_SYNDROMES) {
@@ -752,32 +719,25 @@ int dispatch_pkt(struct sx_dev *dev, struct completion_info *ci, u16 entry, int 
                entry, NUM_HW_SYNDROMES);
         return -1;
     }
-
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     /* Checking syndrome registration and NUM_HW_SYNDROMES callback iff dispatch_default set */
     /* I don't like the syndrome dispatchers at all, but it's too late to change */
     while (1) {
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                if (is_port_Vlan_matching(ci, port_vlan_listener)) {
-                    list_for_each(pos, &(port_vlan_listener->listener.list)) {
-                        listener = list_entry(pos, struct listener_entry, list);
-
-                        if (listener->is_default && (num_found == 0)) {
-                            COUNTER_INC(&port_vlan_listener->counters.listener.accepted.def);
-                            is_default = 1;
-                        } else {
-                            is_default = 0;
-                        }
-
-                        if (is_default || is_matching(ci, port_vlan_listener, listener)) {
-                            listener_handler = listener->handler;
-                            listener_context = listener->context;
-                            listener_handler(ci, listener_context);
-                            listener->rx_pkts++;
-                            ++num_found;
-                        }
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each(pos, &sx_glb.listeners_rf_db[entry].list) {
+                listener = list_entry(pos, struct listener_entry, list);
+                if (listener->is_default && (num_found == 0)) {
+                    is_default = 1;
+                } else {
+                    is_default = 0;
+                }
+                if (listener_register_filter_entry_match_dispatch(ci, &(listener->listener_register_filter))) {
+                    if (is_default || is_matching(ci, listener)) {
+                        listener_handler = listener->handler;
+                        listener_context = listener->context;
+                        listener_handler(ci, listener_context);
+                        listener->rx_pkts++;
+                        ++num_found;
                     }
                 }
             }
@@ -930,11 +890,8 @@ out:
     return err;
 }
 
-#if defined(PD_BU)
-/* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
- * - should be removed before Phoenix bring up;
- * - skip UP PUDE event on the port if port admin status is DOWN;
- */
+#ifdef SW_PUDE_EMULATION
+/* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
 static int __verify_hw_synd(struct sx_priv *priv, struct completion_info *ci)
 {
     int                       err = 0;
@@ -962,7 +919,7 @@ static int __verify_hw_synd(struct sx_priv *priv, struct completion_info *ci)
 out:
     return err;
 }
-#endif
+#endif /* SW_PUDE_EMULATION */
 
 /*
  * extracts the needed data from the cqe and from the packet, calls
@@ -1044,13 +1001,12 @@ int rx_skb(void                  *context,
     ci->dev = sx_device;
     ci->hw_synd = hw_synd;
 
-#if defined(PD_BU)
-    /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
-     * - should be removed before Phoenix bring up */
+#ifdef SW_PUDE_EMULATION
+    /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
     if (__verify_hw_synd(priv, ci) != 0) {
         goto out;
     }
-#endif
+#endif /* SW_PUDE_EMULATION */
 
     err = __sx_core_dev_specific_cb_get_reference(sx_device);
     if (err) {
@@ -1107,9 +1063,10 @@ int rx_skb(void                  *context,
          (rx_debug_emad_type ==
           be16_to_cpu(((struct sx_emad *)skb->data)->emad_op.register_id)))) {
         if (rx_cqev2_dbg) {
-            __sx_core_dev_specific_cb_get_reference(sx_device);
-            priv->dev_specific_cb.sx_printk_cqe_cb(u_cqe);
-            __sx_core_dev_specific_cb_release_reference(sx_device);
+            if (__sx_core_dev_specific_cb_get_reference(sx_device) == 0) {
+                priv->dev_specific_cb.sx_printk_cqe_cb(u_cqe);
+                __sx_core_dev_specific_cb_release_reference(sx_device);
+            }
         }
 
         printk(KERN_DEBUG PFX "rx_skb: swid = %d, "
@@ -1151,15 +1108,21 @@ int rx_skb(void                  *context,
     sx_glb.stats.rx_by_pkt_type[ci->swid][ci->pkt_type]++;
     sx_glb.stats.rx_by_synd[ci->swid][ci->hw_synd]++;
     sx_glb.stats.rx_by_synd_bytes[ci->swid][ci->hw_synd] += skb->len;
+    sx_glb.stats.rx_by_rdq[ci->swid][dqn]++;
+    sx_glb.stats.rx_by_rdq_bytes[ci->swid][dqn] += skb->len;
 
     if (ci->swid < NUMBER_OF_SWIDS) {
         sx_device->stats.rx_by_pkt_type[ci->swid][ci->pkt_type]++;
         sx_device->stats.rx_by_synd[ci->swid][ci->hw_synd]++;
         sx_device->stats.rx_by_synd_bytes[ci->swid][ci->hw_synd] += skb->len;
+        sx_device->stats.rx_by_rdq[ci->swid][dqn]++;
+        sx_device->stats.rx_by_rdq_bytes[ci->swid][dqn] += skb->len;
     } else {
         sx_device->stats.rx_by_pkt_type[NUMBER_OF_SWIDS][ci->pkt_type]++;
         sx_device->stats.rx_by_synd[NUMBER_OF_SWIDS][ci->hw_synd]++;
         sx_device->stats.rx_by_synd_bytes[NUMBER_OF_SWIDS][ci->hw_synd] += skb->len;
+        sx_device->stats.rx_by_rdq[NUMBER_OF_SWIDS][dqn]++;
+        sx_device->stats.rx_by_rdq_bytes[NUMBER_OF_SWIDS][dqn] += skb->len;
     }
 
     if (enable_cpu_port_loopback) { /* it's a DEBUG feature */
@@ -1517,7 +1480,11 @@ void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
                                          u8           *is_send,
                                          u8           *dqn,
                                          u16          *wqe_counter,
-                                         u16          *byte_count)
+                                         u16          *byte_count,
+                                         u32          *user_def_val_orig_pkt_len,
+                                         u8           *is_lag,
+                                         u8           *lag_subport,
+                                         u16          *sysport_lag_id)
 {
     *dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
     if (be16_to_cpu(u_cqe->v0->dqn5_byte_count) & SX_CQE_DQN_MSB_MASK) {
@@ -1528,6 +1495,10 @@ void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
     *wqe_counter = be16_to_cpu(u_cqe->v0->wqe_counter);
     *trap_id = u_cqe->v0->trap_id & 0xFF;
     *byte_count = be16_to_cpu(u_cqe->v0->dqn5_byte_count) & 0x3FFF;
+    *user_def_val_orig_pkt_len = 0;
+    *is_lag = (u_cqe->v0->lag >> 7) & 0x1;
+    *lag_subport = u_cqe->v0->vlan2_lag_subport & 0x1F;
+    *sysport_lag_id = be16_to_cpu(u_cqe->v0->system_port_lag_id);
 }
 
 void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
@@ -1536,7 +1507,11 @@ void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
                                          u8           *is_send,
                                          u8           *dqn,
                                          u16          *wqe_counter,
-                                         u16          *byte_count)
+                                         u16          *byte_count,
+                                         u32          *user_def_val_orig_pkt_len,
+                                         u8           *is_lag,
+                                         u8           *lag_subport,
+                                         u16          *sysport_lag_id)
 {
     *dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
     *is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
@@ -1544,6 +1519,10 @@ void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
     *wqe_counter = be16_to_cpu(u_cqe->v1->wqe_counter);
     *trap_id = be16_to_cpu(u_cqe->v1->sma_check_id_trap_id) & 0x3FF;
     *byte_count = be16_to_cpu(u_cqe->v1->isx_ulp_crc_byte_count) & 0x3FFF;
+    *user_def_val_orig_pkt_len = 0;
+    *is_lag = u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x1;
+    *lag_subport = u_cqe->v1->rp_lag_subport & 0xFF;
+    *sysport_lag_id = be16_to_cpu(u_cqe->v1->rp_system_port_lag_id);
 }
 
 void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
@@ -1552,7 +1531,11 @@ void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
                                          u8           *is_send,
                                          u8           *dqn,
                                          u16          *wqe_counter,
-                                         u16          *byte_count)
+                                         u16          *byte_count,
+                                         u32          *user_def_val_orig_pkt_len,
+                                         u8           *is_lag,
+                                         u8           *lag_subport,
+                                         u16          *sysport_lag_id)
 {
     *dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
     *is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
@@ -1560,6 +1543,11 @@ void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
     *wqe_counter = be16_to_cpu(u_cqe->v2->wqe_counter);
     *trap_id = be16_to_cpu(u_cqe->v2->sma_check_id_trap_id) & 0x3FF;
     *byte_count = be16_to_cpu(u_cqe->v2->isx_ulp_crc_byte_count) & 0x3FFF;
+    *user_def_val_orig_pkt_len = be32_to_cpu(
+        u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) & 0xFFFFF;
+    *is_lag = u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x1;
+    *lag_subport = u_cqe->v2->rp_lag_subport & 0xFF;
+    *sysport_lag_id = be16_to_cpu(u_cqe->v2->rp_system_port_lag_id);
 }
 
 static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
@@ -1579,6 +1567,14 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
     u16             byte_count = 0;
     unsigned long   flags;
     uint8_t         rdq_num = 0;
+    u32             user_def_val_orig_pkt_len = 0;
+    u8              is_lag = 0;
+    u8              lag_subport = 0;
+    u16             sysport_lag_id = 0;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    int should_drop = 0;
+#endif
 
     spin_lock_irqsave(&cq->lock, flags);
     cq->sx_next_cqe_cb(cq, &u_cqe);
@@ -1597,7 +1593,17 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
     rmb();
 
 
-    cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err, &is_send, &dqn, &wqe_counter, &byte_count);
+    cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe,
+                                            &trap_id,
+                                            &is_err,
+                                            &is_send,
+                                            &dqn,
+                                            &wqe_counter,
+                                            &byte_count,
+                                            &user_def_val_orig_pkt_len,
+                                            &is_lag,
+                                            &lag_subport,
+                                            &sysport_lag_id);
 
     if (is_send) {
         if (dqn >= NUMBER_OF_SDQS) {
@@ -1710,6 +1716,23 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
 
         skb = dq->sge[idx].skb;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+        if (enable_monitor_rdq_trace_points) {
+            should_drop = 0;
+            spin_lock_irqsave(&priv->rdq_table.lock, flags);
+            if (priv->filter_ebpf_progs[dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn], skb,
+                                                                       FILTER_TP_HW_PORT(is_lag, sysport_lag_id),
+                                                                       trap_id, user_def_val_orig_pkt_len);
+            }
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+            if (should_drop != 0) {
+                sx_skb_free(skb);
+                dq->sge[idx].skb = NULL;
+                goto skip;
+            }
+        }
+#endif
         /*
          *   For monitor rdq we don't need to send the packet to upper layer and
          *   also not to free the packet in case of error , because the same packet
@@ -1717,7 +1740,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
          */
         if (dq->is_monitor) {
             if (enable_monitor_rdq_trace_points) {
-                trace_monitor_rdq_rx(skb, trap_id, timestamp);
+                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, timestamp);
             }
             goto skip;
         }
@@ -2081,6 +2104,14 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     u16                wqe_counter = 0;
     int                idx;
     struct sk_buff    *skb;
+    u32                user_def_val_orig_pkt_len = 0;
+    u8                 is_lag = 0;
+    u8                 lag_subport = 0;
+    u16                sysport_lag_id = 0;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    int should_drop = 0;
+#endif
 
     spin_lock_irqsave(&priv->rdq_table.lock, flags);
     rdq = priv->rdq_table.dq[dqn];
@@ -2129,17 +2160,35 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
                 continue;
             }
             cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-                                                    &is_send, &dqn1, &wqe_counter, &byte_count);
+                                                    &is_send, &dqn1, &wqe_counter, &byte_count,
+                                                    &user_def_val_orig_pkt_len, &is_lag, &lag_subport,
+                                                    &sysport_lag_id);
 
             if (is_send) {
                 continue;
             }
             idx = i % rdq->wqe_cnt;
             skb = rdq->sge[idx].skb;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+            should_drop = 0;
+            spin_lock_irqsave(&priv->rdq_table.lock, flags);
+            if (priv->filter_ebpf_progs[dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn], skb,
+                                                                       FILTER_TP_HW_PORT(is_lag, sysport_lag_id),
+                                                                       trap_id, user_def_val_orig_pkt_len);
+            }
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+            if (should_drop != 0) {
+                continue;
+            }
+#endif
+
             if (cq_ts_enabled) {
-                trace_monitor_rdq_rx(skb, trap_id, &cq->cqe_ts_arr[i % cq->nent]);
+                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len,
+                                                      &cq->cqe_ts_arr[i % cq->nent]);
             } else {
-                trace_monitor_rdq_rx(skb, trap_id, NULL);
+                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL);
             }
         }
     }
@@ -2400,72 +2449,63 @@ void sx_core_destroy_cq_table(struct sx_dev *dev)
 
 void sx_core_dump_synd_tbl(struct sx_dev *dev)
 {
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos;
-    struct list_head                *port_vlan_pos;
-    unsigned long                    flags;
-    u16                              entry = 0;
+    struct listener_entry *listener;
+    struct list_head      *pos;
+    unsigned long          flags;
+    u16                    entry = 0;
 
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (entry = 0; entry < NUM_HW_SYNDROMES + 1; entry++) {
         if (entry % 100 == 0) {
             udelay(1);
         }
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                list_for_each(pos, &(port_vlan_listener->listener.list)) {
-                    listener = list_entry(pos,
-                                          struct listener_entry, list);
-                    printk(KERN_DEBUG
-                           "=============================\n");
-                    printk(KERN_DEBUG
-                           "synd=%d, swid=%d, match_crit=%s, port=%d, lag=%d, vlan=%d, is_def:%d, "
-                           "handler:%p, rx_pkt:%llu \n",
-                           entry,
-                           listener->swid,
-                           port_vlan_match_str[port_vlan_listener->match_crit],
-                           port_vlan_listener->sysport,
-                           port_vlan_listener->lag_id,
-                           port_vlan_listener->vlan,
-                           listener->is_default,
-                           listener->handler,
-                           listener->rx_pkts);
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each(pos, &sx_glb.listeners_rf_db[entry].list) {
+                listener = list_entry(pos,
+                                      struct listener_entry, list);
+                printk(KERN_DEBUG
+                       "=============================\n");
+                printk(KERN_DEBUG
+                       "synd=%d, swid=%d,is_def:%d, "
+                       "handler:%p, rx_pkt:%llu \n",
+                       entry,
+                       listener->swid,
+                       listener->is_default,
+                       listener->handler,
+                       listener->rx_pkts);
 
-                    switch (listener->listener_type) {
-                    case L2_TYPE_DONT_CARE:
-                        printk(KERN_DEBUG "list_type: "
-                               "DONT_CARE, crit [port:0x%x] \n",
-                               listener->critireas.dont_care.sysport);
-                        break;
+                switch (listener->listener_type) {
+                case L2_TYPE_DONT_CARE:
+                    printk(KERN_DEBUG "list_type: "
+                           "DONT_CARE, crit [port:0x%x] \n",
+                           listener->critireas.dont_care.sysport);
+                    break;
 
-                    case L2_TYPE_IB:
-                        printk(KERN_DEBUG "list_type: IB, crit"
-                               " [qpn:0x%x (%d)] \n",
-                               listener->critireas.ib.qpn,
-                               listener->critireas.ib.qpn);
-                        break;
+                case L2_TYPE_IB:
+                    printk(KERN_DEBUG "list_type: IB, crit"
+                           " [qpn:0x%x (%d)] \n",
+                           listener->critireas.ib.qpn,
+                           listener->critireas.ib.qpn);
+                    break;
 
-                    case L2_TYPE_ETH:
-                        printk(KERN_DEBUG "list_type: ETH, crit "
-                               "[ethtype:0x%x, dmac:%llx, "
-                               "emad_tid:0x%x, from_rp:%u, from_bridge:%u ] \n",
-                               listener->critireas.eth.ethtype,
-                               listener->critireas.eth.dmac,
-                               listener->critireas.eth.emad_tid,
-                               listener->critireas.eth.from_rp,
-                               listener->critireas.eth.from_bridge);
-                        break;
+                case L2_TYPE_ETH:
+                    printk(KERN_DEBUG "list_type: ETH, crit "
+                           "[ethtype:0x%x, dmac:%llx, "
+                           "emad_tid:0x%x, from_rp:%u, from_bridge:%u ] \n",
+                           listener->critireas.eth.ethtype,
+                           listener->critireas.eth.dmac,
+                           listener->critireas.eth.emad_tid,
+                           listener->critireas.eth.from_rp,
+                           listener->critireas.eth.from_bridge);
+                    break;
 
-                    case L2_TYPE_FC:
-                        printk(KERN_DEBUG "list_type: FC \n");
-                        break;
+                case L2_TYPE_FC:
+                    printk(KERN_DEBUG "list_type: FC \n");
+                    break;
 
-                    default:
-                        printk(KERN_DEBUG "list_type: UNKNOWN \n");
-                        break;
-                    }
+                default:
+                    printk(KERN_DEBUG "list_type: UNKNOWN \n");
+                    break;
                 }
             }
         }
@@ -2521,12 +2561,15 @@ void sx_get_cqe_all_versions(struct sx_cq *cq, uint32_t n, union sx_cqe *cqe_p)
     switch (cq->cqe_version) {
     case 0:
         cqe_p->v0 = sx_get_cqe(cq, n & (cq->nent - 1));
+        break;
 
     case 1:
         cqe_p->v1 = sx_get_cqe(cq, n & (cq->nent - 1));
+        break;
 
     case 2:
         cqe_p->v2 = sx_get_cqe(cq, n & (cq->nent - 1));
+        break;
     }
 
     /* In case the CQ version isn't 0-2 return NULL */

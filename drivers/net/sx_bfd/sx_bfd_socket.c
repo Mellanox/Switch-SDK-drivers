@@ -46,6 +46,8 @@
 #include "sx_bfd_socket.h"
 #include "sx_bfd_engine_data.h"
 
+#include <linux/sx_bfd/sx_bfd_ctrl_cmds.h>
+
 #define SX_BFD_SINGLEHOP_PORT 3784
 #define SX_BFD_MULTIHOP_PORT  4784
 
@@ -438,7 +440,39 @@ void sk_user_destruct(struct sock *sk)
     }
 }
 
-int sx_bfd_rx_socket_init(uint16_t port, struct socket ** sock, uint32_t vrf_id, unsigned long bfd_user_space_pid)
+static int sk_bfd_socket_bindtodevice(struct socket *sock, char *linux_vrf_name)
+{
+    int          err = 0;
+    mm_segment_t oldfs;
+
+    if (linux_vrf_name == NULL) {
+        err = -EIO;
+        goto bail;
+    }
+
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+
+    err = sock_setsockopt(sock,
+                          SOL_SOCKET,
+                          SO_BINDTODEVICE,
+                          linux_vrf_name, BFD_LINUX_VRF_NAME_LENGTH);
+    if (err < 0) {
+        printk(KERN_WARNING "Failed to set BFD socket SO_BINDTODEVICE option. Err = %d\n", err);
+    }
+
+    set_fs(oldfs);
+
+bail:
+    return err;
+}
+
+int sx_bfd_rx_socket_init(uint16_t         port,
+                          struct socket ** sock,
+                          uint32_t         vrf_id,
+                          unsigned long    bfd_user_space_pid,
+                          uint8_t          use_vrf_device,
+                          char            *linux_vrf_name)
 {
     int                                err = 0;
     struct sockaddr_in6                s6addr;
@@ -449,10 +483,22 @@ int sx_bfd_rx_socket_init(uint16_t port, struct socket ** sock, uint32_t vrf_id,
     struct sx_bfd_rx_socket_user_info *sk_user_data = NULL;
     int                                rcvbuf;
 
+    if (linux_vrf_name == NULL) {
+        printk(KERN_ERR "Unexpected NULL <linux_vrf_name>.\n");
+        return -EIO;
+    }
+
     /* Create Socket */
     if (sock_create(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, &t_sock) < 0) {
         printk(KERN_ERR "Failed to create BFD socket.\n");
         return -EIO;
+    }
+
+    if (use_vrf_device) {
+        if (sk_bfd_socket_bindtodevice(t_sock, linux_vrf_name) < 0) {
+            printk(KERN_ERR "Failed to bind rx BFD socket to vrf device: %s.\n", linux_vrf_name);
+            return -EIO;
+        }
     }
 
     /* Set reuse flag */
@@ -571,7 +617,9 @@ int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
                             uint8_t           ttl,
                             uint8_t           dscp,
                             struct socket  ** sock,
-                            uint16_t          sa_family)
+                            uint16_t          sa_family,
+                            uint8_t           use_vrf_device,
+                            char            * linux_vrf_name)
 {
     uint32_t        addr_size;
     struct socket * t_sock = NULL;
@@ -589,11 +637,25 @@ int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
         goto bail;
     }
 
+    if (linux_vrf_name == NULL) {
+        printk(KERN_ERR "Unexpected NULL <linux_vrf_name>.\n");
+        err = -EIO;
+        goto bail;
+    }
+
     /* Create Socket */
     if (sock_create(sa_family, SOCK_DGRAM, IPPROTO_UDP, &t_sock) < 0) {
         printk(KERN_ERR "Failed to create BFD socket.\n");
         err = -EIO;
         goto bail;
+    }
+
+    if (use_vrf_device) {
+        if (sk_bfd_socket_bindtodevice(t_sock, linux_vrf_name) < 0) {
+            printk(KERN_ERR "Failed to bind tx BFD socket to vrf device: %s.\n", linux_vrf_name);
+            err = -EIO;
+            goto bail;
+        }
     }
 
     addr_size = (sa_family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
@@ -687,7 +749,7 @@ void sx_bfd_rx_vrf_hash_add(void *rx_vrf_entry)
 }
 
 /* Function which initializes VRF. */
-void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
+void * sx_bfd_rx_vrf_init(uint32_t vrf_id, uint8_t use_vrf_device, char *linux_vrf_name, unsigned long bfd_pid)
 {
     struct sx_bfd_rx_vrf       *vrf = NULL;
     struct sx_bfd_rx_vrf_entry *entry_vrf = NULL;
@@ -717,7 +779,7 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
     vrf->vrf_id = vrf_id;
 
     /* Initialize Rx_socket for single_port. */
-    err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT, &vrf->sock_single_hop, vrf->vrf_id, bfd_pid);
+    err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT, &vrf->sock_single_hop, vrf->vrf_id, bfd_pid, use_vrf_device, linux_vrf_name);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_SINGLEHOP_PORT socket failed.\n");
         err = -EIO;
@@ -725,7 +787,7 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
     }
 
     /* Initialize Rx_socket for multihop_port. */
-    err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT, &vrf->sock_multi_hop, vrf->vrf_id, bfd_pid);
+    err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT, &vrf->sock_multi_hop, vrf->vrf_id, bfd_pid, use_vrf_device, linux_vrf_name);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_MULTIHOP_PORT socket failed.\n");
         err = -EIO;

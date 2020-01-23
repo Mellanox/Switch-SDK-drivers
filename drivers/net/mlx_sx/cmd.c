@@ -951,6 +951,7 @@ int __sx_cmd(struct sx_dev         *dev,
 
     cmd_path = sx_dpt_get_cmd_path(sx_dev_id);
 
+#ifdef PD_BU
 /*
  *   Example how to add limited registers support to PD :
  *
@@ -982,15 +983,6 @@ int __sx_cmd(struct sx_dev         *dev,
  *       break;
  *   }
  */
-
-#ifdef PD_BU
-
-    /* all registers are opened */
-
-#ifdef SX_DEBUG
-    printk(KERN_INFO PFX "__sx_cmd: Running command %s\n", cmd_str(op));
-#endif
-
 #endif /* #ifdef PD_BU */
 
     if (cmd_path == DPT_PATH_INVALID) {
@@ -1106,11 +1098,6 @@ int sx_cmd_use_events(struct sx_dev *dev)
 {
     struct sx_priv *priv = sx_priv(dev);
     int             i;
-
-/* #if defined(PD_BU)
- *   / The flow should be tested on Palladium/Protium once HW adds support /
- *   return 0; / No events yet... /
- #endif */
 
     if (priv->cmd.use_events == 1) {
         return 0;

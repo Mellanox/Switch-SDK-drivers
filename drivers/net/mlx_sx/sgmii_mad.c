@@ -483,7 +483,7 @@ int sgmii_mad_init(void)
 
     crit.ib.qpn = 0;
     ret = sx_core_add_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD QP0 handler (ret=%d)\n", ret);
         goto mad_qp0_failed;
@@ -491,7 +491,7 @@ int sgmii_mad_init(void)
 
     crit.ib.qpn = 1;
     ret = sx_core_add_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD QP1 handler (ret=%d)\n", ret);
         goto mad_qp1_failed;
@@ -499,7 +499,7 @@ int sgmii_mad_init(void)
 
     crit.ib.qpn = QPN_MULTICAST_VALUE;
     ret = sx_core_add_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD other-QPs handler (ret=%d)\n", ret);
         goto mad_other_qps_failed;
@@ -509,11 +509,11 @@ int sgmii_mad_init(void)
 
 mad_other_qps_failed:
     crit.ib.qpn = 1;
-    sx_core_remove_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL, 1);
 
 mad_qp1_failed:
     crit.ib.qpn = 0;
-    sx_core_remove_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL, 1);
 
 mad_qp0_failed:
     return ret;
@@ -528,11 +528,11 @@ void sgmii_mad_deinit(void)
     crit.ib.is_oob_originated_mad = 255; /* don't care */
 
     crit.ib.qpn = 0;
-    sx_core_remove_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL, 1);
 
     crit.ib.qpn = 1;
-    sx_core_remove_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL, 1);
 
     crit.ib.qpn = QPN_MULTICAST_VALUE;
-    sx_core_remove_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL, 1);
 }

@@ -278,10 +278,9 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
 
         spin_lock_irqsave(&dq->lock, flags);
     }
+
     if ((int)(dq->head - dq->tail) > 0) {
-        err = -ETIMEDOUT;
-    } else {
-        err = 0;
+        sx_warn(dev, "not all entries flushed for DQN %06x\n", dq->dqn);
     }
 
     if (update_flushing_state) {
@@ -356,6 +355,14 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     u8             stclass;
     u8             max_cpu_etclass_for_unlimited_mtu;
 
+    if (!dev || !dev->profile_set) {
+        printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
+               "execute because the profile is not "
+               "set\n");
+        sx_skb_free(skb);
+        return -EFAULT;
+    }
+
     if (dev->global_flushing == 1) {
         if (printk_ratelimit()) {
             printk(KERN_WARNING "__sx_core_post_send: Cannot send packet "
@@ -368,14 +375,6 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     if (NUMBER_OF_SWIDS <= meta->swid) {
         printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on swid %u\n",
                meta->swid);
-        sx_skb_free(skb);
-        return -EFAULT;
-    }
-
-    if (!dev || !dev->profile_set) {
-        printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
-               "execute because the profile is not "
-               "set\n");
         sx_skb_free(skb);
         return -EFAULT;
     }
@@ -1062,6 +1061,10 @@ void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq)
             sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count - 1];
             sx_priv(dev)->monitor_rdqs_count--;
         }
+    }
+
+    if (dq && dq->is_monitor) {
+        unset_monitor_rdq(dq);
     }
 }
 

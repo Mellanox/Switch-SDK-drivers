@@ -1,0 +1,31 @@
+--- a/drivers/net/mlx_sx/sx_clock.c     2020-01-13 18:35:00.312290000 +0300
++++ b/drivers/net/mlx_sx/sx_clock.c     2020-01-13 18:35:00.547706000 +0300
+@@ -407,7 +407,7 @@ static int sx_ptp_adjfreq(struct ptp_clock_info *ptp, s32 delta)
+     return 0;
+ }
+ 
+-static int sx_ptp_gettime(struct ptp_clock_info *ptp, struct timespec *ts)
++static int sx_ptp_gettime(struct ptp_clock_info *ptp, struct timespec64 *ts)
+ {
+     struct sx_tstamp *tstamp = container_of(ptp, struct sx_tstamp, ptp_info);
+     u64               ns;
+@@ -415,16 +415,16 @@ static int sx_ptp_gettime(struct ptp_clock_info *ptp, struct timespec *ts)
+     spin_lock_bh(&tstamp->lock);
+     ns = timecounter_read(&tstamp->clock);
+     spin_unlock_bh(&tstamp->lock);
+-    *ts = ns_to_timespec(ns);
++    *ts = ns_to_timespec64(ns);
+ 
+     return 0;
+ }
+ 
+ 
+-static int sx_ptp_settime(struct ptp_clock_info *ptp, const struct timespec *ts)
++static int sx_ptp_settime(struct ptp_clock_info *ptp, const struct timespec64 *ts)
+ {
+     struct sx_tstamp *tstamp = container_of(ptp, struct sx_tstamp, ptp_info);
+-    u64               ns = timespec_to_ns(ts);
++    u64               ns = timespec64_to_ns(ts);
+ 
+     spin_lock_bh(&tstamp->lock);
+     timecounter_init(&tstamp->clock, &tstamp->cycles, ns);

@@ -59,7 +59,9 @@
 #include <linux/clocksource.h>
 #include <linux/net_tstamp.h>
 #include <linux/ptp_clock_kernel.h>
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+#include <linux/bpf.h>
+#endif
 
 /************************************************
  *  Defines
@@ -91,6 +93,11 @@
 #define SPECTRUM2_PCI_DEV_ID 0xcf6c
 /* Spectrum2 in flash recovery mode */
 #define SPECTRUM2_FLASH_MODE_PCI_DEV_ID 0x024f
+
+/* Spectrum3 PCI device ID */
+#define SPECTRUM3_PCI_DEV_ID 0xcf70
+/* Spectrum3 in flash recovery mode */
+#define SPECTRUM3_FLASH_MODE_PCI_DEV_ID 0x0250
 
 /* SwitchIB PCI device ID */
 #define SWITCH_IB_PCI_DEV_ID 0xcb20
@@ -177,7 +184,9 @@ extern int sx_debug_level;
 #define SX_CORE_UNUSED_PARAM(P)
 #define MAX_SYSTEM_PORTS_IN_FILTER 256
 #define MAX_LAG_PORTS_IN_FILTER    256
-
+#define FROM_BITS_TO_U64(bits) \
+    (((bits) %                 \
+      64) ? ((bits) / 64) + 1 : ((bits) / 64))
 /************************************************
  *  Enums
  ***********************************************/
@@ -230,6 +239,13 @@ enum {
     PTP_PACKET_INGRESS = 0,
     PTP_PACKET_EGRESS = 1
 };
+
+enum tele_dir_ing {
+    TELE_DIR_ING_EGRESS_E = 0,
+    TELE_DIR_ING_INGRESS_E = 1,
+    TELE_DIR_ING_MAX_E = 1,
+    TELE_DIR_ING_NUM_E = 2,
+};
 /************************************************
  *  Structs
  ***********************************************/
@@ -250,6 +266,11 @@ struct event_data {
     u16              dest_sysport;
     u8               dest_is_lag;
     u8               dest_lag_subport;
+    u8               mirror_reason;
+    u8               mirror_tclass;
+    u16              mirror_cong;
+    u32              mirror_lantency;
+    u8               timestamp_type;
 };
 struct sx_rsc { /* sx  resource */
     struct event_data evlist;           /* event list           */
@@ -355,7 +376,8 @@ struct sx_cq {
     void                  (*sx_next_cqe_cb)(struct sx_cq *cq, union sx_cqe *cqe_p);
     void                  (*sx_fill_poll_one_params_from_cqe_cb)(union sx_cqe *u_cqe, u16 *trap_id, u8 *is_err,
                                                                  u8 *is_send, u8 *dqn, u16 *wqe_counter,
-                                                                 u16 *byte_count);
+                                                                 u16 *byte_count, u32 *user_def_val_orig_pkt_len,
+                                                                 u8 *is_lag, u8 *lag_subport, u16 *sysport_lag_id);
     u8               (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
     void             (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
     struct timespec* cqe_ts_arr;
@@ -655,23 +677,14 @@ struct sx_priv {
     spinlock_t       db_lock;            /* Lock for all DBs */
     u16              pvid_sysport_db[MAX_SYSPORT_NUM];
     u16              pvid_lag_db[MAX_LAG_NUM];
-
-#if defined(PD_BU)
-    /* Part of the PUDE WA for MLNX OS (PUDE event are handled manually):
-     * - should be removed before Phoenix bring up;
-     * - field in kernel DB to store port admin status;
-     */
-    u8 admin_status_sysport_db[MAX_SYSPORT_NUM];
-#endif
-
     u16 truncate_size_db[NUMBER_OF_RDQS];
     u16 sysport_filter_db[NUM_HW_SYNDROMES][MAX_SYSTEM_PORTS_IN_FILTER];
     u16 lag_filter_db[NUM_HW_SYNDROMES][MAX_LAG_PORTS_IN_FILTER];
     u8  lag_oper_state[MAX_LAG_NUM];
     u8  port_ber_monitor_bitmask[MAX_PHYPORT_NUM + 1];
     u8  port_ber_monitor_state[MAX_PHYPORT_NUM + 1];
-    u8  tele_thrs_state[MAX_PHYPORT_NUM + 1];
-    u64 tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1];
+    u8  tele_thrs_state[MAX_PHYPORT_NUM + 1][TELE_DIR_ING_NUM_E];
+    u64 tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1][TELE_DIR_ING_NUM_E];
     /* RP helper dbs */
     u8                     port_prio2tc[MAX_PHYPORT_NUM + 1][MAX_PRIO_NUM + 1];
     u8                     lag_prio2tc[MAX_LAG_NUM + 1][MAX_PRIO_NUM + 1];
@@ -694,16 +707,34 @@ struct sx_priv {
     u32                   monitor_rdqs_arr[MAX_MONITOR_RDQ_NUM];
     u32                   monitor_rdqs_count;
     struct sx_bitmap      active_monitor_cq_bitmap;      /* WJH CQs that hold CQEs to handle */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    struct bpf_prog* filter_ebpf_progs[NUMBER_OF_RDQS];
+#endif
+#ifdef SW_PUDE_EMULATION
+    /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
+    u8 admin_status_sysport_db[MAX_SYSPORT_NUM];
+#endif /* SW_PUDE_EMULATION */
+};
+struct listener_register_filter_entry {
+    int is_global_register;
+    int is_global_filter;
+    u64 ports_registers[FROM_BITS_TO_U64((MAX_PHYPORT_NUM + 1))];
+    u64 vlans_registers[FROM_BITS_TO_U64((SXD_MAX_VLAN_NUM + 1))];
+    u64 lags_registers[FROM_BITS_TO_U64((MAX_LAG_NUM + 1))];
+    u64 ports_filters[FROM_BITS_TO_U64((MAX_PHYPORT_NUM + 1))];
+    u64 vlans_filters[FROM_BITS_TO_U64((SXD_MAX_VLAN_NUM + 1))];
+    u64 lags_filters[FROM_BITS_TO_U64((MAX_LAG_NUM + 1))];
 };
 struct listener_entry {
-    u8                        swid;
-    enum l2_type              listener_type;
-    u8                        is_default;   /* is a default listener  */
-    union ku_filter_critireas critireas;    /* more filter critireas  */
-    cq_handler                handler;      /* The completion handler */
-    void                     *context;      /* to pass to the handler */
-    u64                       rx_pkts;
-    struct list_head          list;
+    u8                                    swid;
+    enum l2_type                          listener_type;
+    u8                                    is_default;   /* is a default listener  */
+    union ku_filter_critireas             critireas;    /* more filter critireas  */
+    cq_handler                            handler;      /* The completion handler */
+    void                                 *context;      /* to pass to the handler */
+    u64                                   rx_pkts;
+    struct listener_register_filter_entry listener_register_filter;
+    struct list_head                      list;
 };
 struct listener_port_vlan_entry {
     enum port_vlan_match match_crit;
@@ -768,21 +799,21 @@ struct listener_port_vlan_entry {
     struct list_head      list;
 };
 struct sx_globals {
-    struct rw_semaphore             pci_restart_lock;
-    spinlock_t                      pci_devs_lock; /* the devs list lock */
-    struct list_head                pci_devs_list;
-    int                             pci_devs_cnt;
-    struct sx_dev                  *tmp_dev_ptr;
-    struct sx_dev                  *oob_backbone_dev; /* SwitchX that interconnects all OOB devices */
-    struct sx_dpt_s                 sx_dpt;
-    struct sx_i2c_ifc               sx_i2c;
-    struct sx_stats                 stats;
-    struct ku_profile               profile;
-    int                             index[SX_MAX_DEVICES];
-    struct listener_port_vlan_entry listeners_db[NUM_HW_SYNDROMES + 1];
-    spinlock_t                      listeners_lock; /* listeners' lock */
-    struct cdev                     cdev;
-    u8                              pci_drivers_in_use;
+    struct rw_semaphore   pci_restart_lock;
+    spinlock_t            pci_devs_lock;           /* the devs list lock */
+    struct list_head      pci_devs_list;
+    int                   pci_devs_cnt;
+    struct sx_dev        *tmp_dev_ptr;
+    struct sx_dev        *oob_backbone_dev;           /* SwitchX that interconnects all OOB devices */
+    struct sx_dpt_s       sx_dpt;
+    struct sx_i2c_ifc     sx_i2c;
+    struct sx_stats       stats;
+    struct ku_profile     profile;
+    int                   index[SX_MAX_DEVICES];
+    struct listener_entry listeners_rf_db[NUM_HW_SYNDROMES + 1];
+    spinlock_t            listeners_lock;           /* listeners' lock */
+    struct cdev           cdev;
+    u8                    pci_drivers_in_use;
 };
 struct isx_specific_data {
     u8  version;
@@ -874,6 +905,7 @@ int sx_get_sdq_num_from_profile(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq
  */
 int sx_get_sdq_num_per_etclasss(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq);
 
+void unset_monitor_rdq(struct sx_dq *dq);
 #endif  /* SX_H */
 
 /************************************************

@@ -141,15 +141,10 @@ long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long da
     return 0;
 }
 
-
-#if defined(PD_BU)
+#ifdef SW_PUDE_EMULATION
+/* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
 long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data)
 {
-    /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
-     * - should be removed before Phoenix bring up;
-     * - fill kernel DB with new port admin status;
-     */
-
     struct ku_admin_status_data admin_status_data;
     struct sx_dev              *dev;
     unsigned long               flags;
@@ -168,8 +163,7 @@ long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigne
 
     return 0;
 }
-#endif /* PD_BU */
-
+#endif /* SW_PUDE_EMULATION */
 
 static int __sx_core_ptp_init(struct sx_dev *dev, ptp_mode_t ptp_mode)
 {

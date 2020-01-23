@@ -2457,6 +2457,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_QPRT);
 #define REG_HTGT_EP_MAC_47_32_OFFSET (REG_HTGT_PATH_OFFSET + 3)
 #define REG_HTGT_EP_MAC_31_0_OFFSET  (REG_HTGT_PATH_OFFSET + 7)
 #define REG_HTGT_EP_VID_OFFSET       (REG_HTGT_PATH_OFFSET + 0xb)
+#define REG_HTGT_MRR_PRO_RATE_OFFSET 0x54
 #define HTGT_REG_LEN                 0x11 /* number of 32-bits words that the register holds */
 
 static int __HTGT_encode(u8 *inbox, void *ku_reg, void *context)
@@ -2475,6 +2476,7 @@ static int __HTGT_encode(u8 *inbox, void *ku_reg, void *context)
     SX_PUT_REG_FIELD(inbox, htgt_reg->mirror_action, REG_HTGT_MRR_ACTION_OFFSET);
     SX_PUT_REG_FIELD(inbox, htgt_reg->mirror_agent, REG_HTGT_MRR_AGENT_OFFSET);
     SX_PUT_REG_FIELD(inbox, htgt_reg->priority, REG_HTGT_PRIO_OFFSET);
+    SX_PUT_REG_FIELD(inbox, htgt_reg->mirror_probability_rate, REG_HTGT_MRR_PRO_RATE_OFFSET);
 
     switch (htgt_reg->type) {
     case HTGT_LOCAL_PATH:
@@ -2528,6 +2530,7 @@ static int __HTGT_decode(u8 *outbox, void *ku_reg, void *context)
     SX_GET_REG_FIELD(htgt_reg->mirror_action, outbox, REG_HTGT_MRR_ACTION_OFFSET);
     SX_GET_REG_FIELD(htgt_reg->mirror_agent, outbox, REG_HTGT_MRR_AGENT_OFFSET);
     SX_GET_REG_FIELD(htgt_reg->priority, outbox, REG_HTGT_PRIO_OFFSET);
+    SX_GET_REG_FIELD(htgt_reg->mirror_probability_rate, outbox, REG_HTGT_MRR_PRO_RATE_OFFSET);
 
     switch (htgt_reg->type) {
     case HTGT_LOCAL_PATH:
@@ -3907,7 +3910,7 @@ static int __RITR_decode(u8 *outbox, void *ku_reg, void *context)
     ritr_reg->ingress_counter_set.type = tmp_val_u32 & 0xFFFFFF;
     SX_GET_REG_FIELD(tmp_val_u32, outbox, REG_EGRESS_CNTR_SET_OFFSET);
     ritr_reg->egress_counter_set.type = (tmp_val_u32 >> 24) & 0xFF;
-    ritr_reg->egress_counter_set.type = tmp_val_u32 & 0xFFFFFF;
+    ritr_reg->egress_counter_set.index = tmp_val_u32 & 0xFFFFFF;
 
     return 0;
 }
@@ -4453,24 +4456,30 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MTPPS);
 /************************************************
  * SBCTC
  ***********************************************/
+#define REG_SBCTC_DIR_ING_OFFSET    0x14
 #define REG_SBCTC_LOCAL_PORT_OFFSET 0x15
+#define REG_SBCTC_MODE_OFFSET       0x17
 #define REG_SBCTC_EN_CONFIG_OFFSET  0x18
 #define REG_SBCTC_EVENT_OFFSET      0x1B
 #define REG_SBCTC_TCLASS_EN_OFFSET  0x1C
 #define REG_SBCTC_THR_MAX_OFFSET    0x24
-#define SBCTC_REG_LEN               0x6
+#define REG_SBCTC_THR_MIN_OFFSET    0x28
+#define SBCTC_REG_LEN               0x7
 
 static int __SBCTC_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_sbctc_reg *sbctc_reg = (struct ku_sbctc_reg*)ku_reg;
     u8                   en_config;
 
+    SX_PUT_REG_FIELD(inbox, sbctc_reg->dir_ing, REG_SBCTC_DIR_ING_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->local_port, REG_SBCTC_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbctc_reg->mode, REG_SBCTC_MODE_OFFSET);
     en_config = sbctc_reg->en_config << 7;
     SX_PUT_REG_FIELD(inbox, en_config, REG_SBCTC_EN_CONFIG_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->event, REG_SBCTC_EVENT_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->tclass_en, REG_SBCTC_TCLASS_EN_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->thr_max, REG_SBCTC_THR_MAX_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbctc_reg->thr_min, REG_SBCTC_THR_MIN_OFFSET);
     return 0;
 }
 
@@ -4478,9 +4487,11 @@ static int __SBCTC_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_sbctc_reg *sbctc_reg = (struct ku_sbctc_reg*)ku_reg;
 
+    SX_GET_REG_FIELD(sbctc_reg->mode, outbox, REG_SBCTC_MODE_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->event, outbox, REG_SBCTC_EVENT_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->tclass_en, outbox, REG_SBCTC_TCLASS_EN_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->thr_max, outbox, REG_SBCTC_THR_MAX_OFFSET);
+    SX_GET_REG_FIELD(sbctc_reg->thr_min, outbox, REG_SBCTC_THR_MIN_OFFSET);
     return 0;
 }
 
@@ -4543,6 +4554,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SBGCR);
  ***********************************************/
 #define REG_SBCTR_IEVENT_OFFSET     0x14
 #define REG_SBCTR_LOCAL_PORT_OFFSET 0x15
+#define REG_SBCTR_DIR_ING_OFFSET    0x16
 #define REG_SBCTR_FP_ENTITY_OFFSET  0x17
 #define REG_SBCTR_TCLASS_EN_OFFSET  0x1C
 #define SBCTR_REG_LEN               0x4
@@ -4553,6 +4565,7 @@ static int __SBCTR_encode(u8 *inbox, void *ku_reg, void *context)
 
     SX_PUT_REG_FIELD(inbox, sbctr_reg->ievent, REG_SBCTR_IEVENT_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctr_reg->local_port, REG_SBCTR_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbctr_reg->dir_ing, REG_SBCTR_DIR_ING_OFFSET);
     return 0;
 }
 

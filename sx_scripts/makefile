@@ -111,7 +111,7 @@ endif
 
 V ?= 1
 
-ifneq ($(findstring 3.10,$(KVERSION))$(findstring 3.13,$(KVERSION))$(findstring 3.14,$(KVERSION))$(findstring 3.16,$(KVERSION))$(findstring 4.9,$(KVERSION))$(findstring 4.15,$(KVERSION)),)
+ifneq ($(findstring 3.10,$(KVERSION))$(findstring 3.13,$(KVERSION))$(findstring 3.14,$(KVERSION))$(findstring 3.16,$(KVERSION))$(findstring 4.9,$(KVERSION))$(findstring 4.15,$(KVERSION))$(findstring 4.19,$(KVERSION)),)
 MLNX_LINUX_AUTOCONF_FILE = include/generated/autoconf.h
 MLNX_LINUX_KCONFIG_FILE =  $(KCONFIG_H)
 ifeq (exists, $(shell [ -d "/lib/modules/${KVERSION}/source" ] && echo exists ))

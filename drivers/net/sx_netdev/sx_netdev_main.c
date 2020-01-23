@@ -503,17 +503,16 @@ static int sx_netdev_register_global_event_handler(void)
 
     /* Register listener for Ethernet SWID */
     memset(&crit, 0, sizeof(crit));
-
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
                                crit, sx_netdev_handle_global_pkt, NULL,
-                               CHECK_DUP_DISABLED_E, NULL, NULL);
+                               CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering global rx_handler", __func__);
         return err;
     }
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
                                crit, sx_netdev_handle_pude_event, NULL,
-                               CHECK_DUP_DISABLED_E, NULL, NULL);
+                               CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering PUDE event rx_handler", __func__);
         return err;
@@ -529,7 +528,7 @@ static int sx_netdev_unregister_global_event_handler(void)
 
     memset(&crit, 0, sizeof(crit));
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
-                               crit, NULL, NULL, NULL, NULL);
+                               crit, NULL, NULL, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "error: Failed de registering on "
                "0x%x syndrome.\n", NUM_HW_SYNDROMES);
@@ -537,7 +536,7 @@ static int sx_netdev_unregister_global_event_handler(void)
     }
 
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
-                               crit, NULL, NULL, NULL, NULL);
+                               crit, NULL, NULL, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "error: Failed de registering on "
                "0x%x syndrome.\n", SXD_TRAP_ID_PUDE);
@@ -655,7 +654,8 @@ static int sx_netdev_open(struct net_device *netdev)
                                        netdev,
                                        CHECK_DUP_DISABLED_E,
                                        net_priv->dev,
-                                       &port_vlan);
+                                       &port_vlan,
+                                       1);
             if (err) {
                 printk(KERN_ERR PFX "error %s, User channel (%d) failed registering on "
                        "0x%x syndrome.\n", netdev->name, uc_type, net_priv->trap_ids[uc_type][i].synd);
@@ -696,7 +696,7 @@ static int sx_netdev_stop(struct net_device *netdev)
             port_vlan.vlan = net_priv->trap_ids[uc_type][i].vlan;
             CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_remove_synd, net_priv->swid, net_priv->trap_ids[uc_type][i].synd,
                                           L2_TYPE_ETH, 0, crit, netdev, net_priv->dev,
-                                          netdev_callback, &port_vlan);
+                                          netdev_callback, &port_vlan, 1);
         }
     }
 
@@ -1172,18 +1172,18 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
     }
 
     if (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp) {
-        /* Set pcp = skb priority
-         * If no vlan header add prio tag. */
-        if (skb->priority > SX_VLAN_PRIO_MAX) {
-            if (sx_netdev_tx_debug) {
-                printk(KERN_INFO PFX "%s: skb priority is to big. set max pcp %d\n", __func__, SX_VLAN_PRIO_MAX);
-            }
-            pcp = SX_VLAN_PRIO_MAX;
-        } else {
-            pcp = skb->priority;
-        }
+        /* If it is a DATA packet and it is untagged, add prio tag (PCP according to skb->priority) */
         veth = (struct vlan_ethhdr *)(skb->data);
         if (ntohs(veth->h_vlan_proto) != ETH_P_8021Q) {
+            if (skb->priority > SX_VLAN_PRIO_MAX) {
+                if (sx_netdev_tx_debug) {
+                    printk(KERN_INFO PFX "%s: skb priority is to big. set max pcp %d\n", __func__, SX_VLAN_PRIO_MAX);
+                }
+                pcp = SX_VLAN_PRIO_MAX;
+            } else {
+                pcp = skb->priority;
+            }
+
             err = sx_netdev_skb_add_vlan(skb, &tmp_skb, ifc_vlan);
             if (err) {
                 if (printk_ratelimit()) {
@@ -1193,11 +1193,12 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
                 net_priv->stats.tx_dropped++;
                 return err;
             }
+
             kfree_skb(skb);
             skb = tmp_skb;
             veth = (struct vlan_ethhdr *)(skb->data);
+            veth->h_vlan_TCI = (veth->h_vlan_TCI & htons(~VLAN_PRIO_MASK)) | (htons(pcp << VLAN_PRIO_SHIFT));
         }
-        veth->h_vlan_TCI = (veth->h_vlan_TCI & htons(~VLAN_PRIO_MASK)) | (htons(pcp << VLAN_PRIO_SHIFT));
     }
 
     /* If there's no place for the ISX header
@@ -1693,7 +1694,8 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
                                     enum sx_netdev_user_channel_type uc_type,
                                     void                            *rsc,
                                     u16                              synd,
-                                    struct ku_port_vlan_params      *port_vlan)
+                                    struct ku_port_vlan_params      *port_vlan,
+                                    u8                               is_register)
 {
     struct sx_net_priv       *net_priv = netdev_priv(netdev);
     int                       err = 0, i = 0;
@@ -1738,7 +1740,7 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
         /* register the listener according to the swid */
         CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0,
                                    crit, netdev_callback, netdev,
-                                   CHECK_DUP_DISABLED_E, net_priv->dev, port_vlan);
+                                   CHECK_DUP_DISABLED_E, net_priv->dev, port_vlan, is_register);
 
         if (err) {
             printk(KERN_ERR PFX "error %s, Failed registering on "
@@ -1756,7 +1758,8 @@ static int __sx_netdev_dev_synd_remove(struct net_device               *netdev,
                                        enum sx_netdev_user_channel_type uc_type,
                                        void                            *rsc,
                                        u16                              synd,
-                                       struct ku_port_vlan_params      *port_vlan)
+                                       struct ku_port_vlan_params      *port_vlan,
+                                       u8                               is_register)
 {
     struct sx_net_priv       *net_priv = netdev_priv(netdev);
     int                       err = 0;
@@ -1787,7 +1790,7 @@ static int __sx_netdev_dev_synd_remove(struct net_device               *netdev,
         }
 
         CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0,
-                                   crit, netdev, net_priv->dev, netdev_callback, port_vlan);
+                                   crit, netdev, net_priv->dev, netdev_callback, port_vlan, is_register);
 
         if (err) {
             printk(KERN_ERR PFX "error %s, Failed de registering on "
@@ -1846,9 +1849,19 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
         if (resources->sx_netdevs[i] != NULL) {
             if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
-                __sx_netdev_dev_synd_add(resources->sx_netdevs[i], USER_CHANNEL_L3_NETDEV, rsc, synd, &port_vlan);
+                __sx_netdev_dev_synd_add(resources->sx_netdevs[i],
+                                         USER_CHANNEL_L3_NETDEV,
+                                         rsc,
+                                         synd,
+                                         &port_vlan,
+                                         event_data->eth_l3_synd.is_register);
             } else {
-                __sx_netdev_dev_synd_remove(resources->sx_netdevs[i], USER_CHANNEL_L3_NETDEV, rsc, synd, &port_vlan);
+                __sx_netdev_dev_synd_remove(resources->sx_netdevs[i],
+                                            USER_CHANNEL_L3_NETDEV,
+                                            rsc,
+                                            synd,
+                                            &port_vlan,
+                                            event_data->eth_l3_synd.is_register);
             }
         }
     }
@@ -1859,14 +1872,24 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
         CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0,
                                    crit, sx_netdev_handle_global_pkt, NULL,
-                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan);
+                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan, event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed registering RP rx_handle on "
                    "syndrome %d.\n", synd);
         }
     } else {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, 0, synd, L2_TYPE_ETH, 0,
-                                   crit, NULL, NULL, sx_netdev_handle_global_pkt, &port_vlan);
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd,
+                                   err,
+                                   0,
+                                   synd,
+                                   L2_TYPE_ETH,
+                                   0,
+                                   crit,
+                                   NULL,
+                                   NULL,
+                                   sx_netdev_handle_global_pkt,
+                                   &port_vlan,
+                                   event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed unregistering RP rx_handle on "
                    "syndrome %d.\n", synd);
@@ -1879,14 +1902,24 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
         CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0,
                                    crit, sx_netdev_handle_global_pkt, NULL,
-                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan);
+                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan, event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed registering bridge rx_handle on "
                    "syndrome %d.\n", synd);
         }
     } else {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, 0, synd, L2_TYPE_ETH, 0,
-                                   crit, NULL, NULL, sx_netdev_handle_global_pkt, &port_vlan);
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd,
+                                   err,
+                                   0,
+                                   synd,
+                                   L2_TYPE_ETH,
+                                   0,
+                                   crit,
+                                   NULL,
+                                   NULL,
+                                   sx_netdev_handle_global_pkt,
+                                   &port_vlan,
+                                   event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed unregistering bridge rx_handle on "
                    "syndrome %d.\n", synd);
@@ -1940,13 +1973,15 @@ static void sx_netdev_set_synd_l2(struct sx_dev       *dev,
         if (resources->sx_netdevs[i] != NULL) {
             if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
                 __sx_netdev_dev_synd_add(resources->sx_netdevs[i], USER_CHANNEL_LOG_PORT_NETDEV, rsc, synd,
-                                         &port_vlan);
+                                         &port_vlan,
+                                         event_data->eth_l3_synd.is_register);
             } else {
                 __sx_netdev_dev_synd_remove(resources->sx_netdevs[i],
                                             USER_CHANNEL_LOG_PORT_NETDEV,
                                             rsc,
                                             synd,
-                                            &port_vlan);
+                                            &port_vlan,
+                                            event_data->eth_l3_synd.is_register);
             }
         }
     }
@@ -1998,13 +2033,13 @@ static void sx_netdev_set_synd_phy(struct sx_dev       *dev,
         if (resources->sx_netdevs[i] != NULL) {
             if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
                 __sx_netdev_dev_synd_add(resources->sx_netdevs[i], USER_CHANNEL_PHY_PORT_NETDEV, rsc, synd,
-                                         &port_vlan);
+                                         &port_vlan, event_data->eth_l3_synd.is_register);
             } else {
                 __sx_netdev_dev_synd_remove(resources->sx_netdevs[i],
                                             USER_CHANNEL_PHY_PORT_NETDEV,
                                             rsc,
                                             synd,
-                                            &port_vlan);
+                                            &port_vlan, event_data->eth_l3_synd.is_register);
             }
         }
     }
@@ -2361,7 +2396,7 @@ static void sx_netdev_deinit_sx_core_interface(void)
             CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err,                                               \
                                        net_priv->swid, net_priv->trap_ids[uc_type][i].synd, L2_TYPE_ETH, 0, \
                                        crit, netdev_callback, netdev,                                       \
-                                       CHECK_DUP_ENABLED_E, net_priv->dev, &port_vlan);                     \
+                                       CHECK_DUP_ENABLED_E, net_priv->dev, &port_vlan, 1);                  \
             if (err) {                                                                                      \
                 printk(KERN_ERR PFX "error %s, User channel (%d) failed registering on "                    \
                        "0x%x syndrome.\n", netdev->name, uc_type, net_priv->trap_ids[uc_type][i].synd);     \
@@ -2392,7 +2427,7 @@ static void sx_netdev_deinit_sx_core_interface(void)
             CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_remove_synd, net_priv->swid,         \
                                           net_priv->trap_ids[uc_type][i].synd,         \
                                           L2_TYPE_ETH, 0, crit, netdev, net_priv->dev, \
-                                          netdev_callback, &port_vlan);                \
+                                          netdev_callback, &port_vlan, 1);             \
         }                                                                              \
     }                                                                                  \
     net_priv->dev = NULL;                                                              \
@@ -2575,13 +2610,13 @@ static void sx_netdev_attach_global_event_handler(void)
 
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
                                crit, sx_netdev_handle_global_pkt, NULL,
-                               CHECK_DUP_ENABLED_E, NULL, NULL);
+                               CHECK_DUP_ENABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering global rx_handler", __func__);
     }
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
                                crit, sx_netdev_handle_pude_event, NULL,
-                               CHECK_DUP_ENABLED_E, NULL, NULL);
+                               CHECK_DUP_ENABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering PUDE event rx_handler", __func__);
     }

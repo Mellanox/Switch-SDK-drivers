@@ -119,10 +119,12 @@ union sx_event_data {
         enum l3_synd_type type;
         u16               port;
         u16               vlan;
+        u8                is_register;
     } eth_l3_synd;
     struct {
         int swid;
         int hw_synd;
+        u8  is_register;
     } ipoib_synd;
     struct {
         int swid;
@@ -198,13 +200,21 @@ int sx_core_flush_synd_by_context(void * context);
 int sx_core_flush_synd_by_handler(cq_handler handler);
 int sx_register_interface(struct sx_interface *intf);
 void sx_unregister_interface(struct sx_interface *intf);
-int sx_core_add_synd(u8 swid, u16 hw_synd, enum l2_type type, u8 is_default,
-                     union ku_filter_critireas crit, cq_handler handler, void *context,
-                     check_dup_e check_dup, struct sx_dev* sx_dev, struct ku_port_vlan_params *port_vlan);
+int sx_core_add_synd(u8                          swid,
+                     u16                         hw_synd,
+                     enum l2_type                type,
+                     u8                          is_default,
+                     union ku_filter_critireas   crit,
+                     cq_handler                  handler,
+                     void                       *context,
+                     check_dup_e                 check_dup,
+                     struct sx_dev             * sx_dev,
+                     struct ku_port_vlan_params *port_vlan,
+                     u8                          is_register); /* is_register ==> 1=register, 0=filter. */
 int sx_core_remove_synd(u8 swid, u16 hw_synd, enum l2_type type, u8 is_default,
                         union ku_filter_critireas critireas,
                         void *context, struct sx_dev* sx_dev, cq_handler handler,
-                        struct ku_port_vlan_params *port_vlan);
+                        struct ku_port_vlan_params *port_vlan, u8 is_register); /* is_register ==> 1=register, 0=filter. */
 int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb,
                       struct isx_meta *meta);
 int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb,

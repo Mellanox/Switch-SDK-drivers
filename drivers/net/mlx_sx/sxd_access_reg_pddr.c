@@ -1,5 +1,5 @@
 /*
- * Copyright (C) Mellanox Technologies, Ltd. 2010-2019 ALL RIGHTS RESERVED.
+ * Copyright (C) Mellanox Technologies, Ltd. 2010-2020 ALL RIGHTS RESERVED.
  *
  * This software product is a proprietary product of Mellanox Technologies, Ltd.
  * (the "Company") and all right, title, and interest in and to the software product,

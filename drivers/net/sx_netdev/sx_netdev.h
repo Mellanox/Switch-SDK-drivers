@@ -167,7 +167,8 @@ struct sx_core_interface {
                                           void                       *context,
                                           check_dup_e                 check_dup,
                                           struct sx_dev              *sx_dev,
-                                          struct ku_port_vlan_params *port_vlan);
+                                          struct ku_port_vlan_params *port_vlan,
+                                          u8                          is_register);
     int (*sx_core_remove_synd)(u8                          swid,
                                u16                         hw_synd,
                                enum l2_type                type,
@@ -176,7 +177,8 @@ struct sx_core_interface {
                                void                       *context,
                                struct sx_dev              *sx_dev,
                                cq_handler                  handler,
-                               struct ku_port_vlan_params *port_vlan);
+                               struct ku_port_vlan_params *port_vlan,
+                               u8                          is_register);
     int (*sx_core_flush_synd_by_handler)(cq_handler handler);
     int (*sx_core_get_prio2tc)(struct sx_dev *dev, uint16_t port_lag_id, uint8_t is_lag, uint8_t pcp, uint8_t *tc);
     int (*sx_core_get_vlan_tagging)(struct sx_dev *dev,

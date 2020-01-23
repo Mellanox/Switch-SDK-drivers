@@ -1146,6 +1146,11 @@ int sx_get_sdq(struct isx_meta *meta,
     u8  hw_etclass = 0;
     int ret = 0;
 
+    if (!dev) {
+        PRINTK_ERR("get sdq: dev is NULL\n");
+        return -EINVAL;
+    }
+
     /* this func also take priv->db_lock */
     if (sx_get_hw_etclass(meta, &hw_etclass) != 0) {
         PRINTK_ERR("Error retrieving HW Etclass!\n");
@@ -1158,14 +1163,14 @@ int sx_get_sdq(struct isx_meta *meta,
         return ret;
     }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.max_cpu_etclass_for_unlimited_mtu != NULL)) {
+    if (sx_priv(dev)->dev_specific_cb.max_cpu_etclass_for_unlimited_mtu != NULL) {
         *max_cpu_etclass_for_unlimited_mtu =
             sx_priv(dev)->dev_specific_cb.max_cpu_etclass_for_unlimited_mtu();
     } else {
         *max_cpu_etclass_for_unlimited_mtu = 1; /* default */
     }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb != NULL)) {
+    if (sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb(dev, type, swid,
                                                     etclass, stclass, sdq);
     } else {
@@ -1187,6 +1192,11 @@ int sx_build_isx_header(struct isx_meta *meta, struct sk_buff *skb, u8 stclass)
     u8             hw_etclass = 0;
     int            err = 0;
 
+    if (!dev) {
+        PRINTK_ERR("build isx header: dev is NULL\n");
+        return -EINVAL;
+    }
+
     /* this func also take priv->db_lock */
     if (sx_get_hw_etclass(meta, &hw_etclass) != 0) {
         PRINTK_ERR("Error retrieving HW Etclass!\n");
@@ -1199,7 +1209,7 @@ int sx_build_isx_header(struct isx_meta *meta, struct sk_buff *skb, u8 stclass)
         return err;
     }
 
-    if (dev && (sx_priv(dev)->dev_specific_cb.sx_build_isx_header_cb != NULL)) {
+    if (sx_priv(dev)->dev_specific_cb.sx_build_isx_header_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.sx_build_isx_header_cb(meta, skb, stclass, hw_etclass);
     } else {
         PRINTK_ERR("Error retrieving sx_build_isx_header callback structure!\n");
@@ -1633,10 +1643,8 @@ int sx_dpt_i2c_writel(int dev_id, u32 reg, u32 value)
         return -EINVAL;
     }
 
-    if (i > 0) {
-        printk(KERN_INFO "sx_dpt_i2c_writel for dev_id: %d succeeded "
-               "after %d tries!\n", dev_id, i);
-    }
+    printk(KERN_INFO "sx_dpt_i2c_writel for dev_id: %d succeeded "
+           "after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1672,10 +1680,8 @@ int sx_dpt_i2c_write_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf
         return -EINVAL;
     }
 
-    if (i > 0) {
-        printk(KERN_INFO "sx_dpt_i2c_write_buf for dev_id: %d "
-               "succeeded after %d tries!\n", dev_id, i);
-    }
+    printk(KERN_INFO "sx_dpt_i2c_write_buf for dev_id: %d "
+           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1712,10 +1718,8 @@ int sx_dpt_i2c_read_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf,
         return -EINVAL;
     }
 
-    if (i > 0) {
-        printk(KERN_INFO "sx_dpt_i2c_read_buf for dev_id: %d "
-               "succeeded after %d tries!\n", dev_id, i);
-    }
+    printk(KERN_INFO "sx_dpt_i2c_read_buf for dev_id: %d "
+           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;

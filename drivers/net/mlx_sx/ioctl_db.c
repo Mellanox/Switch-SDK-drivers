@@ -150,25 +150,22 @@ static int sx_core_ioctl_set_netdev_trap_info(struct sx_dev *dev, struct ku_sx_c
             case USER_CHANNEL_L3_NETDEV:
                 err =
                     sx_core_add_synd_l3(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                        &(sx_core_db->port_vlan_params[uc_type][i]));
+                                        &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
 
             case USER_CHANNEL_LOG_PORT_NETDEV:
                 err =
                     sx_core_add_synd_l2(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                        &(sx_core_db->port_vlan_params[uc_type][i]));
+                                        &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
 
             case USER_CHANNEL_PHY_PORT_NETDEV:
                 err =
                     sx_core_add_synd_phy(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                         &(sx_core_db->port_vlan_params[uc_type][i]));
-                break;
-
-            default:
-                err = -EINVAL;
+                                         &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
             }
+
             if (err) {
                 goto out;
             }
@@ -428,7 +425,6 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     struct sx_dev        *dev;
     int                   i;
     unsigned long         flags;
-    bool                  db_locked = false;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -487,7 +483,6 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     }
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-    db_locked = true;
     SX_CORE_IOCTL_MEMCPY(sysport_filter_db);
     SX_CORE_IOCTL_MEMCPY(lag_filter_db);
     SX_CORE_IOCTL_MEMCPY(pvid_sysport_db);
@@ -522,7 +517,6 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     SX_CORE_IOCTL_MEMCPY(fid_to_hwfid);
     SX_CORE_IOCTL_MEMCPY(rif_id_to_hwfid);
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
-    db_locked = false;
 
     err = sx_core_ioctl_set_rdq_properties(dev, sx_core_db);
     if (err) {
@@ -532,10 +526,6 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
 out:
     if (sx_core_db) {
         vfree(sx_core_db);
-    }
-
-    if (db_locked) {
-        spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
     }
 
     return err;
@@ -1226,13 +1216,20 @@ long ctrl_cmd_tele_threshold_set(struct file *file, unsigned int cmd, unsigned l
         goto out;
     }
 
+    if (tele_thrs_data.dir_ing > TELE_DIR_ING_MAX_E) {
+        printk(KERN_ERR PFX "Received dir_ing %d is invalid (max. %d) \n",
+               tele_thrs_data.dir_ing, TELE_DIR_ING_MAX_E);
+        err = -EINVAL;
+        goto out;
+    }
+
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
     if (tele_thrs_data.tc_vec == 0) {
-        sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port] = 0;
+        sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port][tele_thrs_data.dir_ing] = 0;
         /* We clear tc vector DB only if all TCs were removed */
-        sx_priv(dev)->tele_thrs_tc_vec[tele_thrs_data.local_port] = 0;
+        sx_priv(dev)->tele_thrs_tc_vec[tele_thrs_data.local_port][tele_thrs_data.dir_ing] = 0;
     } else {
-        SX_TELE_THRS_VALID_SET(sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port]);
+        SX_TELE_THRS_VALID_SET(sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port][tele_thrs_data.dir_ing]);
     }
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 

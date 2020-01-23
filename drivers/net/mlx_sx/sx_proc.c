@@ -1973,7 +1973,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
 
 void __dump_stats(struct sx_dev* sx_dev)
 {
-    int swid, pkt_type, synd;
+    int swid, pkt_type, synd, rdq;
 
     for (swid = 0; swid < NUMBER_OF_SWIDS + 1; swid++) {
         printk("=========================\n");
@@ -2006,11 +2006,32 @@ void __dump_stats(struct sx_dev* sx_dev)
                        sx_dev->stats.rx_by_synd_bytes[swid][synd]);
             }
 
-            if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
-                printk("events on synd [%d]: %llu\n", synd,
-                       sx_dev->stats.rx_eventlist_by_synd[synd]);
+            /* this counters aren't per swid so print them for swid 0 only */
+            if (swid == 0) {
+                if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
+                    printk("events on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.rx_eventlist_by_synd[synd]);
+                }
+
+                if (0 != sx_dev->stats.tx_loopback_ok_by_synd[synd]) {
+                    printk("tx loopback_ok on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.tx_loopback_ok_by_synd[synd]);
+                }
+
+                if (0 != sx_dev->stats.tx_loopback_dropped_by_synd[synd]) {
+                    printk("tx loopback_dropped on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.tx_loopback_dropped_by_synd[synd]);
+                }
             }
         }     /* for (synd=0; synd<PKT_TYPE_NUM; synd++) { */
+
+        for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
+            if (0 != sx_dev->stats.rx_by_rdq[swid][rdq]) {
+                printk("rx pkt on rdq [%d]: %llu (%llu bytes)\n", rdq,
+                       sx_dev->stats.rx_by_rdq[swid][rdq],
+                       sx_dev->stats.rx_by_rdq_bytes[swid][rdq]);
+            }
+        }    /* for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) { */
     }
 
     printk("=========================\n");

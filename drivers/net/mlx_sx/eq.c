@@ -53,6 +53,7 @@ extern int      cpu_traffic_tasklet_reschedule_enable;
 extern atomic_t cq_backup_polling_enabled;
 extern int      handle_monitor_rdq_in_timer;
 static void sx_intr_tasklet_handler(unsigned long data);
+extern int enable_cpu_port_loopback;
 
 /************************************************
  * Functions                                    *
@@ -130,8 +131,9 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
             if (handle_monitor_rdq_in_timer &&
                 sx_bitmap_test(&priv->active_monitor_cq_bitmap, eqe->cqn)) {
                 active_wjh_bitmap_changes = 1;
-            } else if (!cpu_traffic_priority_active ||
-                       sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, eqe->cqn)) {
+            } else if (!enable_cpu_port_loopback &&    /* in case loopback enabled move all traffic to be handled by kernel thread */
+                       (!cpu_traffic_priority_active ||
+                        sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, eqe->cqn))) {
                 if (sx_bitmap_test(&cpu_traffic_prio->active_high_prio_cq_bitmap, eqe->cqn)) {
                     break; /* This CQ's bit is already set */
                 }

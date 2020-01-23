@@ -400,7 +400,7 @@ int sgmii_emad_init(void)
 
     dummy.dont_care.sysport = SYSPORT_DONT_CARE_VALUE;
     ret = sx_core_add_synd(0, EMAD_TRAP_ID, L2_TYPE_DONT_CARE, 0, dummy, __sgmii_rx_emad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register EMAD handler (ret=%d)\n", ret);
     }
@@ -414,5 +414,5 @@ void sgmii_emad_deinit(void)
     union ku_filter_critireas dummy;
 
     dummy.dont_care.sysport = SYSPORT_DONT_CARE_VALUE;
-    sx_core_remove_synd(0, EMAD_TRAP_ID, L2_TYPE_DONT_CARE, 0, dummy, NULL, NULL, __sgmii_rx_emad, NULL);
+    sx_core_remove_synd(0, EMAD_TRAP_ID, L2_TYPE_DONT_CARE, 0, dummy, NULL, NULL, __sgmii_rx_emad, NULL, 1);
 }
