@@ -60,6 +60,7 @@
 #define SX_PACKET_DEFAULT_TC    5
 #define TX_HEADER_RP_RIF_TO_FID (15 * 1024)
 #define SX_VLAN_PRIO_MAX        7
+#define MAX_PORT_NETDEV_NUM     2
 
 
 static const char *net_port_vlan_type_str[] = {
@@ -72,9 +73,9 @@ static const int   net_port_vlan_type_str_len =
     sizeof(net_port_vlan_type_str) / sizeof(char *);
 enum net_port_vlan_type {
     PORT_VLAN_TYPE_GLOBAL = 0,
-    PORT_VLAN_TYPE_PORT = 1,
-    PORT_VLAN_TYPE_LAG = 2,
-    PORT_VLAN_TYPE_VLAN = 3
+    PORT_VLAN_TYPE_PORT   = 1,
+    PORT_VLAN_TYPE_LAG    = 2,
+    PORT_VLAN_TYPE_VLAN   = 3
 };
 struct net_port_vlan_info {
     enum net_port_vlan_type info_type;
@@ -108,7 +109,7 @@ struct sx_net_priv {
 
 enum {
     PORT_TYPE_SINGLE = 0,
-    PORT_TYPE_LAG = 1,
+    PORT_TYPE_LAG    = 1,
     PORT_TYPE_NUM
 };
 
@@ -116,8 +117,7 @@ struct sx_netdev_rsc {
     struct net_device *sx_netdevs[NUMBER_OF_SWIDS];
     spinlock_t         rsc_lock; /* the resource's lock */
     u8                 allocated[NUMBER_OF_SWIDS];
-    struct net_device *sx_port_netdevs[MAX_SYSPORT_NUM];
-    struct net_device *sx_lag_netdevs[MAX_LAG_NUM];
+    struct net_device *port_netdev[PORT_TYPE_NUM][MAX_SYSPORT_NUM][MAX_PORT_NETDEV_NUM];
     u8                 port_allocated[PORT_TYPE_NUM][MAX_SYSPORT_NUM];
     u8                 in_attach_detach;
 };
@@ -131,11 +131,9 @@ int sx_netdev_register_device(struct net_device *netdev, int should_rtnl_lock,
                               int admin_state);
 
 /* Global core context */
-extern struct net_device    *port_netdev_db[MAX_SYSPORT_NUM];
-extern struct net_device    *lag_netdev_db[MAX_LAG_NUM];
 extern struct net_device    *bridge_netdev_db[MAX_BRIDGE_NUM];
 extern struct sx_netdev_rsc *g_netdev_resources;
-extern struct sx_dev       * g_sx_dev;
+extern struct sx_dev        *g_sx_dev;
 
 enum {
     IFLA_SX_BRIDGE_UNSPEC,

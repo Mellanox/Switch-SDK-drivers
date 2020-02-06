@@ -2349,6 +2349,7 @@ int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
     if (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB) {
         event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
         if (!event_data) {
+            printk(KERN_ERR "%s: failed to allocate event data\n", __FUNCTION__);
             err = -ENOMEM;
             goto out;
         }
@@ -2364,6 +2365,7 @@ int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
         if (first_ib_swid) {
             tca_init_event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
             if (!tca_init_event_data) {
+                printk(KERN_ERR "%s: failed to allocate tca_event_data\n", __FUNCTION__);
                 err = -ENOMEM;
                 goto out;
             }
@@ -2384,7 +2386,7 @@ int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
             }
         }
     } else {
-        printk(KERN_INFO PFX "Error: try to send IB_SWID_UP event on swid %d from non-IB type %d, ",
+        printk(KERN_ERR PFX "Error: try to send IB_SWID_UP event on swid %d from non-IB type %d, ",
                swid, dev->profile.swid_type[swid]);
         err = -EINVAL;
         goto out;
@@ -2470,6 +2472,7 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
 send_events:
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
+        printk(KERN_ERR "%s: failed to allocate event data\n", __FUNCTION__);
         err = -ENOMEM;
         goto out;
     }

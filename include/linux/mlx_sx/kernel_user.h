@@ -586,7 +586,6 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_SPAD, /**< Run access register SPAD command */
     CTRL_CMD_ACCESS_REG_SSPR, /**< Run access register SSPR command */
     CTRL_CMD_ACCESS_REG_SLCR_V2, /**< Run access register SLCR_V2 command */
-    CTRL_CMD_ACCESS_REG_PPAD, /**< Run access register PPAD command */
     CTRL_CMD_ACCESS_REG_SPMCR, /**< Run access register SPMCR command */
     CTRL_CMD_ACCESS_REG_PBMC, /**< Run access register PBMC command */
     CTRL_CMD_ACCESS_REG_PPTB, /**< Run access register PPTB command */
@@ -6364,147 +6363,6 @@ struct ku_mdri_reg {
 };
 
 /**
- * ku_ppcnt_ib_port_counters structure is used to store the PPCNT register Infiniband
- * port counters parameters
- */
-struct ku_ppcnt_ib_port_counters {
-    uint16_t symbol_error_counter;
-    uint8_t  link_error_recovery_counter;
-    uint8_t  link_downed_counter;
-    uint16_t port_rcv_errors;
-    uint16_t port_rcv_remote_physical_errors;
-    uint16_t port_rcv_switch_relay_errors;
-    uint16_t port_xmit_discards;
-    uint8_t  port_xmit_constraint_errors;
-    uint8_t  port_rcv_constraint_errors;
-    uint8_t  local_link_integrity_errors;
-    uint8_t  excessive_buffer_overrun_errors;
-    uint16_t vl_15_dropped;
-    uint32_t port_xmit_data;
-    uint32_t port_rcv_data;
-    uint32_t port_xmit_pkts;
-    uint32_t port_rcv_pkts;
-    uint32_t port_xmit_wait;
-};
-
-
-/**
- * ku_ppcnt_ib_port_counters_extended structure is used to store the PPCNT register Infiniband
- * port counters extended parameters
- */
-struct ku_ppcnt_ib_port_counters_extended {
-    uint64_t __attribute__((aligned(8))) port_xmit_data;
-    uint64_t __attribute__((aligned(8))) port_rcv_data;
-    uint64_t __attribute__((aligned(8))) port_xmit_pkts;
-    uint64_t __attribute__((aligned(8))) port_rcv_pkts;
-    uint64_t __attribute__((aligned(8))) port_unicast_xmit_pkts;
-    uint64_t __attribute__((aligned(8))) port_unicast_rcv_pkts;
-    uint64_t __attribute__((aligned(8))) port_multicast_xmit_pkts;
-    uint64_t __attribute__((aligned(8))) port_multicast_rcv_pkts;
-};
-
-/**
- * ku_ppcnt_ib_port_rcv_err_details structure is used to store the PPCNT register Infiniband
- * port receive error details parameters
- */
-struct ku_ppcnt_ib_port_rcv_err_details {
-    uint16_t port_local_physical_errors;
-    uint16_t port_malformed_packet_errors;
-    uint16_t port_buffer_overrun_errors;
-    uint16_t port_dlid_mapping_errors;
-    uint16_t port_vl_mapping_errors;
-    uint16_t port_looping_errors;
-};
-
-/**
- * ku_ppcnt_ib_port_xmit_discard_details structure is used to store the PPCNT register Infiniband
- * port xmit discard details parameters
- */
-struct ku_ppcnt_ib_port_xmit_discard_details {
-    uint16_t port_inactive_discards;
-    uint16_t port_neighbor_mtu_discards;
-    uint16_t port_sw_lifetime_limit_discards;
-    uint16_t port_sw_hoq_lifetime_limit_discards;
-};
-
-/**
- * ku_ppcnt_ib_port_flow_ctl_counters structure is used to store the PPCNT register Infiniband
- * port flow control counters parameters
- */
-struct ku_ppcnt_ib_port_flow_ctl_counters {
-    uint32_t port_xmit_flow_pkts;
-    uint32_t port_rcv_flow_pkts;
-};
-
-/**
- * ku_ppcnt_ib_port_vl_xmit_wait_counters structure is used to store the PPCNT register Infiniband
- * port VL xmit wait counters parameters
- */
-struct ku_ppcnt_ib_port_vl_xmit_wait_counters {
-    uint16_t port_vl_xmit_wait_0;
-    uint16_t port_vl_xmit_wait_1;
-    uint16_t port_vl_xmit_wait_2;
-    uint16_t port_vl_xmit_wait_3;
-    uint16_t port_vl_xmit_wait_4;
-    uint16_t port_vl_xmit_wait_5;
-    uint16_t port_vl_xmit_wait_6;
-    uint16_t port_vl_xmit_wait_7;
-    uint16_t port_vl_xmit_wait_8;
-    uint16_t port_vl_xmit_wait_9;
-    uint16_t port_vl_xmit_wait_10;
-    uint16_t port_vl_xmit_wait_11;
-    uint16_t port_vl_xmit_wait_12;
-    uint16_t port_vl_xmit_wait_13;
-    uint16_t port_vl_xmit_wait_14;
-    uint16_t port_vl_xmit_wait_15;
-};
-
-/**
- * ku_ppcnt_ib_port_sw_port_vl_congestion structure is used to store the PPCNT register Infiniband
- * port SW port vl congestion parameters
- */
-struct ku_ppcnt_ib_port_sw_port_vl_congestion {
-    uint16_t sw_port_vl_congestion_0;
-    uint16_t sw_port_vl_congestion_1;
-    uint16_t sw_port_vl_congestion_2;
-    uint16_t sw_port_vl_congestion_3;
-    uint16_t sw_port_vl_congestion_4;
-    uint16_t sw_port_vl_congestion_5;
-    uint16_t sw_port_vl_congestion_6;
-    uint16_t sw_port_vl_congestion_7;
-    uint16_t sw_port_vl_congestion_8;
-    uint16_t sw_port_vl_congestion_9;
-    uint16_t sw_port_vl_congestion_10;
-    uint16_t sw_port_vl_congestion_11;
-    uint16_t sw_port_vl_congestion_12;
-    uint16_t sw_port_vl_congestion_13;
-    uint16_t sw_port_vl_congestion_14;
-    uint16_t sw_port_vl_congestion_15;
-};
-
-/**
- * ku_ppcnt_reg structure is used to store the PPCNT register parameters
- */
-struct ku_ppcnt_reg {
-    uint8_t swid; /**< swid - Switch Partition ID to associate port with */
-    uint8_t local_port; /**< local_port - Local port number */
-    uint8_t cntr_grp; /**< cntr_grp - Performance counter group */
-    uint8_t clr; /**< clr - Clear Counters */
-    uint8_t cntr_prio; /**< cntr_prio - Priority for counter set that support per priority. */
-    union {
-        uint64_t __attribute__((aligned(8)))          cntr_list[31]; /**< cntr_list - Counter set */
-        struct ku_ppcnt_ib_port_counters              ib_port_counters;
-        struct ku_ppcnt_ib_port_counters_extended     ib_port_counters_extended;
-        struct ku_ppcnt_ib_port_rcv_err_details       ib_port_receive_error_details;
-        struct ku_ppcnt_ib_port_xmit_discard_details  ib_port_xmit_discard_details;
-        struct ku_ppcnt_ib_port_flow_ctl_counters     ib_port_flow_ctl_counters;
-        struct ku_ppcnt_ib_port_vl_xmit_wait_counters ib_port_vl_xmit_wait_counters;
-        struct ku_ppcnt_ib_port_sw_port_vl_congestion ib_port_sw_port_vl_congestion;
-    } cntrs;
-    uint32_t cntr_num; /**< cntr_num - Counter num */
-};
-
-/**
  * ku_pfca_reg structure is used to store the PFCA register parameters
  */
 struct ku_pfca_reg {
@@ -6613,15 +6471,6 @@ struct ku_sbsr_reg {
     uint32_t                    egress_port_mask[SXD_EMAD_SBSR_PORT_MASK_SIZE];
     uint32_t                    tclass_mask[SXD_EMAD_SBSR_TC_MASK_SIZE];
     struct shared_buffer_status sbstatus[SXD_EMAD_SBSR_MAX_RET_SIZE];
-};
-
-/**
- * ku_ppad_reg structure is used to store the PPAD register parameters
- */
-struct ku_ppad_reg {
-    uint8_t single_base_mac;
-    uint8_t local_port;
-    uint8_t mac[6]; /**< mac - Base MAC address */
 };
 
 /**
@@ -7265,16 +7114,6 @@ struct ku_access_sspr_reg {
 struct ku_access_sfd_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_sfd_reg       sfd_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_ppad_reg structure is used to store the access
- * register ppad command parameters
- */
-struct ku_access_ppad_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_ppad_reg      ppad_reg; /**< mfm_reg - hpkt register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 

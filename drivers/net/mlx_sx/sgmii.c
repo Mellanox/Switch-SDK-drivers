@@ -42,7 +42,7 @@ int sgmii_send_attempts = 3;
 module_param_named(sgmii_send_attempts, sgmii_send_attempts, int, 0644);
 MODULE_PARM_DESC(sgmii_send_attempts, "how many attempts to send a packet");
 
-int sgmii_send_interval_msec = 100;
+int sgmii_send_interval_msec = 5000; /* 5 seconds */
 module_param_named(sgmii_send_interval_msec, sgmii_send_interval_msec, int, 0644);
 MODULE_PARM_DESC(sgmii_send_interval_msec, "interval between sending attempts");
 
