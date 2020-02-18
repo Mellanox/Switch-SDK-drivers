@@ -518,7 +518,7 @@ enum ku_ctrl_cmd {
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
     CTRL_CMD_MAX_VAL = CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG /**< Maximum enum value */
 #ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
-                       CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
+    CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
 #endif /* SW_PUDE_EMULATION */
 };
 
@@ -5778,6 +5778,7 @@ struct ku_sbmm_reg {
 #define SXD_PPLR_PORT_TYPE_FAR_END_PORT        3
 #define SXD_PPLR_PORT_TYPE_USR_MAIN            4
 #define SXD_PPLR_PORT_TYPE_USR_TILE            5
+#define SXD_PPLR_PORT_TYPE_NA                  255
 
 /**
  * ku_pplr_reg structure is used to store the PPLR register
