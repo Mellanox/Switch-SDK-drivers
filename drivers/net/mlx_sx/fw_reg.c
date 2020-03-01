@@ -2674,6 +2674,70 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SSPR);
 
 
 /************************************************
+ * PPAD
+ ***********************************************/
+#define PPAD_REG_SINGLE_BASE_MAC 0x14
+#define PPAD_REG_LOCAL_PORT      0x15
+#define PPAD_REG_BASE_MAC_47_32  0x16
+#define PPAD_REG_BASE_MAC_31_0   0x18
+#define PPAD_REG_LEN             0x05
+
+static int __PPAD_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_ppad_reg *ppad_reg = (struct ku_ppad_reg*)ku_reg;
+    u16                 mac_47_32;
+    u32                 mac_31_0;
+    u8                  tmp_single;
+
+    mac_47_32 = (ppad_reg->mac[0] << 8) | ppad_reg->mac[1];
+    mac_31_0 = (ppad_reg->mac[2] << 24) |
+               (ppad_reg->mac[3] << 16) |
+               (ppad_reg->mac[4] << 8); /* Last byte reserved (0) */
+    if (ppad_reg->single_base_mac == 1) {
+        mac_31_0 |= ppad_reg->mac[5];
+        tmp_single = (ppad_reg->single_base_mac & 0x1) << 4;
+        SX_PUT_REG_FIELD(inbox, tmp_single, PPAD_REG_SINGLE_BASE_MAC);
+        SX_PUT_REG_FIELD(inbox, ppad_reg->local_port, PPAD_REG_LOCAL_PORT);
+    }
+    SX_PUT_REG_FIELD(inbox, mac_47_32, PPAD_REG_BASE_MAC_47_32);
+    SX_PUT_REG_FIELD(inbox, mac_47_32, PPAD_REG_BASE_MAC_31_0);
+    return 0;
+}
+
+static int __PPAD_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_ppad_reg *ppad_reg = (struct ku_ppad_reg*)ku_reg;
+    u16                 mac_47_32;
+    u32                 mac_31_0;
+
+    SX_GET_REG_FIELD(ppad_reg->local_port, outbox, PPAD_REG_LOCAL_PORT);
+    SX_GET_REG_FIELD(mac_47_32, outbox, PPAD_REG_BASE_MAC_47_32);
+    SX_GET_REG_FIELD(mac_31_0, outbox, PPAD_REG_BASE_MAC_31_0);
+    ppad_reg->mac[5] = (mac_31_0) & 0xff;
+    ppad_reg->mac[4] = (mac_31_0 >> 8) & 0xff;
+    ppad_reg->mac[3] = (mac_31_0 >> 16) & 0xff;
+    ppad_reg->mac[2] = (mac_31_0 >> 24) & 0xff;
+    ppad_reg->mac[1] = mac_47_32 & 0xff;
+    ppad_reg->mac[0] = (mac_47_32 >> 8) & 0xff;
+    return 0;
+}
+
+int sx_ACCESS_REG_PPAD(struct sx_dev *dev, struct ku_access_ppad_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __PPAD_encode,
+                                  __PPAD_decode,
+                                  PPAD_REG_LEN,
+                                  &reg_data->ppad_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_PPAD);
+
+
+/************************************************
  * SPMCR
  ***********************************************/
 #define SPMCR_REG_SWID_OFFSET          0x14

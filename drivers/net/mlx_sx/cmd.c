@@ -693,11 +693,11 @@ static int sx_cmd_poll(struct sx_dev         *dev,
 #endif
 
     /*
-     *  If in SW reset flow give the logic behind PCIe 300 msec to recover
-     *  before read access (increased for Spectrum3)
+     *  If in SW reset flow give the logic behind PCIe 100 msec to recover
+     *  before read access
      */
     if ((dev->dev_sw_rst_flow == 1) && (cmd_path == DPT_PATH_PCI_E)) {
-        msleep(300);
+        msleep(100);
     }
 
     err = wait_for_cmd_pending(dev, sx_dev_id, cmd_path, op, timeout);

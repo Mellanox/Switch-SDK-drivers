@@ -91,6 +91,8 @@ static struct kobj_attribute bind_sx_core_attr = __ATTR(bind_sx_core, S_IWUSR, N
 static char                  sx_netdev_version[] =
     PFX "Mellanox SwitchX Network Device Driver "
     DRV_VERSION " (" DRV_RELDATE ")\n";
+struct net_device       *lag_netdev_db[MAX_LAG_NUM];
+struct net_device       *port_netdev_db[MAX_SYSPORT_NUM];
 struct sx_netdev_rsc    *g_netdev_resources = NULL; /* Should be replaced in the core with sx_dev context */
 struct sx_dev          * g_sx_dev = NULL;
 struct net_device       *bridge_netdev_db[MAX_BRIDGE_NUM];
@@ -309,12 +311,15 @@ static void sx_netdev_handle_rx(struct completion_info *comp_info, struct net_de
 static void sx_netdev_log_port_rx_pkt(struct completion_info *comp_info, void *context)
 {
     /* Get routed netdev */
-    u8 i = 0, port_type = 0;
+    struct net_device *netdev = NULL;
 
-    port_type = comp_info->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
-    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-        sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[port_type][comp_info->sysport][i]);
+    if (comp_info->is_lag) {
+        netdev = lag_netdev_db[comp_info->sysport];
+    } else {
+        netdev = port_netdev_db[comp_info->sysport];
     }
+
+    sx_netdev_handle_rx(comp_info, netdev);
 }
 
 static void sx_netdev_phy_port_rx_pkt(struct completion_info *comp_info, void *context)
@@ -322,27 +327,24 @@ static void sx_netdev_phy_port_rx_pkt(struct completion_info *comp_info, void *c
     /* Get routed netdev */
     struct net_device  *netdev = context;
     struct sx_net_priv *net_priv = netdev_priv(netdev);
-    uint16_t            local = comp_info->sysport;
+    uint16_t            lag_id = 0;
+    uint16_t            local = 0;
     int                 ret = 0;
-    u8                  i = 0;
 
     if (comp_info->is_lag) {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_get_local,
-                                   ret,
-                                   net_priv->dev,
-                                   comp_info->sysport,
-                                   comp_info->lag_subport,
-                                   &local);
+        lag_id = comp_info->sysport;
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_get_local, ret, net_priv->dev, lag_id, comp_info->lag_subport, &local);
         if (ret) {
             printk(KERN_ERR PFX "Fail to get local port from lag_id (%d) "
-                   "and port index (%d)\n", comp_info->sysport, comp_info->lag_subport);
+                   "and port index (%d)\n", lag_id, comp_info->lag_subport);
             return;
         }
+        netdev = port_netdev_db[local];
+    } else {
+        netdev = port_netdev_db[comp_info->sysport];
     }
 
-    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-        sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][local][i]);
-    }
+    sx_netdev_handle_rx(comp_info, netdev);
 }
 
 
@@ -381,9 +383,9 @@ static void sx_netdev_handle_pude_event(struct completion_info *comp_info, void 
     struct sx_emad           *emad_header = &pude->emad_header;
     struct sx_net_priv       *net_priv;
     int                       reg_id = be16_to_cpu(emad_header->emad_op.register_id);
-    unsigned int              logical_port = 0;
-    int                       sysport = 0;
-    int                       is_up = 0, is_lag = 0, i = 0;
+    unsigned int              logical_port;
+    int                       sysport;
+    int                       is_up, is_lag;
     unsigned short            type_len, ethertype;
 
     type_len = ntohs(pude->tlv_header.type_len);
@@ -417,18 +419,16 @@ static void sx_netdev_handle_pude_event(struct completion_info *comp_info, void 
         return;
     }
     is_up = pude->oper_status == PORT_OPER_STATUS_UP;
+    netdev = port_netdev_db[sysport];
 
     printk("%s: Called for logical port - %05X status %s\n", __func__,
            logical_port, is_up ? "UP" : "DOWN");
 
-    /* Change port status for port netdev */
-    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-        netdev = g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][sysport][i];
-        if (netdev) {
-            net_priv = netdev_priv(netdev);
-            net_priv->is_oper_state_up = is_up;
-            __sx_netdev_scedule_work(net_priv);
-        }
+    /* Change port status for L2 netdev per port */
+    if (netdev) {
+        net_priv = netdev_priv(netdev);
+        net_priv->is_oper_state_up = is_up;
+        __sx_netdev_scedule_work(net_priv);
     }
 }
 
@@ -457,16 +457,32 @@ static void sx_netdev_remove_vlan_header(struct sk_buff *skb)
     skb->mac_len = skb->network_header - skb->mac_header;
 }
 
-static void __sx_netdev_handle_global_pkt(struct net_device *netdev, struct completion_info *comp_info)
+static void sx_netdev_handle_global_pkt(struct completion_info *comp_info, void *context)
 {
+    struct net_device  *netdev = NULL;
     struct sx_net_priv *net_priv = NULL;
     int                 err = 0;
     u16                 vlan = 0;
+
+    if (comp_info->bridge_id) {
+        if ((comp_info->bridge_id < MIN_BRIDGE_ID)
+            || (comp_info->bridge_id > MAX_BRIDGE_ID)) {
+            printk(KERN_ERR PFX "Bridge ID %u is out of range [%u,%u]\n",
+                   comp_info->bridge_id, MIN_BRIDGE_ID, MAX_BRIDGE_ID);
+            return;
+        }
+        netdev = bridge_netdev_db[comp_info->bridge_id - MIN_BRIDGE_ID];
+    } else if (comp_info->is_lag) {
+        netdev = lag_netdev_db[comp_info->sysport];
+    } else {
+        netdev = port_netdev_db[comp_info->sysport];
+    }
 
     if (!netdev) {
         if (sx_netdev_rx_debug) {
             printk(KERN_ERR "%s: netdev is NULL! dropping packet!\n", __FUNCTION__);
         }
+
         return;
     }
 
@@ -478,29 +494,6 @@ static void __sx_netdev_handle_global_pkt(struct net_device *netdev, struct comp
     }
     comp_info->vid = vlan;
     sx_netdev_handle_rx(comp_info, netdev);
-}
-
-static void sx_netdev_handle_global_pkt(struct completion_info *comp_info, void *context)
-{
-    struct net_device *netdev = NULL;
-    u8                 port_type = 0, i = 0;
-
-    if (comp_info->bridge_id) {
-        if ((comp_info->bridge_id < MIN_BRIDGE_ID)
-            || (comp_info->bridge_id > MAX_BRIDGE_ID)) {
-            printk(KERN_ERR PFX "Bridge ID %u is out of range [%u,%u]\n",
-                   comp_info->bridge_id, MIN_BRIDGE_ID, MAX_BRIDGE_ID);
-            return;
-        }
-        netdev = bridge_netdev_db[comp_info->bridge_id - MIN_BRIDGE_ID];
-        __sx_netdev_handle_global_pkt(netdev, comp_info);
-    } else {
-        port_type = comp_info->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
-        for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-            netdev = g_netdev_resources->port_netdev[port_type][comp_info->sysport][i];
-            __sx_netdev_handle_global_pkt(netdev, comp_info);
-        }
-    }
 }
 
 static int sx_netdev_register_global_event_handler(void)
@@ -720,7 +713,6 @@ void sx_netdev_set_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 oper_state)
     struct sx_net_priv *net_priv;
     uint16_t            lag_max = 0, lag_member_max = 0;
     int                 err = 0;
-    u8                  i = 0;
 
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_get_lag_max, err, dev, &lag_max, &lag_member_max);
     if (err) {
@@ -734,17 +726,16 @@ void sx_netdev_set_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 oper_state)
         return;
     }
 
+    netdev = lag_netdev_db[lag_id];
+
     printk("%s: Called for lag_id %d  status %s\n", __func__,
            lag_id, oper_state ? "UP" : "DOWN");
 
     /* Change port netdev status */
-    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-        netdev = g_netdev_resources->port_netdev[PORT_TYPE_LAG][lag_id][i];
-        if (netdev) {
-            net_priv = netdev_priv(netdev);
-            net_priv->is_oper_state_up = oper_state;
-            netdev_linkstate_set(netdev);
-        }
+    if (netdev) {
+        net_priv = netdev_priv(netdev);
+        net_priv->is_oper_state_up = oper_state;
+        netdev_linkstate_set(netdev);
     }
 }
 
@@ -2085,11 +2076,7 @@ static void sx_netdev_debug_dump(struct sx_dev *dev, void *rsc)
 {
     struct sx_netdev_rsc *resources = rsc;
     unsigned long         flags;
-    int                   i = 0, port = 0, port_type = 0;
-    int                   max_ports[] = {
-        [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
-        [PORT_TYPE_LAG] = MAX_LAG_NUM
-    };
+    int                   i, port;
 
     spin_lock_irqsave(&resources->rsc_lock, flags);
 
@@ -2101,13 +2088,9 @@ static void sx_netdev_debug_dump(struct sx_dev *dev, void *rsc)
     }
 
     /* go over all per port devices */
-    for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
-        for (port = 0; port < max_ports[port_type]; port++) {
-            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-                if (resources->port_netdev[port_type][port][i] != NULL) {
-                    __sx_netdev_dump_per_dev(resources->port_netdev[port_type][port][i]);
-                }
-            }
+    for (port = 0; port < MAX_SYSPORT_NUM; port++) {
+        if (resources->sx_port_netdevs[port] != NULL) {
+            __sx_netdev_dump_per_dev(resources->sx_port_netdevs[port]);
         }
     }
 
@@ -2461,7 +2444,7 @@ static void attach_netdevs(struct sx_dev *dev)
     struct ku_port_vlan_params port_vlan;
     unsigned long              flags;
     int                        port_type = 0;
-    int                        port = 0, br_id = 0;
+    int                        port = 0, lag_id = 0, br_id = 0;
     int                        swid = 0;
     int                        max_ports[] = {
         [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
@@ -2488,16 +2471,38 @@ static void attach_netdevs(struct sx_dev *dev)
 
     for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
         for (port = 0; port < max_ports[port_type]; port++) {
-            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
+            if (!g_netdev_resources->port_allocated[port_type][port]) {
                 continue;
             }
-            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-                netdev = g_netdev_resources->port_netdev[port_type][port][i];
-                if (netdev != NULL) {
-                    ATTACH_ONE_NETDEV(netdev, dev);
-                    netdev_linkstate_set(netdev);
-                }
+
+            if (port_type == PORT_TYPE_LAG) {
+                netdev = g_netdev_resources->sx_lag_netdevs[port];
+            } else {
+                netdev = g_netdev_resources->sx_port_netdevs[port];
             }
+
+            if (netdev == NULL) {
+                continue;
+            }
+
+            ATTACH_ONE_NETDEV(netdev, dev);
+            netdev_linkstate_set(netdev);
+        }
+    }
+
+    for (port = 0; port < MAX_SYSPORT_NUM; port++) {
+        netdev = port_netdev_db[port];
+        if (netdev != NULL) {
+            SX_DEV_ATTACH_ONE_NETDEV(netdev, dev);
+            netdev_linkstate_set(netdev);
+        }
+    }
+
+    for (lag_id = 0; lag_id < MAX_LAG_NUM; lag_id++) {
+        netdev = lag_netdev_db[lag_id];
+        if (netdev != NULL) {
+            SX_DEV_ATTACH_ONE_NETDEV(netdev, dev);
+            netdev_linkstate_set(netdev);
         }
     }
 
@@ -2525,7 +2530,7 @@ static void detach_netdevs(void)
     struct ku_port_vlan_params port_vlan;
     unsigned long              flags;
     int                        port_type = 0;
-    int                        port = 0, br_id = 0;
+    int                        port = 0, lag_id = 0, br_id = 0;
     int                        swid = 0;
     int                        max_ports[] = {
         [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
@@ -2551,15 +2556,35 @@ static void detach_netdevs(void)
 
     for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
         for (port = 0; port < max_ports[port_type]; port++) {
-            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
+            if (!g_netdev_resources->port_allocated[port_type][port]) {
                 continue;
             }
-            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-                netdev = g_netdev_resources->port_netdev[port_type][port][i];
-                if (netdev != NULL) {
-                    DETACH_ONE_NETDEV(netdev);
-                }
+
+            if (port_type == PORT_TYPE_LAG) {
+                netdev = g_netdev_resources->sx_lag_netdevs[port];
+            } else {
+                netdev = g_netdev_resources->sx_port_netdevs[port];
             }
+
+            if (netdev == NULL) {
+                continue;
+            }
+
+            DETACH_ONE_NETDEV(netdev);
+        }
+    }
+
+    for (port = 0; port < MAX_SYSPORT_NUM; port++) {
+        netdev = port_netdev_db[port];
+        if (netdev != NULL) {
+            DETACH_ONE_NETDEV(netdev);
+        }
+    }
+
+    for (lag_id = 0; lag_id < MAX_LAG_NUM; lag_id++) {
+        netdev = lag_netdev_db[lag_id];
+        if (netdev != NULL) {
+            DETACH_ONE_NETDEV(netdev);
         }
     }
 

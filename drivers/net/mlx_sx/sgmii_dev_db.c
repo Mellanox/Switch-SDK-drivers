@@ -429,35 +429,36 @@ static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
     struct ku_hopf_reg reg_hopf;
     ku_mgmt_board_t    mgmt_brd;
     uint8_t            cqe_ver;
-    int                i, err = 0;
+    int                i, err = 0, ret = 0;
 
     mgmt_brd = sgmii_get_management_board();
     cqe_ver = sgmii_get_cqe_ver();
 
     memset(&reg_hopf, 0, sizeof(reg_hopf));
+    reg_hopf.cqe_ver = cqe_ver;
+    err = sgmii_get_netdev_mac(reg_hopf.mac);
+    if (err) {
+        printk(KERN_ERR "failed to get SGMII netdev MAC address\n");
+        return err;
+    }
+
+    reg_hopf.pcp = 0;
+    reg_hopf.vid = sgmii_dev->dpt_info.vid;
     reg_hopf.i_f = (mgmt_brd == KU_MGMT_BOARD_1) ? 0 : 1;
 
     reg_hopf.sr = 1; /* send */
+    reg_hopf.rcv_cpu_tclass = 0; /* reserved for SEND flows */
     for (i = 0; i < NUMBER_OF_ETCLASSES; i++) {
         reg_hopf.flow_number = i;
 
         err = sgmii_emad_access_hopf(sgmii_dev->dev_id, &reg_hopf);
         if (err) {
             printk(KERN_ERR "failed to init HOPF (SDQ %d) for dev id %d [err=%d]\n", i, sgmii_dev->dev_id, err);
-            goto out;
+            ret = err;
         }
     }
 
     reg_hopf.sr = 0; /* receive */
-    reg_hopf.cqe_ver = cqe_ver;
-    reg_hopf.vlan_ex = 1;
-    reg_hopf.vid = sgmii_dev->dpt_info.vid;
-    err = sgmii_get_netdev_mac(reg_hopf.mac);
-    if (err) {
-        printk(KERN_ERR "failed to get SGMII netdev MAC address\n");
-        goto out;
-    }
-
     for (i = 0; i < MAX_OOB_CPU_INGRESS_TCLASS; i++) {
         reg_hopf.flow_number = i;
         reg_hopf.rcv_cpu_tclass = i;
@@ -465,12 +466,11 @@ static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
         err = sgmii_emad_access_hopf(sgmii_dev->dev_id, &reg_hopf);
         if (err) {
             printk(KERN_ERR "failed to init HOPF (RDQ %d) for dev id %d [err=%d]\n", i, sgmii_dev->dev_id, err);
-            goto out;
+            ret = err;
         }
     }
 
-out:
-    return err;
+    return ret;
 }
 
 
