@@ -1966,6 +1966,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
     struct profile_driver_params addition_params;
 
     addition_params.cqe_version = 0;
+    addition_params.cqe_time_stamp_type = 0;
 
     sx_SET_PROFILE(dev, &single_part_eth_device_profile, &addition_params);
 }

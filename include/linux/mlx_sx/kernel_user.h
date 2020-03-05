@@ -518,7 +518,7 @@ enum ku_ctrl_cmd {
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
     CTRL_CMD_MAX_VAL = CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG /**< Maximum enum value */
 #ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
-    CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
+                       CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
 #endif /* SW_PUDE_EMULATION */
 };
 
@@ -1384,6 +1384,7 @@ struct ku_set_rdq_rate_limiter {
 struct ku_rdq_timestamp_state {
     int     rdq;    /**< rdq - RDQ */
     uint8_t enable; /**< enable - 0-disable, 1-enable */
+    uint8_t hw_utc_enable; /**< hw_utc_enable - 0-disable, 1-enable */
 };
 
 /**
@@ -9371,6 +9372,7 @@ struct ku_sx_core_db {
     uint32_t                             icmp_vlan2ip_db[SXD_MAX_VLAN_NUM];
     uint16_t                             port_vid_to_fid[MAX_PHYPORT_NUM + 1][SXD_MAX_VLAN_NUM];
     struct ku_sx_bitmap                  ts_bitmap;
+    struct ku_sx_bitmap                  ts_hw_utc_bitmap;
     struct ku_sx_bitmap                  high_prio_cq_bitmap;
     uint16_t                             fid_to_hwfid[MAX_FIDS_NUM];
     uint16_t                             rif_id_to_hwfid[MAX_RIFS_NUM];

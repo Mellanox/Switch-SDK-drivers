@@ -2835,6 +2835,13 @@ static void sx_set_device_profile_update_cqe_v2(struct ku_profile           * pr
     driver_params->cqe_version = 1;
 }
 
+static void sx_set_device_profile_update_spc2(struct ku_profile *profile, struct profile_driver_params *driver_params)
+{
+    profile->set_mask_0_63 = profile->set_mask_0_63 | 0x500000000;
+    driver_params->cqe_version = 1;
+    driver_params->cqe_time_stamp_type = 2; /* 2: UTC */
+}
+
 static u8 sw_rate_limiter_supported(void)
 {
     return 1;
@@ -3100,7 +3107,7 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .get_ib_system_port_mid = NULL,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
-    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
     .sx_init_cq_db_cb = sx_init_cq_db_spc,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
     .is_sw_rate_limiter_supported = NULL,
@@ -3125,7 +3132,7 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .get_ib_system_port_mid = NULL,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
-    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
     .sx_init_cq_db_cb = sx_init_cq_db_spc,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
     .is_sw_rate_limiter_supported = NULL,

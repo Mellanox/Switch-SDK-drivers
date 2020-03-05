@@ -186,9 +186,11 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
                                                   skb,
                                                   comp_info->hw_synd,
                                                   comp_info->user_def_val,
-                                                  &edata->timestamp);
+                                                  &edata->timestamp,
+                                                  comp_info->mirror_reason);
         } else {
-            sx_core_call_rdq_agg_trace_point_func(dqn, skb, comp_info->hw_synd, comp_info->user_def_val, NULL);
+            sx_core_call_rdq_agg_trace_point_func(dqn, skb, comp_info->hw_synd, comp_info->user_def_val, NULL,
+                                                  comp_info->mirror_reason);
         }
     }
 
@@ -526,6 +528,7 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
     u8               lag_subport = 0;
     u16              sysport_lag_id = 0;
     uint32_t         skb_mark_dropped_count = 0;
+    u8               mirror_reason = 0;
 
     mon_rx_start = bound_monitor_rdq->mon_rx_start;
     mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
@@ -561,7 +564,8 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
         /* extract cqe from cq */
         cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
                                                 &is_send, &dqn, &wqe_counter, &byte_count,
-                                                &user_def_val_orig_pkt_len, &is_lag, &lag_subport, &sysport_lag_id);
+                                                &user_def_val_orig_pkt_len, &is_lag, &lag_subport, &sysport_lag_id,
+                                                &mirror_reason);
 
         if (is_send) {
             printk(KERN_ERR "%s(): Error SDQ %d was provided when only RDQ is supported.\n",
@@ -1466,6 +1470,12 @@ long ctrl_cmd_set_rdq_timestamp_state(struct file *file, unsigned int cmd, unsig
         sx_bitmap_set(&sx_priv(dev)->cq_table.ts_bitmap, cqn);
     } else {
         sx_bitmap_free(&sx_priv(dev)->cq_table.ts_bitmap, cqn);
+    }
+
+    if (rdq_ts_state.hw_utc_enable) {
+        sx_bitmap_set(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, cqn);
+    } else {
+        sx_bitmap_free(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, cqn);
     }
 
 out:

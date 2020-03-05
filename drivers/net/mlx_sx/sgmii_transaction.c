@@ -52,10 +52,18 @@ struct sgmii_transaction_entry {
 };
 static int __sgmii_transaction_compare_cb(const void* key1, const void *key2)
 {
-    const sgmii_transaction_id_t *tr_id1 = (const sgmii_transaction_id_t*)key1;
-    const sgmii_transaction_id_t *tr_id2 = (const sgmii_transaction_id_t*)key2;
+    const sgmii_transaction_id_t tr_id1 = *(sgmii_transaction_id_t*)key1;
+    const sgmii_transaction_id_t tr_id2 = *(sgmii_transaction_id_t*)key2;
 
-    return ((*tr_id1) - (*tr_id2));
+    if (tr_id1 > tr_id2) {
+        return 1;
+    }
+
+    if (tr_id1 < tr_id2) {
+        return -1;
+    }
+
+    return 0;
 }
 
 

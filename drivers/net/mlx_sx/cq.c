@@ -1051,7 +1051,14 @@ int rx_skb(void                  *context,
 
     ci->has_timestamp = (timestamp != NULL);
     if (ci->has_timestamp) {
-        memcpy(&ci->timestamp, timestamp, sizeof(ci->timestamp));
+        if (sx_bitmap_test(&sx_priv(sx_device)->cq_table.ts_hw_utc_bitmap, dqn + NUMBER_OF_SDQS)) {
+            /* Get timestamp from CQE */
+            memcpy(&ci->timestamp, &ci->hw_utc_timestamp, sizeof(ci->timestamp));
+        } else {
+            /* Get Linux timestamp */
+            memcpy(&ci->timestamp, timestamp, sizeof(ci->timestamp));
+            ci->timestamp_type = 0;
+        }
     }
 
     sx_core_skb_hook_rx_call(sx_device, skb);
@@ -1484,7 +1491,8 @@ void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
                                          u32          *user_def_val_orig_pkt_len,
                                          u8           *is_lag,
                                          u8           *lag_subport,
-                                         u16          *sysport_lag_id)
+                                         u16          *sysport_lag_id,
+                                         u8           *mirror_reason)
 {
     *dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
     if (be16_to_cpu(u_cqe->v0->dqn5_byte_count) & SX_CQE_DQN_MSB_MASK) {
@@ -1499,6 +1507,7 @@ void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
     *is_lag = (u_cqe->v0->lag >> 7) & 0x1;
     *lag_subport = u_cqe->v0->vlan2_lag_subport & 0x1F;
     *sysport_lag_id = be16_to_cpu(u_cqe->v0->system_port_lag_id);
+    *mirror_reason = 0;
 }
 
 void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
@@ -1511,7 +1520,8 @@ void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
                                          u32          *user_def_val_orig_pkt_len,
                                          u8           *is_lag,
                                          u8           *lag_subport,
-                                         u16          *sysport_lag_id)
+                                         u16          *sysport_lag_id,
+                                         u8           *mirror_reason)
 {
     *dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
     *is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
@@ -1523,6 +1533,7 @@ void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
     *is_lag = u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x1;
     *lag_subport = u_cqe->v1->rp_lag_subport & 0xFF;
     *sysport_lag_id = be16_to_cpu(u_cqe->v1->rp_system_port_lag_id);
+    *mirror_reason = 0;
 }
 
 void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
@@ -1535,7 +1546,8 @@ void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
                                          u32          *user_def_val_orig_pkt_len,
                                          u8           *is_lag,
                                          u8           *lag_subport,
-                                         u16          *sysport_lag_id)
+                                         u16          *sysport_lag_id,
+                                         u8           *mirror_reason)
 {
     *dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
     *is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
@@ -1548,6 +1560,7 @@ void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
     *is_lag = u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x1;
     *lag_subport = u_cqe->v2->rp_lag_subport & 0xFF;
     *sysport_lag_id = be16_to_cpu(u_cqe->v2->rp_system_port_lag_id);
+    *mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
 }
 
 static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
@@ -1571,6 +1584,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
     u8              is_lag = 0;
     u8              lag_subport = 0;
     u16             sysport_lag_id = 0;
+    u8              mirror_reason = 0;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     int should_drop = 0;
@@ -1603,7 +1617,8 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
                                             &user_def_val_orig_pkt_len,
                                             &is_lag,
                                             &lag_subport,
-                                            &sysport_lag_id);
+                                            &sysport_lag_id,
+                                            &mirror_reason);
 
     if (is_send) {
         if (dqn >= NUMBER_OF_SDQS) {
@@ -1740,7 +1755,12 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
          */
         if (dq->is_monitor) {
             if (enable_monitor_rdq_trace_points) {
-                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, timestamp);
+                sx_core_call_rdq_agg_trace_point_func(dqn,
+                                                      skb,
+                                                      trap_id,
+                                                      user_def_val_orig_pkt_len,
+                                                      timestamp,
+                                                      mirror_reason);
             }
             goto skip;
         }
@@ -2108,6 +2128,7 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     u8                 is_lag = 0;
     u8                 lag_subport = 0;
     u16                sysport_lag_id = 0;
+    u8                 mirror_reason = 0;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     int should_drop = 0;
@@ -2162,7 +2183,7 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
             cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
                                                     &is_send, &dqn1, &wqe_counter, &byte_count,
                                                     &user_def_val_orig_pkt_len, &is_lag, &lag_subport,
-                                                    &sysport_lag_id);
+                                                    &sysport_lag_id, &mirror_reason);
 
             if (is_send) {
                 continue;
@@ -2186,9 +2207,10 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
 
             if (cq_ts_enabled) {
                 sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len,
-                                                      &cq->cqe_ts_arr[i % cq->nent]);
+                                                      &cq->cqe_ts_arr[i % cq->nent], mirror_reason);
             } else {
-                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL);
+                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL,
+                                                      mirror_reason);
             }
         }
     }
@@ -2411,6 +2433,11 @@ int sx_core_init_cq_table(struct sx_dev *dev)
     }
 
     err = sx_bitmap_init(&cq_table->ts_bitmap, dev->dev_cap.max_num_cqs);
+    if (err) {
+        return err;
+    }
+
+    err = sx_bitmap_init(&cq_table->ts_hw_utc_bitmap, dev->dev_cap.max_num_cqs);
     if (err) {
         return err;
     }

@@ -40,45 +40,46 @@
 #include <linux/bpf.h>
 #endif
 
-#define SKB_MARK_DROP  19
+#define SKB_MARK_DROP 19
 #define FILTER_TP_HW_PORT(is_lag, sysport_lag_id) ((is_lag << 16) | sysport_lag_id)
 
 /* aggregation trace point */
-typedef void (*sx_core_rdq_agg_trace_point_func)(struct sk_buff *skb,
-                                                 uint16_t trap_id,
-                                                 uint32_t acl_user_id,
-                                                 const struct timespec *timestamp);
+typedef void (*sx_core_rdq_agg_trace_point_func)(struct sk_buff        *skb,
+                                                 uint16_t               trap_id,
+                                                 uint32_t               acl_user_id,
+                                                 const struct timespec *timestamp,
+                                                 uint8_t                mirror_reason);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
-#define SX_CORE_AGG_TRACE_FUNC(rdq_no) trace_sx_rdq_rx_agg_##rdq_no
+#define SX_CORE_AGG_TRACE_FUNC(rdq_no) trace_sx_rdq_rx_agg_ ## rdq_no
 extern sx_core_rdq_agg_trace_point_func sx_core_rdq_agg_trace_points[NUMBER_OF_RDQS];
 #else
-#define SX_CORE_AGG_TRACE_FUNC(rdq_no)    \
-    {                                 \
-        trace_sx_rdq_rx_agg_##rdq_no##_0, \
-        trace_sx_rdq_rx_agg_##rdq_no##_1, \
-        trace_sx_rdq_rx_agg_##rdq_no##_2, \
-        trace_sx_rdq_rx_agg_##rdq_no##_3, \
-        trace_sx_rdq_rx_agg_##rdq_no##_4, \
-        trace_sx_rdq_rx_agg_##rdq_no##_5, \
+#define SX_CORE_AGG_TRACE_FUNC(rdq_no)        \
+    {                                         \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _0, \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _1, \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _2, \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _3, \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _4, \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _5, \
     }
 
 extern sx_core_rdq_agg_trace_point_func sx_core_rdq_agg_trace_points[NUMBER_OF_RDQS][SX_AGG_TRACE_POINT_NUM_PER_RDQ];
 #endif
 
-void sx_core_call_rdq_agg_trace_point_func(int dqn,
-                                           struct sk_buff *skb,
-                                           uint16_t trap_id,
-                                           uint32_t acl_user_id,
-                                           const struct timespec *timestamp);
+void sx_core_call_rdq_agg_trace_point_func(int                    dqn,
+                                           struct sk_buff        *skb,
+                                           uint16_t               trap_id,
+                                           uint32_t               acl_user_id,
+                                           const struct timespec *timestamp,
+                                           uint8_t                mirror_reason);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
 /* filter trace point */
 int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog* bpf_prog_p,
-                                             struct sk_buff *skb,
-                                             uint32_t port,
-                                             uint16_t trap_id,
-                                             uint32_t acl_user_id);
+                                             struct sk_buff  *skb,
+                                             uint32_t         port,
+                                             uint16_t         trap_id,
+                                             uint32_t         acl_user_id);
 #endif
 
 #endif /* SX_TRACE_FUNC_H */
-

@@ -534,6 +534,7 @@ EXPORT_SYMBOL(sx_QUERY_BOARDINFO);
 #define PROFILE_IB_RTR_ECMP_BIT_N                  6
 #define PROFILE_IB_RTR_MCF_BIT_N                   5
 #define PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET       0xa2
+#define PROFILE_CQE_TIME_STAMP_TYPE_OFFSET         0xb2
 #define PROFILE_CQE_VERSION_OFFSET                 0xb3
 #define PROFILE_RESERVED1_OFFSET                   0xb4
 #define CONFIG_PROFILE_MB_SIZE                     0xb8
@@ -626,6 +627,7 @@ int sx_GET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     profile->ib_router_ecmp = (tmp >> PROFILE_IB_RTR_ECMP_BIT_N) & 0x1;
     profile->ib_router_mcf = (tmp >> PROFILE_IB_RTR_MCF_BIT_N) & 0x1;
     SX_GET(profile->ib_router_ecmp_lid_range, outbox, PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET);
+    SX_GET(params.cqe_time_stamp_type, outbox, PROFILE_CQE_TIME_STAMP_TYPE_OFFSET);
     SX_GET(params.cqe_version, outbox, PROFILE_CQE_VERSION_OFFSET);
     SX_GET(profile->reserved1, outbox, PROFILE_RESERVED1_OFFSET);
 
@@ -738,6 +740,7 @@ int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
                    (profile->ib_router_mcf & 0x1) << PROFILE_IB_RTR_MCF_BIT_N);
     SX_PUT(inbox, temp_u8, PROFILE_IB_RTR_FLAGS_OFFSET);
     SX_PUT(inbox, profile->ib_router_ecmp_lid_range, PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET);
+    SX_PUT(inbox, params->cqe_time_stamp_type, PROFILE_CQE_TIME_STAMP_TYPE_OFFSET);
     SX_PUT(inbox, params->cqe_version, PROFILE_CQE_VERSION_OFFSET);
 
     err = sx_cmd(dev, profile->dev_id, mailbox, 0, 1, SX_CMD_CONFIG_PROFILE,

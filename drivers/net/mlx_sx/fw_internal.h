@@ -83,6 +83,7 @@ typedef int (*access_reg_encode_cb_t)(u8 *inbox, void *ku_reg, void *context);
 typedef int (*access_reg_decode_cb_t)(u8 *outbox, void *ku_reg, void *context);
 
 #define SX_ACCESS_REG_F_IGNORE_FW_RET_CODE (1 << 0)
+#define SX_ACCESS_REG_F_SET_AND_GET        (1 << 1)
 
 int sx_ACCESS_REG_internal(struct sx_dev           *dev,
                            uint8_t                  dev_id,

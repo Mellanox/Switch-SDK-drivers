@@ -189,6 +189,14 @@ static int sx_core_ioctl_set_rdq_properties(struct sx_dev *dev, struct ku_sx_cor
         }
     }
 
+    for (i = 0; i < sx_core_db->ts_hw_utc_bitmap.max; i++) {
+        if (sx_core_db->ts_hw_utc_bitmap.table[i]) {
+            sx_bitmap_set(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, i);
+        } else {
+            sx_bitmap_free(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, i);
+        }
+    }
+
     for (i = 0; i < sx_core_db->high_prio_cq_bitmap.max; i++) {
         if (sx_core_db->high_prio_cq_bitmap.table[i]) {
             sx_bitmap_set(&(sx_priv(dev)->cq_table.cpu_traffic_prio.high_prio_cq_bitmap), i);

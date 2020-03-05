@@ -115,7 +115,7 @@ int sx_ACCESS_REG_internal(struct sx_dev           *dev,
     }
 
     get_operation_tlv(outbox, op_tlv);
-    if (reg_decode_cb && (op_tlv->method == 0x01)) { /* 0x01 = Query */
+    if (reg_decode_cb && ((flags & SX_ACCESS_REG_F_SET_AND_GET) || (op_tlv->method == 0x01))) { /* 0x01 = Query */
         err = reg_decode_cb(outbox + REG_START_OFFSET, ku_reg, context);
         if (err) {
             goto out;
@@ -2180,7 +2180,7 @@ int sx_ACCESS_REG_RAW(struct sx_dev *dev, struct ku_access_raw_reg *reg_data)
 
     return sx_ACCESS_REG_internal(dev,
                                   reg_data->dev_id,
-                                  0,
+                                  SX_ACCESS_REG_F_SET_AND_GET,
                                   &reg_data->op_tlv,
                                   __RAW_encode,
                                   __RAW_decode,

@@ -42,15 +42,16 @@
 
 DECLARE_EVENT_CLASS(sx_rdq_rx_agg,
                     TP_PROTO(struct sk_buff *skb, uint16_t trap_id, uint32_t acl_user_id,
-                             const struct timespec *timestamp),
+                             const struct timespec *timestamp, uint8_t mirror_reason),
 
-                    TP_ARGS(skb, trap_id, acl_user_id, timestamp),
+                    TP_ARGS(skb, trap_id, acl_user_id, timestamp, mirror_reason),
 
                     TP_STRUCT__entry(
                         __field(const void *, skb)
                         __field(uint16_t,     trap_id)
                         __field(uint32_t,     acl_user_id)
                         __field(const void *, timestamp)
+                        __field(uint8_t,      mirror_reason)
                         ),
 
                     TP_fast_assign(
@@ -58,21 +59,24 @@ DECLARE_EVENT_CLASS(sx_rdq_rx_agg,
                         __entry->trap_id = trap_id;
                         __entry->acl_user_id = acl_user_id;
                         __entry->timestamp = timestamp;
+                        __entry->mirror_reason = mirror_reason;
                         ),
 
-                    TP_printk("trap_id %u acl_user_id %u tv_sec %ld tv_nsec %ld", __entry->trap_id,
+                    TP_printk("trap_id %u acl_user_id %u tv_sec %ld tv_nsec %ld mirror_reason %u", __entry->trap_id,
                               __entry->acl_user_id,
                               (long)(((const struct timespec*)__entry->timestamp)->tv_sec),
-                              ((const struct timespec*)__entry->timestamp)->tv_nsec)
+                              ((const struct timespec*)__entry->timestamp)->tv_nsec,
+                              __entry->mirror_reason)
                     );
 
-#define SX_CORE_DEFINE_AGG_EVENT1(rdq_no)                      \
-    DEFINE_EVENT(sx_rdq_rx_agg, sx_rdq_rx_agg_ ## rdq_no,      \
-                 TP_PROTO(struct sk_buff *skb,                 \
-                          uint16_t trap_id,                    \
-                          uint32_t acl_user_id,                \
-                          const struct timespec *timestamp),   \
-                 TP_ARGS(skb, trap_id, acl_user_id, timestamp) \
+#define SX_CORE_DEFINE_AGG_EVENT1(rdq_no)                                     \
+    DEFINE_EVENT(sx_rdq_rx_agg, sx_rdq_rx_agg_ ## rdq_no,                     \
+                 TP_PROTO(struct sk_buff *skb,                                \
+                          uint16_t trap_id,                                   \
+                          uint32_t acl_user_id,                               \
+                          const struct timespec *timestamp,                   \
+                          uint8_t mirror_reason),                             \
+                 TP_ARGS(skb, trap_id, acl_user_id, timestamp, mirror_reason) \
                  )
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))

@@ -377,7 +377,8 @@ struct sx_cq {
     void                  (*sx_fill_poll_one_params_from_cqe_cb)(union sx_cqe *u_cqe, u16 *trap_id, u8 *is_err,
                                                                  u8 *is_send, u8 *dqn, u16 *wqe_counter,
                                                                  u16 *byte_count, u32 *user_def_val_orig_pkt_len,
-                                                                 u8 *is_lag, u8 *lag_subport, u16 *sysport_lag_id);
+                                                                 u8 *is_lag, u8 *lag_subport, u16 *sysport_lag_id,
+                                                                 u8 *mirror_reason);
     u8               (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
     void             (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
     struct timespec* cqe_ts_arr;
@@ -396,6 +397,7 @@ struct cpu_traffic_priority {
 struct sx_cq_table {
     struct sx_bitmap            bitmap;
     struct sx_bitmap            ts_bitmap;    /* time stamp enabled/disabled */
+    struct sx_bitmap            ts_hw_utc_bitmap;    /* hw utc time stamp enabled / disabled */
     struct timespec            *timestamps;
     struct cpu_traffic_priority cpu_traffic_prio;
     spinlock_t                  lock;     /* cq_table lock */
@@ -677,14 +679,14 @@ struct sx_priv {
     spinlock_t       db_lock;            /* Lock for all DBs */
     u16              pvid_sysport_db[MAX_SYSPORT_NUM];
     u16              pvid_lag_db[MAX_LAG_NUM];
-    u16 truncate_size_db[NUMBER_OF_RDQS];
-    u16 sysport_filter_db[NUM_HW_SYNDROMES][MAX_SYSTEM_PORTS_IN_FILTER];
-    u16 lag_filter_db[NUM_HW_SYNDROMES][MAX_LAG_PORTS_IN_FILTER];
-    u8  lag_oper_state[MAX_LAG_NUM];
-    u8  port_ber_monitor_bitmask[MAX_PHYPORT_NUM + 1];
-    u8  port_ber_monitor_state[MAX_PHYPORT_NUM + 1];
-    u8  tele_thrs_state[MAX_PHYPORT_NUM + 1][TELE_DIR_ING_NUM_E];
-    u64 tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1][TELE_DIR_ING_NUM_E];
+    u16              truncate_size_db[NUMBER_OF_RDQS];
+    u16              sysport_filter_db[NUM_HW_SYNDROMES][MAX_SYSTEM_PORTS_IN_FILTER];
+    u16              lag_filter_db[NUM_HW_SYNDROMES][MAX_LAG_PORTS_IN_FILTER];
+    u8               lag_oper_state[MAX_LAG_NUM];
+    u8               port_ber_monitor_bitmask[MAX_PHYPORT_NUM + 1];
+    u8               port_ber_monitor_state[MAX_PHYPORT_NUM + 1];
+    u8               tele_thrs_state[MAX_PHYPORT_NUM + 1][TELE_DIR_ING_NUM_E];
+    u64              tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1][TELE_DIR_ING_NUM_E];
     /* RP helper dbs */
     u8                     port_prio2tc[MAX_PHYPORT_NUM + 1][MAX_PRIO_NUM + 1];
     u8                     lag_prio2tc[MAX_LAG_NUM + 1][MAX_PRIO_NUM + 1];
