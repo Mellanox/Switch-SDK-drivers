@@ -392,6 +392,8 @@ struct cpu_traffic_priority {
     struct task_struct *monitor_cq_thread;      /* low priority CQs handling thread */
     struct semaphore    low_prio_cq_thread_sem;  /* semaphore to signal the low priority CQs handling thread */
     struct semaphore    monitor_cq_thread_sem;  /* semaphore to signal the low priority CQs handling thread */
+    u8                  low_prio_cq_thread_alive;
+    u8                  monitor_cq_thread_alive;
     struct timer_list   sampling_timer;
 };
 struct sx_cq_table {

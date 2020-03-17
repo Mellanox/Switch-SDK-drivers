@@ -111,7 +111,8 @@ void sx_core_call_rdq_agg_trace_point_func(int                    dqn,
                                            uint16_t               trap_id,
                                            uint32_t               acl_user_id,
                                            const struct timespec *timestamp,
-                                           uint8_t                mirror_reason)
+                                           uint8_t                mirror_reason,
+                                           uint32_t               port)
 {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
     int i = 0;
@@ -126,11 +127,11 @@ void sx_core_call_rdq_agg_trace_point_func(int                    dqn,
         return;
     }
 
-    sx_core_rdq_agg_trace_points[dqn](skb, trap_id, acl_user_id, timestamp, mirror_reason);
+    sx_core_rdq_agg_trace_points[dqn](skb, trap_id, acl_user_id, timestamp, mirror_reason, port);
 #else
     for (i = 0; i < SX_AGG_TRACE_POINT_NUM_PER_RDQ; i++) {
         if (sx_core_rdq_agg_trace_points[dqn][i] != NULL) {
-            sx_core_rdq_agg_trace_points[dqn][i](skb, trap_id, acl_user_id, timestamp, mirror_reason);
+            sx_core_rdq_agg_trace_points[dqn][i](skb, trap_id, acl_user_id, timestamp, mirror_reason, port);
         }
     }
 #endif

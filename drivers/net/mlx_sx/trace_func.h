@@ -42,13 +42,17 @@
 
 #define SKB_MARK_DROP 19
 #define FILTER_TP_HW_PORT(is_lag, sysport_lag_id) ((is_lag << 16) | sysport_lag_id)
+#define AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id) \
+    ((((uint32_t)(is_lag)) << 24) | (((uint32_t)(lag_subport)) << 16) | ((uint32_t)(sysport_lag_id)))
+
 
 /* aggregation trace point */
 typedef void (*sx_core_rdq_agg_trace_point_func)(struct sk_buff        *skb,
                                                  uint16_t               trap_id,
                                                  uint32_t               acl_user_id,
                                                  const struct timespec *timestamp,
-                                                 uint8_t                mirror_reason);
+                                                 uint8_t                mirror_reason,
+                                                 uint32_t               port);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
 #define SX_CORE_AGG_TRACE_FUNC(rdq_no) trace_sx_rdq_rx_agg_ ## rdq_no
@@ -72,7 +76,8 @@ void sx_core_call_rdq_agg_trace_point_func(int                    dqn,
                                            uint16_t               trap_id,
                                            uint32_t               acl_user_id,
                                            const struct timespec *timestamp,
-                                           uint8_t                mirror_reason);
+                                           uint8_t                mirror_reason,
+                                           uint32_t               port);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
 /* filter trace point */
 int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog* bpf_prog_p,

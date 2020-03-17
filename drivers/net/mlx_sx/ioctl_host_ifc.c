@@ -187,10 +187,14 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
                                                   comp_info->hw_synd,
                                                   comp_info->user_def_val,
                                                   &edata->timestamp,
-                                                  comp_info->mirror_reason);
+                                                  comp_info->mirror_reason,
+                                                  AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
+                                                                 comp_info->sysport));
         } else {
             sx_core_call_rdq_agg_trace_point_func(dqn, skb, comp_info->hw_synd, comp_info->user_def_val, NULL,
-                                                  comp_info->mirror_reason);
+                                                  comp_info->mirror_reason,
+                                                  AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
+                                                                 comp_info->sysport));
         }
     }
 

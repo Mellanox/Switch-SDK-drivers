@@ -182,16 +182,6 @@ static int sdk_sx_reset(struct sx_dev *dev)
         goto out;
     }
 
-    /* Wait before accessing device */
-#ifndef INCREASED_TIMEOUT
-    msleep(2000);
-#else
-#define WAIT_FOR_PCI_RESET 1500000 /* timeout should be greater than the time needed by the model to complete PCI Reset */
-
-    printk(KERN_INFO PFX "Waiting %u ms before accessing the device", WAIT_FOR_PCI_RESET);
-    msleep(WAIT_FOR_PCI_RESET);
-#endif
-
     if (dev->pdev->device == QUANTUM_PCI_DEV_ID) {
         wait_for_reset = 12000; /* Timeout for Quantum was increased to 12s until FW stabilizes its flow. */
     } else if ((dev->pdev->device == SPECTRUM2_PCI_DEV_ID) || (dev->pdev->device == SPECTRUM3_PCI_DEV_ID)) {

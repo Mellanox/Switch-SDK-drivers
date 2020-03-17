@@ -1760,7 +1760,8 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
                                                       trap_id,
                                                       user_def_val_orig_pkt_len,
                                                       timestamp,
-                                                      mirror_reason);
+                                                      mirror_reason,
+                                                      AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
             }
             goto skip;
         }
@@ -2207,10 +2208,13 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
 
             if (cq_ts_enabled) {
                 sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len,
-                                                      &cq->cqe_ts_arr[i % cq->nent], mirror_reason);
+                                                      &cq->cqe_ts_arr[i % cq->nent], mirror_reason,
+                                                      AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
             } else {
                 sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL,
-                                                      mirror_reason);
+                                                      mirror_reason, AGG_TP_HW_PORT(is_lag,
+                                                                                    lag_subport,
+                                                                                    sysport_lag_id));
             }
         }
     }
@@ -2253,7 +2257,9 @@ static int __monitor_cq_handler_thread(void *arg)
 
     printk(KERN_INFO "starting new device's monitor CQ handler thread\n");
 
-    while (!kthread_should_stop()) {
+    cpu_traffic_prio->monitor_cq_thread_alive = 1;
+
+    while (cpu_traffic_prio->monitor_cq_thread_alive) {
         ret = down_timeout(&cpu_traffic_prio->monitor_cq_thread_sem, HZ);
         if (ret == -ETIME) {
             continue;
@@ -2289,7 +2295,9 @@ static int __low_priority_cq_handler_thread(void *arg)
 
     printk(KERN_INFO "starting new device's low-priority CQ handler thread\n");
 
-    while (!kthread_should_stop()) {
+    cpu_traffic_prio->low_prio_cq_thread_alive = 1;
+
+    while (cpu_traffic_prio->low_prio_cq_thread_alive) {
         ret = down_timeout(&cpu_traffic_prio->low_prio_cq_thread_sem, HZ);
         if (ret == -ETIME) {
             continue;
@@ -2392,12 +2400,16 @@ void __cpu_traffic_priority_deinit(struct sx_dev *dev, struct cpu_traffic_priori
     sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
 
     if (cpu_traffic_prio->monitor_cq_thread) {
+        cpu_traffic_prio->monitor_cq_thread_alive = 0;
+        up(&cpu_traffic_prio->monitor_cq_thread_sem);
         kthread_stop(cpu_traffic_prio->monitor_cq_thread);
         cpu_traffic_prio->monitor_cq_thread = NULL;
     }
 
     if (cpu_traffic_prio->low_prio_cq_thread) {
         del_timer_sync(&cpu_traffic_prio->sampling_timer);
+        cpu_traffic_prio->low_prio_cq_thread_alive = 0;
+        up(&cpu_traffic_prio->low_prio_cq_thread_sem);
         kthread_stop(cpu_traffic_prio->low_prio_cq_thread);
         cpu_traffic_prio->low_prio_cq_thread = NULL;
     }

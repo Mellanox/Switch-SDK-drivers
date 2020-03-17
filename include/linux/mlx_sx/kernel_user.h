@@ -5608,14 +5608,20 @@ struct ku_pplm_reg {
     uint8_t  retransmission_active; /**< retransmission_active - Active Retransmission */
     uint32_t fec_mode_active; /**< fec_mode_active - Active FEC (bitmask) */
     uint8_t  rs_fec_correction_bypass_cap; /**< RS-FEC correction bypass override capability */
+    uint16_t fec_override_cap_400g_8x;  /**< 400GE Ethernet FEC override capability bitmask */
     uint16_t fec_override_cap_200g_4x;  /**< 200GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_100g_2x;  /**< 100GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_50g_1x;  /**< 50GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_56g; /**< 56GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_100g; /**< 100GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_50g; /**< 50GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_25g; /**< 25GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_10g_40g; /**< 10/40GE Ethernet FEC override capability bitmask */
     uint8_t  rs_fec_correction_bypass_admin; /**< RS-FEC correction bypass override admin */
+    uint16_t fec_override_admin_400g_8x;  /**< 400GE Ethernet FEC override admin */
     uint16_t fec_override_admin_200g_4x;  /**< 200GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_100g_2x;  /**< 100GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_50g_1x;  /**< 50GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_56g; /**< 56GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_100g; /**< 100GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_50g; /**< 50GE Ethernet FEC override admin */
@@ -8816,6 +8822,8 @@ typedef enum {
     STATUS_OPCODE_NO_BACKPLANE_ENABLED = 30,
     STATUS_OPCODE_NO_PASSIVE_PROTOCOL_ENABLED = 31,
     STATUS_OPCODE_NO_ACTIVE_PROTOCOL_ENABLED = 32,
+    STATUS_OPCODE_NO_PARTNER_DETECTED_DURING_FORCE_MODE = 36,
+    STATUS_OPCODE_PARTIAL_LINK_INDICATION_DURING_FORCE_MODE = 37,
     STATUS_OPCODE_AN_FEC_MISMATCH_DURING_OVERRIDE = 38,
     STATUS_OPCODE_AN_NO_HCD = 39,
     STATUS_OPCODE_BAD_SI_CABLE_IS_CONFIGURED_TO_NON_OPTIMAL_RATE = 42,
