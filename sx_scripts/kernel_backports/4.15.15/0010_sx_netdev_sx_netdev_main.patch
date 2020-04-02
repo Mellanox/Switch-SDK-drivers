@@ -1,0 +1,12 @@
+diff --git a/drivers/net/sx_netdev/sx_netdev_main.c b/drivers/net/sx_netdev/sx_netdev_main.c
+index 8c0238f..4cdf57e 100644
+--- a/drivers/net/sx_netdev/sx_netdev_main.c
++++ b/drivers/net/sx_netdev/sx_netdev_main.c
+@@ -1553,6 +1553,7 @@ static void  * __sx_netdev_init_one_netdev(struct sx_dev *dev, int swid, int syn
+         return NULL;
+     }
+ 
++    netdev->max_mtu = 0; /* do not limit the max MTU */
+     netdev->hard_header_len = ETH_HLEN + ISX_HDR_SIZE;
+     memset(netdev_priv(netdev), 0, sizeof(*net_priv));
+     net_priv = netdev_priv(netdev);

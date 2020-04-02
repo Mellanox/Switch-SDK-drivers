@@ -116,7 +116,8 @@ static bool g_initialized = false;
 struct sockets_scheduler {
     struct list_head scheduler_list;
     struct semaphore scheduler_sem;
-    spinlock_t       sceduler_lock;
+    spinlock_t       scheduler_lock;
+    uint8_t          scheduler_thread_active;
 };
 static struct sockets_scheduler scheduler;
 static struct task_struct      *bfd_thread = NULL;
@@ -302,7 +303,7 @@ static void sk_data_ready_custom(struct sock *sk)
     int                                lst_empty = 0;
 
     /* Lock scheduler DS from other manipulation on this DS */
-    spin_lock_bh(&scheduler.sceduler_lock);
+    spin_lock_bh(&scheduler.scheduler_lock);
 
     /*Get user_info which is saved in creation of the socket. */
     if (sk && sk->sk_user_data) {
@@ -322,7 +323,7 @@ static void sk_data_ready_custom(struct sock *sk)
         if (user_info->sock_state == sx_bfd_sock_state_dead) {
             /* If socket signed as DEAD - means there is process of delete socket -
              * don't take care. */
-            spin_unlock_bh(&scheduler.sceduler_lock);
+            spin_unlock_bh(&scheduler.scheduler_lock);
             return;
         }
 
@@ -352,7 +353,7 @@ static void sk_data_ready_custom(struct sock *sk)
         sock_hold(sk);
     }
     /* Unlock scheduler DS to allow other manipulation on this DS */
-    spin_unlock_bh(&scheduler.sceduler_lock);
+    spin_unlock_bh(&scheduler.scheduler_lock);
 }
 
 
@@ -360,15 +361,16 @@ static void sk_data_ready_custom(struct sock *sk)
 int sk_thread_sockets_scheduler(void *data)
 {
     struct sx_bfd_rx_socket_user_info *user_info = NULL;
-    int                                rc = 0;
 
-    while (!kthread_should_stop()) {
+    scheduler.scheduler_thread_active = 1;
+    
+    while (scheduler.scheduler_thread_active) {
         /* Lock scheduler DS from other manipulation on this DS */
-        spin_lock_bh(&scheduler.sceduler_lock);
+        spin_lock_bh(&scheduler.scheduler_lock);
         /* Get the entry from LL of the sockets to be manged  */
         user_info = list_first_entry_or_null(&scheduler.scheduler_list, struct sx_bfd_rx_socket_user_info, list);
         /* Unlock scheduler DS to allow other manipulation on this DS */
-        spin_unlock_bh(&scheduler.sceduler_lock);
+        spin_unlock_bh(&scheduler.scheduler_lock);
         if (user_info) {
             BUG_ON(user_info->t_sock == NULL);
             BUG_ON(user_info->t_sock->sk == NULL);
@@ -383,7 +385,7 @@ int sk_thread_sockets_scheduler(void *data)
             sock_put(user_info->t_sock->sk);
 
             /* Lock scheduler DS from other manipulation on this DS */
-            spin_lock_bh(&scheduler.sceduler_lock);
+            spin_lock_bh(&scheduler.scheduler_lock);
 
             /* Decrement the number of packets waiting on this specific socket
              * being on the head of the LL  - as now we are going to manage
@@ -407,14 +409,17 @@ int sk_thread_sockets_scheduler(void *data)
                 list_move_tail(&user_info->list, &scheduler.scheduler_list);
             }
             /* Unlock scheduler DS to allow other manipulation on this DS */
-            spin_unlock_bh(&scheduler.sceduler_lock);
+            spin_unlock_bh(&scheduler.scheduler_lock);
         } else {
             /* Wait on scheduler_sem which will be "upped" by
              * sk_data_ready_custom callback when any socket notification
              * Rx Data will be arrived. */
-            rc = down_timeout(&scheduler.scheduler_sem, HZ);
-            if ((rc != 0) && (rc != -ETIME)) {
+            if (down_interruptible(&scheduler.scheduler_sem)) {
                 printk(KERN_ERR "unexpected return value of down_timeout \n");
+            }
+
+            if (!scheduler.scheduler_thread_active) {
+                break;
             }
         }
     }
@@ -779,7 +784,12 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, uint8_t use_vrf_device, char *linux_v
     vrf->vrf_id = vrf_id;
 
     /* Initialize Rx_socket for single_port. */
-    err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT, &vrf->sock_single_hop, vrf->vrf_id, bfd_pid, use_vrf_device, linux_vrf_name);
+    err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT,
+                                &vrf->sock_single_hop,
+                                vrf->vrf_id,
+                                bfd_pid,
+                                use_vrf_device,
+                                linux_vrf_name);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_SINGLEHOP_PORT socket failed.\n");
         err = -EIO;
@@ -787,7 +797,12 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, uint8_t use_vrf_device, char *linux_v
     }
 
     /* Initialize Rx_socket for multihop_port. */
-    err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT, &vrf->sock_multi_hop, vrf->vrf_id, bfd_pid, use_vrf_device, linux_vrf_name);
+    err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT,
+                                &vrf->sock_multi_hop,
+                                vrf->vrf_id,
+                                bfd_pid,
+                                use_vrf_device,
+                                linux_vrf_name);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_MULTIHOP_PORT socket failed.\n");
         err = -EIO;
@@ -878,14 +893,14 @@ void sx_bfd_rx_socket_destroy(struct socket * sock)
     int                                wait = 1;
 
     /* Lock scheduler DS from other manipulation on this DS */
-    spin_lock_bh(&scheduler.sceduler_lock);
+    spin_lock_bh(&scheduler.scheduler_lock);
     BUG_ON(sock == NULL);
     BUG_ON(sock->sk == NULL);
     sk_user_data = (struct sx_bfd_rx_socket_user_info *)sock->sk->sk_user_data;
     BUG_ON(sk_user_data == NULL);
     sk_user_data->sock_state = sx_bfd_sock_state_dead;
     wait = (sk_user_data->ref_count == 0) ? 0 : 1;
-    spin_unlock_bh(&scheduler.sceduler_lock);
+    spin_unlock_bh(&scheduler.scheduler_lock);
     /* Wait to notification from sx_bfd_rx_sess_put_no_lock that
      * no one is looking on rx_session*/
     if (wait) {
@@ -901,7 +916,7 @@ int sx_bfd_socket_init(void)
     if (!g_initialized) {
         INIT_LIST_HEAD(&scheduler.scheduler_list);
         sema_init(&scheduler.scheduler_sem, 0);
-        spin_lock_init(&scheduler.sceduler_lock);
+        spin_lock_init(&scheduler.scheduler_lock);
 
         if (bfd_thread == NULL) {
             bfd_thread = kthread_run(sk_thread_sockets_scheduler, (void*)NULL, "BFD thread");
@@ -925,6 +940,8 @@ bail:
 void sx_bfd_socket_deinit(void)
 {
     if (g_initialized) {
+        scheduler.scheduler_thread_active = 0;
+        up(&scheduler.scheduler_sem);
         kthread_stop(bfd_thread);
 
         g_initialized = false;

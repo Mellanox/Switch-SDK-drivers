@@ -196,6 +196,14 @@ static int sdk_sx_reset(struct sx_dev *dev)
 
     start = jiffies;
     end = jiffies + msecs_to_jiffies(wait_for_reset);
+    printk(KERN_INFO "device=%u, wait_for_reset=%u, start=%lu, end=%lu, HZ=%u (diff=%lu sec)\n",
+           dev->pdev->device,
+           wait_for_reset,
+           start,
+           end,
+           HZ,
+           (end - start) / HZ);
+
     do {
         val = ioread32be(sys_status);
         if (SX_SYSTEM_STATUS_ENABLED == (val & SX_SYSTEM_STATUS_REG_MASK)) {

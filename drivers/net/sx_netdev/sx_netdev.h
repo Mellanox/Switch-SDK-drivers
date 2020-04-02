@@ -73,9 +73,9 @@ static const int   net_port_vlan_type_str_len =
     sizeof(net_port_vlan_type_str) / sizeof(char *);
 enum net_port_vlan_type {
     PORT_VLAN_TYPE_GLOBAL = 0,
-    PORT_VLAN_TYPE_PORT   = 1,
-    PORT_VLAN_TYPE_LAG    = 2,
-    PORT_VLAN_TYPE_VLAN   = 3
+    PORT_VLAN_TYPE_PORT = 1,
+    PORT_VLAN_TYPE_LAG = 2,
+    PORT_VLAN_TYPE_VLAN = 3
 };
 struct net_port_vlan_info {
     enum net_port_vlan_type info_type;
@@ -105,11 +105,12 @@ struct sx_net_priv {
     struct delayed_work       pude_dwork;   /* pude delayed work */
     struct workqueue_struct * pude_wq;
     struct hwtstamp_config    hwtstamp_config;
+    u8                        skip_tunnel;
 };
 
 enum {
     PORT_TYPE_SINGLE = 0,
-    PORT_TYPE_LAG    = 1,
+    PORT_TYPE_LAG = 1,
     PORT_TYPE_NUM
 };
 
@@ -134,6 +135,7 @@ int sx_netdev_register_device(struct net_device *netdev, int should_rtnl_lock,
 extern struct net_device    *bridge_netdev_db[MAX_BRIDGE_NUM];
 extern struct sx_netdev_rsc *g_netdev_resources;
 extern struct sx_dev        *g_sx_dev;
+extern u8                    g_skip_tunnel;
 
 enum {
     IFLA_SX_BRIDGE_UNSPEC,

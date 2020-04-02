@@ -86,6 +86,10 @@ module_param_named(offload_fwd_mark_en, offload_fwd_mark_en, int, 0644);
 MODULE_PARM_DESC(offload_fwd_mark_en, "1 - enable offload of packets fwd in HW, 0 - disable offload");
 #endif
 
+static ssize_t skip_tunnel_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+static ssize_t skip_tunnel_cb(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len);
+static struct kobj_attribute skip_netdev_attr =
+    __ATTR(skip_tunnel, S_IWUSR | S_IRUGO, skip_tunnel_show, skip_tunnel_cb);
 static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len);
 static struct kobj_attribute bind_sx_core_attr = __ATTR(bind_sx_core, S_IWUSR, NULL, store_bind_sx_core);
 static char                  sx_netdev_version[] =
@@ -97,6 +101,7 @@ struct net_device       *bridge_netdev_db[MAX_BRIDGE_NUM];
 struct workqueue_struct *netdev_wq;
 struct sx_core_interface sx_core_if;
 void                    *g_dev_ctx = NULL;
+u8                       g_skip_tunnel = 0;
 
 u64 sx_netdev_mac_to_u64(u8 *addr)
 {
@@ -1168,6 +1173,10 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         if (err) {
             return err;
         }
+    }
+
+    if (meta.type == SX_PKT_TYPE_ETH_DATA) {
+        meta.rx_is_tunnel = net_priv->skip_tunnel;
     }
 
     if ((net_priv->hwtstamp_config.tx_type == HWTSTAMP_TX_ON) &&
@@ -2597,6 +2606,214 @@ static void sx_netdev_attach_global_event_handler(void)
     }
 }
 
+static void __skip_tunnel_default(u8 skip_tunnel)
+{
+    struct net_device  *netdev = NULL;
+    struct sx_net_priv *net_priv = NULL;
+    int                 i;
+    int                 port_type = 0;
+    int                 port = 0, br_id = 0;
+    int                 swid = 0;
+    int                 max_ports[] = {
+        [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
+        [PORT_TYPE_LAG] = MAX_LAG_NUM
+    };
+
+    printk(KERN_INFO PFX "Set default skip_tunnel (%d)\n", skip_tunnel);
+
+    g_skip_tunnel = skip_tunnel;
+    for (swid = 0; swid < NUMBER_OF_SWIDS; swid++) {
+        if (!g_netdev_resources->allocated[swid]) {
+            continue;
+        }
+
+        netdev = g_netdev_resources->sx_netdevs[swid];
+        if (netdev != NULL) {
+            printk(KERN_INFO PFX "Set skip_tunnel (%d) for device '%s'\n", skip_tunnel, netdev->name);
+            net_priv = netdev_priv(netdev);
+            net_priv->skip_tunnel = skip_tunnel;
+        }
+    }
+
+    for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
+        for (port = 0; port < max_ports[port_type]; port++) {
+            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
+                continue;
+            }
+            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][i];
+                if (netdev != NULL) {
+                    printk(KERN_INFO PFX "Set skip_tunnel (%d) for device '%s'\n", skip_tunnel, netdev->name);
+                    net_priv = netdev_priv(netdev);
+                    net_priv->skip_tunnel = skip_tunnel;
+                }
+            }
+        }
+    }
+
+    for (br_id = 0; br_id < MAX_BRIDGE_NUM; br_id++) {
+        netdev = bridge_netdev_db[br_id];
+        if (netdev != NULL) {
+            printk(KERN_INFO PFX "Set skip_tunnel (%d) for device '%s'\n", skip_tunnel, netdev->name);
+            net_priv = netdev_priv(netdev);
+            net_priv->skip_tunnel = skip_tunnel;
+        }
+    }
+}
+
+static void __skip_tunnel_dev(char* dev_name, u8 skip_tunnel)
+{
+    struct net_device  *netdev = NULL;
+    struct sx_net_priv *net_priv = NULL;
+
+    if (dev_name == NULL) {
+        printk(KERN_ERR PFX "Skip tunnel set failed: no <dev_name>\n");
+        return;
+    }
+
+    netdev = dev_get_by_name(&init_net, dev_name);
+    if (netdev == NULL) {
+        printk(KERN_ERR PFX "Skip tunnel set failed: Device name '%s' wasn't found\n", dev_name);
+        return;
+    }
+
+    printk(KERN_INFO PFX "Set skip_tunnel (%d) for net device '%s'\n", skip_tunnel, dev_name);
+    net_priv = netdev_priv(netdev);
+    net_priv->skip_tunnel = skip_tunnel;
+    dev_put(netdev);
+}
+
+char * sx_netdev_proc_str_get_u32(char *buffer, u32 *val32)
+{
+    const char delimiters[] = " .,;:!-";
+    char      *running;
+    char      *token;
+
+    running = (char*)buffer;
+    token = strsep(&running, delimiters);
+    if (token == NULL) {
+        *val32 = 0;
+        return NULL;
+    }
+
+    if (strstr(token, "0x")) {
+        *val32 = simple_strtol(token, NULL, 16);
+    } else {
+        *val32 = simple_strtol(token, NULL, 10);
+    }
+
+    return running;
+}
+
+char * sx_netdev_proc_str_get_str(char *buffer, char **str)
+{
+    const char delimiters[] = " ,;:!-";
+    char      *running;
+    char      *token;
+
+    running = buffer;
+    token = strsep(&running, delimiters);
+    if (token == NULL) {
+        *str = 0;
+        return NULL;
+    }
+
+    *str = token;
+    return running;
+}
+
+static ssize_t skip_tunnel_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct net_device  *netdev = NULL;
+    struct sx_net_priv *net_priv = NULL;
+    int                 i;
+    int                 port_type = 0;
+    int                 port = 0, br_id = 0;
+    int                 swid = 0;
+    int                 max_ports[] = {
+        [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
+        [PORT_TYPE_LAG] = MAX_LAG_NUM
+    };
+    int                 offset = 0;
+
+    offset = sprintf(buf, "%-15s | %s\n", "dev_name", "skip_tunnel");
+    offset += sprintf(buf + offset, "------------------------------\n");
+    offset += sprintf(buf + offset, "%-15s | %d\n", "default", g_skip_tunnel);
+
+    for (swid = 0; swid < NUMBER_OF_SWIDS; swid++) {
+        if (!g_netdev_resources->allocated[swid]) {
+            continue;
+        }
+
+        netdev = g_netdev_resources->sx_netdevs[swid];
+        if (netdev != NULL) {
+            net_priv = netdev_priv(netdev);
+            offset += sprintf(buf + offset, "%-15s | %d\n", netdev->name, net_priv->skip_tunnel);
+        }
+    }
+
+    for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
+        for (port = 0; port < max_ports[port_type]; port++) {
+            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
+                continue;
+            }
+            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][i];
+                if (netdev != NULL) {
+                    net_priv = netdev_priv(netdev);
+                    offset += sprintf(buf + offset, "%-15s | %d\n", netdev->name, net_priv->skip_tunnel);
+                }
+            }
+        }
+    }
+
+    for (br_id = 0; br_id < MAX_BRIDGE_NUM; br_id++) {
+        netdev = bridge_netdev_db[br_id];
+        if (netdev != NULL) {
+            net_priv = netdev_priv(netdev);
+            offset += sprintf(buf + offset, "%-15s | %d\n", netdev->name, net_priv->skip_tunnel);
+        }
+    }
+
+    return offset;
+}
+
+static ssize_t skip_tunnel_cb(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len)
+{
+    int   cmd = 0;
+    char *p = NULL;
+    char *running = NULL;
+    char *cmd_str = NULL;
+    u32   skip_tunnel = 0;
+    char *dev_name = NULL;
+
+    running = (char*)buf;
+
+    running = sx_netdev_proc_str_get_str(running, &cmd_str);
+    p = strstr(cmd_str, "default");
+    if (p != NULL) {
+        running = sx_netdev_proc_str_get_u32(running, &skip_tunnel);
+        __skip_tunnel_default(skip_tunnel);
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "set");
+    if (p != NULL) {
+        running = sx_netdev_proc_str_get_str(running, &dev_name);
+        running = sx_netdev_proc_str_get_u32(running, &skip_tunnel);
+        __skip_tunnel_dev(dev_name, skip_tunnel);
+        cmd++;
+    }
+
+    if (cmd == 0) {
+        printk(KERN_INFO PFX "Available Commands for skip_tunnel:\n");
+        printk(KERN_INFO PFX "  default [disable (0) / enable (1)] - Set the default device skip tunnel\n");
+        printk(KERN_INFO PFX "  set [dev_name] [disable (0) / enable (1)] - Set skip tunnel for <dev_name>\n");
+    }
+
+    return len;
+}
+
 static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len)
 {
     int            ret;
@@ -2865,6 +3082,11 @@ static int __init sx_netdev_init(void)
         goto fail_on_sysfs_create_file;
     }
 
+    ret = sysfs_create_file(&(THIS_MODULE->mkobj.kobj), &(skip_netdev_attr.attr));
+    if (ret) {
+        goto fail_on_sysfs_create_file;
+    }
+
     return 0;
 
 fail_on_sysfs_create_file:
@@ -2890,7 +3112,7 @@ fail_on_sx_register_interface:
 static void __exit sx_netdev_cleanup(void)
 {
     printk(KERN_INFO PFX "sx_netdev_cleanup \n");
-
+    sysfs_remove_file(&(THIS_MODULE->mkobj.kobj), &(skip_netdev_attr.attr));
     sysfs_remove_file(&(THIS_MODULE->mkobj.kobj), &(bind_sx_core_attr.attr));
     sx_bridge_rtnl_link_unregister();
     sx_netdev_rtnl_link_unregister();

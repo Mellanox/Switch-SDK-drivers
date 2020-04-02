@@ -802,6 +802,7 @@ int sx_dbg_dump_monitor_rdq_show(struct seq_file *m, void *v)
 
     priv = sx_priv(dev);
     rdq_table = &priv->rdq_table;
+    print_header(m, "Monitor RDQ dump");
 
     for (rdq_n = 0; rdq_n < dev->dev_cap.max_num_rdqs; rdq_n++) {
         __sx_dbg_dump_monitor_rdq(m, dev, rdq_n);

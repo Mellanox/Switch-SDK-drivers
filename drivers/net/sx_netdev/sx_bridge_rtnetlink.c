@@ -158,6 +158,7 @@ static int sx_bridge_newlink(struct net *net, struct net_device *dev, struct nla
     net_priv->is_oper_state_up = 1;
     net_priv->is_port_netdev = 0;
     net_priv->mac = 0;
+    net_priv->skip_tunnel = g_skip_tunnel;
 
     for (uc_type = USER_CHANNEL_L3_NETDEV; uc_type < NUM_OF_NET_DEV_TYPE; uc_type++) {
         for (i = 0; i < MAX_NUM_TRAPS_TO_REGISTER; i++) {

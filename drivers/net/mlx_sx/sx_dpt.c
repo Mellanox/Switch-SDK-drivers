@@ -1033,6 +1033,7 @@ static void get_specific_data_version_1(enum ku_pkt_type          type,
                                         u8                        rx_is_router,
                                         u8                        fid_valid,
                                         u16                       fid,
+                                        u8                        rx_is_tunnel,
                                         struct isx_specific_data *data)
 {
     switch (type) {
@@ -1057,6 +1058,7 @@ static void get_specific_data_version_1(enum ku_pkt_type          type,
         data->rx_is_router = rx_is_router;
         data->fid_valid = fid_valid;
         data->fid = fid;
+        data->rx_is_tunnel = rx_is_tunnel;
         break;
 
     case SX_PKT_TYPE_DROUTE_EMAD_CTL:
@@ -1343,7 +1345,7 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
     memset(&specific_meta, 0, sizeof(specific_meta));
     get_specific_data_version_1(meta->type, meta->to_cpu,
                                 meta->etclass, meta->lp, meta->rx_is_router,
-                                meta->fid_valid, meta->fid, &specific_meta);
+                                meta->fid_valid, meta->fid, meta->rx_is_tunnel, &specific_meta);
 
     p_hdr->version_ctl |=
         TO_FIELD(TX_HDR_VER_MASK_V1,
@@ -1353,17 +1355,22 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
         TO_FIELD(TX_HDR_CTL_MASK,
                  TX_HDR_CTL_SHIFT, specific_meta.ctl);
 
-    p_hdr->protocol_rx_is_router_fid_valid |=
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
         TO_FIELD(TX_HDR_PROTOCOL_MASK,
                  TX_HDR_PROTOCOL_SHIFT,
                  specific_meta.protocol);
 
-    p_hdr->protocol_rx_is_router_fid_valid |=
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
         TO_FIELD(TX_HDR_RX_IS_ROUTER_MASK_V1,
                  TX_HDR_RX_IS_ROUTER_SHIFT_V1,
                  specific_meta.rx_is_router);
 
-    p_hdr->protocol_rx_is_router_fid_valid |=
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
+        TO_FIELD(TX_HDR_RX_IS_TUNNEL_MASK_V1,
+                 TX_HDR_RX_IS_TUNNEL_SHIFT_V1,
+                 specific_meta.rx_is_tunnel);
+
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
         TO_FIELD(TX_HDR_FID_VALID_MASK_V1,
                  TX_HDR_FID_VALID_SHIFT_V1,
                  specific_meta.fid_valid);
@@ -1404,11 +1411,12 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
                "specific_meta.version: %d , swid: %d , sysport:0x%x, specific_meta.ctl: %d,"
                "specific_meta.protocol: %d, specific_meta.rx_is_router:%d, type: %d, "
                "specific_meta.fid_valid: %d,  specific_meta.use_control_tclass: %d, specific_meta.etclass :%d,"
-               "specific_meta.fid: %d\n",
+               "specific_meta.fid: %d, specific_meta.rx_is_tunnel: %d\n",
                specific_meta.version, meta->swid,
                meta->system_port_mid,
                specific_meta.ctl, specific_meta.protocol, specific_meta.rx_is_router, specific_meta.type,
-               specific_meta.fid_valid, specific_meta.use_control_tclass, specific_meta.etclass, specific_meta.fid);
+               specific_meta.fid_valid, specific_meta.use_control_tclass, specific_meta.etclass, specific_meta.fid,
+               specific_meta.rx_is_tunnel);
     }
 
     return 0;

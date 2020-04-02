@@ -372,6 +372,8 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
     }
     net_priv->mac = mac;
 
+    net_priv->skip_tunnel = g_skip_tunnel;
+
     printk(KERN_INFO PFX "%s: Newly device %s log port 0x%x MAC address = %llx\n",
            __func__,
            dev->name,

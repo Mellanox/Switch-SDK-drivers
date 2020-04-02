@@ -225,6 +225,8 @@ enum TX_BASE_HEADER_DEFS {
     TX_HDR_TYPE_SHIFT = 0,
     TX_HDR_RX_IS_ROUTER_MASK_V1 = 0x1,
     TX_HDR_RX_IS_ROUTER_SHIFT_V1 = 3,
+    TX_HDR_RX_IS_TUNNEL_MASK_V1 = 0x1,
+    TX_HDR_RX_IS_TUNNEL_SHIFT_V1 = 2,
     TX_HDR_FID_VALID_MASK_V1 = 0x1,
     TX_HDR_FID_VALID_SHIFT_V1 = 0,
     TX_HDR_CONTROL_MASK_V1 = 0x1,
@@ -295,7 +297,7 @@ struct tx_base_header_v0 {
 };
 struct tx_base_header_v1 {
     u8  version_ctl;
-    u8  protocol_rx_is_router_fid_valid;
+    u8  protocol_rx_is_router_rx_is_tunnel_fid_valid;
     u16 swid_control_etclass;
     u16 system_port_mid;
     u16 reserved1;
@@ -834,6 +836,7 @@ struct isx_specific_data {
     u8  fid_valid;
     u16 fid;
     u8  etclass;
+    u8  rx_is_tunnel;
 };
 
 /************************************************

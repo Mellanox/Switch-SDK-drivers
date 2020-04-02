@@ -1201,6 +1201,7 @@ struct isx_meta {
     uint8_t              rx_is_router;
     uint8_t              fid_valid;
     uint16_t             fid;
+    uint8_t              rx_is_tunnel;
 };
 
 /**
@@ -1728,6 +1729,15 @@ struct ku_spfsr_reg {
 };
 
 /**
+ * ku_smid_reg_op enumerated type is used to note the
+ * SMID operation.
+ */
+enum ku_smid_reg_op {
+    SXD_SMID_OP_UPDATE = 0,
+    SXD_SMID_OP_WRITE = 1,
+};
+
+/**
  * ku_smid_reg structure is used to store the SMID register parameters
  */
 struct ku_smid_reg {
@@ -2066,6 +2076,7 @@ struct sfd_mc_tunnel_data {
     uint16_t             fid;
     uint8_t              action;
     uint32_t             underlay_mc_ptr;
+    uint16_t             ecmp_size;
     sxd_counter_set_t    counter_set;
 };
 
@@ -2080,7 +2091,7 @@ struct ku_sfd_reg {
     uint32_t           record_locator;
     enum sfd_type      sfd_type[SFD_MAX_RECORDS];
     uint8_t            num_records;
-    union {
+    union sfd_data {
         struct sfd_unicast_data     uc;
         struct sfd_unicast_lag_data uc_lag;
         struct sfd_multicast_data   mc;
@@ -8166,44 +8177,6 @@ struct ku_tngcr_reg {
     uint16_t                underlay_rif;
     uint32_t                usipv4;
     uint32_t                usipv6[4];
-};
-
-/**
- * sxd_tunnel_tnumt_type enumerated tnumt record type.
- */
-typedef enum sxd_tunnel_tnumt_type {
-    SXD_TNUMT_TYPE_IPV4 = 0,
-    SXD_TNUMT_TYPE_IPV6 = 1
-} sxd_tunnel_tnumt_type_t;
-
-/**
- * ku_nve_mc_ipv4 structure is used for Tunneling Underlay Multicast Record for IPV4 type
- */
-struct ku_nve_mc_ipv4 {
-    uint8_t  size;
-    uint32_t udip[3];
-};
-
-/**
- * ku_nve_mc_ipv6 structure is used for Tunneling Underlay Multicast Record for IPV6 type
- */
-struct ku_nve_mc_ipv6 {
-    uint8_t  size;
-    uint32_t udip_ptr[5];
-};
-
-/**
- * ku_tnumt_reg structure is used to store the TNUMT register parameters
- */
-struct ku_tnumt_reg {
-    sxd_tunnel_tnumt_type_t record_type;
-    uint32_t                underlay_mc_ptr;
-    uint8_t                 vnext;
-    uint32_t                next_underlay_mc_ptr;
-    union {
-        struct ku_nve_mc_ipv4 mc_ipv4;
-        struct ku_nve_mc_ipv6 mc_ipv6;
-    } record;
 };
 
 /**

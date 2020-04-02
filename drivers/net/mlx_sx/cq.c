@@ -2260,9 +2260,12 @@ static int __monitor_cq_handler_thread(void *arg)
     cpu_traffic_prio->monitor_cq_thread_alive = 1;
 
     while (cpu_traffic_prio->monitor_cq_thread_alive) {
-        ret = down_timeout(&cpu_traffic_prio->monitor_cq_thread_sem, HZ);
-        if (ret == -ETIME) {
+        if (down_interruptible(&cpu_traffic_prio->monitor_cq_thread_sem)) {
             continue;
+        }
+
+        if (!cpu_traffic_prio->monitor_cq_thread_alive) {
+            break;
         }
 
         should_continue_polling = 0;
@@ -2291,16 +2294,18 @@ static int __low_priority_cq_handler_thread(void *arg)
     struct sx_dev               *dev = (struct sx_dev*)arg;
     struct cpu_traffic_priority *cpu_traffic_prio = &sx_priv(dev)->cq_table.cpu_traffic_prio;
     int                          should_continue_polling;
-    int                          ret;
 
     printk(KERN_INFO "starting new device's low-priority CQ handler thread\n");
 
     cpu_traffic_prio->low_prio_cq_thread_alive = 1;
 
     while (cpu_traffic_prio->low_prio_cq_thread_alive) {
-        ret = down_timeout(&cpu_traffic_prio->low_prio_cq_thread_sem, HZ);
-        if (ret == -ETIME) {
+        if (down_interruptible(&cpu_traffic_prio->low_prio_cq_thread_sem)) {
             continue;
+        }
+
+        if (!cpu_traffic_prio->low_prio_cq_thread_alive) {
+            break;
         }
 
         /* if high priority traffic has not completed handling, we'll wait ... */
