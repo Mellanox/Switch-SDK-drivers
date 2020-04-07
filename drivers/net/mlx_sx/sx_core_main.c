@@ -4180,6 +4180,30 @@ static void sx_doorbell_cleanup(struct sx_dev *dev)
     iounmap(dev->db_base);
 }
 
+static int sx_map_cr_space_area(struct sx_dev *dev)
+{
+    dev->cr_space_size = pci_resource_end(dev->pdev, 0) -
+                         pci_resource_start(dev->pdev, 0);
+    dev->cr_space_start = ioremap(pci_resource_start(dev->pdev, 0),
+                                  dev->cr_space_size);
+    if (!dev->cr_space_start) {
+        printk(KERN_ERR "%s(): cr_space ioremap failed \n", __func__);
+        return -EINVAL;
+    }
+
+    printk(KERN_DEBUG "%s(): map cr_space area p:0x%llx, size:%d, cr_space start:%p \n",
+           __func__,  pci_resource_start(dev->pdev, 0), dev->cr_space_size, dev->cr_space_start);
+
+    return 0;
+}
+
+static void sx_cr_space_cleanup(struct sx_dev *dev)
+{
+    iounmap(dev->cr_space_start);
+    dev->cr_space_size = 0;
+}
+
+
 static void sx_close_board(struct sx_dev *dev)
 {
     sx_UNMAP_FA(dev);
@@ -4387,12 +4411,17 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         goto err_dbell;
     }
 
+    err = sx_map_cr_space_area(dev);
+    if (err) {
+        goto err_cr_space;
+    }
+
     /* Only if the device is not registered */
     if (priv->unregistered) {
         err = sx_core_register_device(dev);
         if (err) {
             sx_err(dev, "Failed to register the device, aborting.\n");
-            goto err_dbell_clean;
+            goto err_cr_space_clean;
         }
 
         priv->unregistered = 0;
@@ -4430,7 +4459,10 @@ out_unregister:
         priv->unregistered = 1;
     }
 
-err_dbell_clean:
+err_cr_space_clean:
+    sx_cr_space_cleanup(dev);
+
+err_cr_space:
     sx_doorbell_cleanup(dev);
 
 err_dbell:
@@ -4737,6 +4769,7 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     sx_cmd_use_polling(dev);
     sx_cleanup_eq_table(dev);
     sx_core_destroy_cq_table(dev);
+    sx_cr_space_cleanup(dev);
     sx_doorbell_cleanup(dev);
 
     sx_core_ptp_cleanup(dev);

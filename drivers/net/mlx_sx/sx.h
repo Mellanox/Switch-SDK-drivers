@@ -53,7 +53,7 @@
 #include <linux/interrupt.h>
 #include <linux/version.h>
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
-    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+    (RHEL_MINOR >= 2)))
     #include <linux/timecounter.h>
 #endif
 #include <linux/clocksource.h>

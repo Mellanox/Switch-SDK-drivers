@@ -2160,32 +2160,23 @@ static int __cr_pcie_access(int              dev_id,
 
     pcie_dev = (struct sx_dev*)pcie_info->sx_dev;
 
-    pci_addr_start = pci_resource_start(pcie_dev->pdev, 0);
-    pci_addr_end = pci_resource_end(pcie_dev->pdev, 0);
 
-    if ((pci_addr_start + address) > pci_addr_end) {
+    /* address is offset in cr_space, so need to validate the boundaries */
+    if (address > pcie_dev->cr_space_size) {
         err = -EINVAL;
         sx_err(pcie_dev, "__cr_pcie_access: Couldn't access address %u, exceeds PCI device size %lu, aborting.\n",
                address, (pci_addr_end - pci_addr_start));
         goto out;
     }
 
-    pci_addr_start += address;
-
-    if ((unsigned long)size > (pci_addr_end - pci_addr_start)) {
+    if ((address + (unsigned long)size) > pcie_dev->cr_space_size) {
         err = -EINVAL;
-        sx_err(pcie_dev, "__cr_pcie_access: Block size %d exceeds CR sapce size %lu, aborting.\n",
-               size, (pci_addr_end - pci_addr_start));
+        sx_err(pcie_dev, "__cr_pcie_access: Block at addr %d with size %d exceeds CR space size %d, aborting.\n",
+               address, size, pcie_dev->cr_space_size);
         goto out;
     }
 
-    cr_addr = ioremap(pci_addr_start, size);
-    if (!cr_addr) {
-        err = -ENOMEM;
-        sx_err(pcie_dev, "__cr_pcie_access: Couldn't map CR access register, aborting.\n");
-        goto out;
-    }
-
+    cr_addr = pcie_dev->cr_space_start + address;
 
     switch (access_method) {
     case CR_ACCESS_METHOD_READ:
@@ -2213,8 +2204,6 @@ out:
     if (locked) {
         spin_unlock(&sx_glb.pci_devs_lock);
     }
-    if (cr_addr) {
-        iounmap(cr_addr);
-    }
+
     return err;
 }

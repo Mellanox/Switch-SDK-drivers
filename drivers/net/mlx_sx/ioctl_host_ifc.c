@@ -1682,7 +1682,7 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
          * which is used to simulate RDQ and store discarded packets which
          * were consumed by NOS (in case of trap double registration). */
         dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p =
-            kzalloc(sizeof(*dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p), GFP_KERNEL);
+            kzalloc(sizeof(*dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p), GFP_ATOMIC);
 
         if (dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p == NULL) {
             printk(KERN_DEBUG PFX " Failed to allocate memory for SW duplication queue. \n");

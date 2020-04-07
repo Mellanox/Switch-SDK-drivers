@@ -7,7 +7,7 @@ index bcbb910..f9e9eb6 100644
  #include "cq.h"
  #include <linux/version.h>
 -#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
--    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+-    (RHEL_MINOR >= 2)))
 +#if 1
      #include <linux/timecounter.h>
  #endif
@@ -28,7 +28,7 @@ index bcbb910..f9e9eb6 100644
      u64               ns;
  
 -#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
--    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+-    (RHEL_MINOR >= 2)))
 +#if 1
      u64 frac = 0;
  #endif
@@ -38,7 +38,7 @@ index bcbb910..f9e9eb6 100644
       */
  
 -#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
--    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+-    (RHEL_MINOR >= 2)))
 +#if 1
      ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask, frac, &frac);
  #else

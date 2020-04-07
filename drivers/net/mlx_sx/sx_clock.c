@@ -44,7 +44,7 @@
 #include "cq.h"
 #include <linux/version.h>
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
-    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+    (RHEL_MINOR >= 2)))
     #include <linux/timecounter.h>
 #endif
 
@@ -159,12 +159,12 @@ static u64 sx_read_hw_internal_timer(const struct cyclecounter *cc)
 #ifndef __PPC__
 
 /* SHOULD BE CALLED UNDER timecounter LOCK! */
-static cycle_t __ns2cyc(const struct timecounter *tc, s64 nsec)
+static u64 __ns2cyc(const struct timecounter *tc, s64 nsec)
 {
     nsec <<= tc->cc->shift;
     nsec = div_u64(nsec, tc->cc->mult);
 
-    return (cycle_t)nsec;
+    return (u64)nsec;
 }
 
 
@@ -173,7 +173,7 @@ static void __set_hw_time(struct work_struct *work)
     struct sx_tstamp          *tstamp = &__priv->tstamp;
     struct ku_access_mtpps_reg reg_mtpps;
     struct ku_access_mtutc_reg reg_mtutc;
-    cycle_t                    curr_frc, pps_frc;
+    u64                        curr_frc, pps_frc;
     u64                        curr_nsec = 0, nsec_till_full_sec;
     int                        freq_adj;
     bool                       time_adj;
@@ -186,7 +186,7 @@ find_good_timing:
 
     spin_lock_bh(&tstamp->lock);
 
-    curr_frc = (cycle_t)sx_read_hw_internal_timer(&tstamp->cycles);
+    curr_frc = sx_read_hw_internal_timer(&tstamp->cycles);
     curr_nsec = timecounter_cyc2time(&tstamp->clock, curr_frc);
     nsec_till_full_sec = NSEC_PER_SEC - ((curr_nsec) % (NSEC_PER_SEC));
 
@@ -467,7 +467,7 @@ static int sx_timestamp_init(struct sx_priv *priv)
     u64               ns;
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
-    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+    (RHEL_MINOR >= 2)))
     u64 frac = 0;
 #endif
 
@@ -502,7 +502,7 @@ static int sx_timestamp_init(struct sx_priv *priv)
      */
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
-    (RHEL_MINOR == 2 || RHEL_MINOR == 3)))
+    (RHEL_MINOR >= 2)))
     ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask, frac, &frac);
 #else
     ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask);

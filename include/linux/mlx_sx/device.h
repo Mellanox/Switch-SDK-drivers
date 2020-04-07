@@ -177,6 +177,10 @@ struct sx_dev {
     struct workqueue_struct *generic_wq;
     int                      catas_poll_running;
     u8                       dev_specific_cb_init_done;
+
+    /* cr space address and size */
+    void __iomem *cr_space_start;
+    u32           cr_space_size;
 };
 
 enum {
