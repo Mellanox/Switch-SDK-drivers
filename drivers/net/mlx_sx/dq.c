@@ -1066,6 +1066,8 @@ void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq)
     if (dq && dq->is_monitor) {
         unset_monitor_rdq(dq);
     }
+
+    sx_cq_arm(dq->cq);
 }
 
 

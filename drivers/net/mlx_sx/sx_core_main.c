@@ -3814,7 +3814,7 @@ static int sx_core_close(struct inode *inode, struct file *filp)
         for (i = 0; i < dev->dev_cap.max_num_rdqs; ++i) {
             dq = sx_priv(dev)->rdq_table.dq[i];
             if (dq && dq->is_monitor && (dq->file_priv_p == file)) {
-                unset_monitor_rdq(dq);
+                sx_core_del_rdq_from_monitor_rdq_list(dq);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
                 if (sx_priv(dev)->filter_ebpf_progs[i] != NULL) {
                     bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[i]);
