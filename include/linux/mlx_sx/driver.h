@@ -90,11 +90,6 @@ enum sx_dev_event {
 #define ETH_L3_MTUERROR_TRAP_ID   0x52
 #define ETH_L3_TTLERROR_TRAP_ID   0x53
 #define ETH_L3_LBERROR_TRAP_ID    0x54
-#define PTP_EVENT_PTP0_TRAP_ID    0x28
-#define PTP_GENERAL_PTP1_TRAP_ID  0x29
-#define PTP_ING_PTP_TRAP_ID       0x2D
-#define PTP_EGR_PTP_TRAP_ID       0x2E
-#define ETH_L2_LLDP_TRAP_ID       0x13
 #define MIN_IPTRAP_TRAP_ID        0x1C0 /* TODO define which one will be used */
 
 typedef enum l3_synd_type {
@@ -224,7 +219,7 @@ void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 
 int sx_core_get_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 *oper_state_p);
 int sx_core_get_ptp_clock_index(struct sx_dev *dev, uint8_t *ptp_clock_index_p);
 int sx_core_get_ptp_state(struct sx_dev *dev, uint8_t *is_ptp_enable);
-int sx_core_pending_ptp_eg_pkt(struct sx_dev *dev, struct sk_buff *skb, u16 sysport, u8 is_lag, u8 *is_ptp_pkt);
+int sx_core_ptp_tx_handler(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag);
 int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint8_t lag_subport,
                       uint16_t *local);
 int sx_core_get_prio2tc(struct sx_dev *dev,

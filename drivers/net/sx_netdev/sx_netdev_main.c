@@ -1100,7 +1100,6 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
     struct isx_meta     meta;
     struct sk_buff     *tmp_skb = NULL;
     struct vlan_ethhdr *veth = NULL;
-    u8                  is_ptp_packet = 0;
     u16                 pcp = 0;
     uint16_t            ifc_vlan = 0;
     u8                  is_ifc_rp = 0;
@@ -1181,12 +1180,11 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
 
     if ((net_priv->hwtstamp_config.tx_type == HWTSTAMP_TX_ON) &&
         unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
-        CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_pending_ptp_eg_pkt,
+        CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_ptp_tx_handler,
                                       net_priv->dev,
                                       skb,
                                       net_priv->port,
-                                      net_priv->is_lag,
-                                      &is_ptp_packet);
+                                      net_priv->is_lag);
     }
 
     if (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp) {
@@ -1569,6 +1567,7 @@ static void  * __sx_netdev_init_one_netdev(struct sx_dev *dev, int swid, int syn
     net_priv->dev = dev;
     net_priv->mac = mac;
     net_priv->is_oper_state_up = 1;
+    net_priv->skip_tunnel = g_skip_tunnel;
     net_priv->netdev = netdev;
     INIT_DELAYED_WORK(&net_priv->pude_dwork, sx_netdev_dwork_func);
 
@@ -2340,7 +2339,7 @@ static void sx_netdev_init_sx_core_interface(void)
     INIT_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_state);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_clock_index);
-    INIT_ONE_SX_CORE_FUNC(sx_core_pending_ptp_eg_pkt);
+    INIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_handler);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_lag_max);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_rp_mode);
 
@@ -2377,7 +2376,7 @@ static void sx_netdev_deinit_sx_core_interface(void)
     DEINIT_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_state);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_clock_index);
-    DEINIT_ONE_SX_CORE_FUNC(sx_core_pending_ptp_eg_pkt);
+    DEINIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_handler);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_lag_max);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_rp_mode);
 }
@@ -2465,7 +2464,7 @@ static void attach_netdevs(struct sx_dev *dev)
     struct sx_net_priv        *net_priv = NULL;
     union ku_filter_critireas  crit;
     cq_handler                 netdev_callback = 0;
-    int                        i;
+    int                        i, j;
     u8                         uc_type = 0;
     struct ku_port_vlan_params port_vlan;
     unsigned long              flags;
@@ -2500,8 +2499,8 @@ static void attach_netdevs(struct sx_dev *dev)
             if (g_netdev_resources->port_allocated[port_type][port] == 0) {
                 continue;
             }
-            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-                netdev = g_netdev_resources->port_netdev[port_type][port][i];
+            for (j = 0; j < MAX_PORT_NETDEV_NUM; j++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][j];
                 if (netdev != NULL) {
                     ATTACH_ONE_NETDEV(netdev, dev);
                     netdev_linkstate_set(netdev);
@@ -2533,6 +2532,7 @@ static void detach_netdevs(void)
     u8                         uc_type = 0;
     struct ku_port_vlan_params port_vlan;
     unsigned long              flags;
+    int                        j;
     int                        port_type = 0;
     int                        port = 0, br_id = 0;
     int                        swid = 0;
@@ -2563,8 +2563,8 @@ static void detach_netdevs(void)
             if (g_netdev_resources->port_allocated[port_type][port] == 0) {
                 continue;
             }
-            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-                netdev = g_netdev_resources->port_netdev[port_type][port][i];
+            for (j = 0; j < MAX_PORT_NETDEV_NUM; j++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][j];
                 if (netdev != NULL) {
                     DETACH_ONE_NETDEV(netdev);
                 }

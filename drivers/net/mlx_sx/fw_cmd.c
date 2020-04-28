@@ -148,6 +148,8 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
 #define QUERY_FW_DB_PAGE_BAR_OFFSET    0x48
 #define QUERY_FW_FRC_OFFSET            0x50
 #define QUERY_FW_FRC_BAR_OFFSET        0x58
+#define QUERY_FW_UTC_OFFSET            0x60
+#define QUERY_FW_UTC_BAR_OFFSET        0x68
 #define QUERY_FW_SIZE_OFFSET           0x00
 
     mailbox = sx_alloc_cmd_mailbox(dev, target_dev_id);
@@ -198,6 +200,8 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
     SX_GET(fw.doorbell_page_bar,    outbox, QUERY_FW_DB_PAGE_BAR_OFFSET);
     SX_GET(fw.frc_offset, outbox, QUERY_FW_FRC_OFFSET);
     SX_GET(fw.frc_bar,    outbox, QUERY_FW_FRC_BAR_OFFSET);
+    SX_GET(fw.utc_offset, outbox, QUERY_FW_UTC_OFFSET);
+    SX_GET(fw.utc_bar,    outbox, QUERY_FW_UTC_BAR_OFFSET);
     SX_GET(fw.fw_hour,    outbox, QUERY_FW_FW_HOUR_OFFSET);
     SX_GET(fw.fw_minutes, outbox, QUERY_FW_FW_MINUTES_OFFSET);
     SX_GET(fw.fw_seconds, outbox, QUERY_FW_FW_SECONDS_OFFSET);
@@ -218,6 +222,8 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
         query_fw->fw_rev = fw.fw_ver;
         query_fw->frc_offset = fw.frc_offset;
         query_fw->frc_bar = fw.frc_bar;
+        query_fw->utc_offset = fw.utc_offset;
+        query_fw->utc_bar = fw.utc_bar;
     }
 
     if ((0 == sx_priv(dev)->is_fw_initialized) &&

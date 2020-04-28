@@ -263,7 +263,6 @@ int sx_SET_SYSTEM_M_KEY(struct sx_dev *dev, struct ku_system_m_key *system_m_key
 int sx_GET_SYSTEM_M_KEY(struct sx_dev *dev, struct ku_system_m_key *system_m_key);
 int sx_ACCESS_REG_MLCR(struct sx_dev *dev, struct ku_access_mlcr_reg *reg_data);
 int sx_ACCESS_REG_PCNR(struct sx_dev *dev, struct ku_access_pcnr_reg *reg_data);
-int sx_ACCESS_REG_MOGCR(struct sx_dev *dev, struct ku_access_mogcr_reg *reg_data);
 int sx_ACCESS_REG_MTPPPC(struct sx_dev *dev, struct ku_access_mtpppc_reg *reg_data);
 int sx_ACCESS_REG_MTPPTR(struct sx_dev *dev, struct ku_access_mtpptr_reg *reg_data, u8 to_host_order);
 int sx_ACCESS_REG_MTPTPT(struct sx_dev *dev, struct ku_access_mtptpt_reg *reg_data);

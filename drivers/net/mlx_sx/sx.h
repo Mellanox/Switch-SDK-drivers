@@ -52,10 +52,6 @@
 #include "counter.h"
 #include <linux/interrupt.h>
 #include <linux/version.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && (defined(RHEL_MAJOR) && defined(RHEL_MINOR) && RHEL_MAJOR == 7 && \
-    (RHEL_MINOR >= 2)))
-    #include <linux/timecounter.h>
-#endif
 #include <linux/clocksource.h>
 #include <linux/net_tstamp.h>
 #include <linux/ptp_clock_kernel.h>
@@ -118,8 +114,6 @@
 
 #define TO_FIELD(mask, shift, value) \
     (value & mask) << shift;
-
-#define SX_MAX_PTP_RECORDS 4
 
 #undef CONFIG_SX_DEBUG
 /*#define CONFIG_SX_DEBUG*/
@@ -236,12 +230,6 @@ enum TX_BASE_HEADER_DEFS {
     TX_HDR_FID_MASK_V1 = 0xFFFF,
     TX_HDR_FID_SHIFT_V1 = 0
 };
-
-enum {
-    PTP_PACKET_INGRESS = 0,
-    PTP_PACKET_EGRESS = 1
-};
-
 enum tele_dir_ing {
     TELE_DIR_ING_EGRESS_E = 0,
     TELE_DIR_ING_INGRESS_E = 1,
@@ -252,27 +240,25 @@ enum tele_dir_ing {
  *  Structs
  ***********************************************/
 struct event_data {
-    struct list_head list;
-    struct sk_buff  *skb;
-    u16              system_port;
-    u16              trap_id;
-    u8               dev_id;
-    u8               is_lag;
-    u8               lag_sub_port;
-    u8               swid;
-    struct sx_dev   *dev;
-    u32              original_packet_size;
-    u8               has_timestamp;
-    struct timespec  timestamp;
-    u32              user_def_val;
-    u16              dest_sysport;
-    u8               dest_is_lag;
-    u8               dest_lag_subport;
-    u8               mirror_reason;
-    u8               mirror_tclass;
-    u16              mirror_cong;
-    u32              mirror_lantency;
-    u8               timestamp_type;
+    struct list_head       list;
+    struct sk_buff        *skb;
+    u16                    system_port;
+    u16                    trap_id;
+    u8                     dev_id;
+    u8                     is_lag;
+    u8                     lag_sub_port;
+    u8                     swid;
+    struct sx_dev         *dev;
+    u32                    original_packet_size;
+    struct sx_rx_timestamp rx_timestamp;
+    u32                    user_def_val;
+    u16                    dest_sysport;
+    u8                     dest_is_lag;
+    u8                     dest_lag_subport;
+    u8                     mirror_reason;
+    u8                     mirror_tclass;
+    u16                    mirror_cong;
+    u32                    mirror_lantency;
 };
 struct sx_rsc { /* sx  resource */
     struct event_data evlist;           /* event list           */
@@ -380,10 +366,10 @@ struct sx_cq {
                                                                  u8 *is_send, u8 *dqn, u16 *wqe_counter,
                                                                  u16 *byte_count, u32 *user_def_val_orig_pkt_len,
                                                                  u8 *is_lag, u8 *lag_subport, u16 *sysport_lag_id,
-                                                                 u8 *mirror_reason);
-    u8               (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
-    void             (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
-    struct timespec* cqe_ts_arr;
+                                                                 u8 *mirror_reason, struct sx_rx_timestamp *cqe_ts);
+    u8                      (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
+    void                    (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
+    struct sx_rx_timestamp* cqe_ts_arr;
 };
 struct cpu_traffic_priority {
     struct sx_bitmap    high_prio_cq_bitmap;     /* CPU high priority CQs */
@@ -513,6 +499,8 @@ struct sx_fw {
     u8             doorbell_page_bar;
     u64            frc_offset;
     u8             frc_bar;
+    u64            utc_offset;
+    u8             utc_bar;
     u16            core_clock;
     struct sx_icm *fw_icm;
     u16            fw_pages;
@@ -591,11 +579,11 @@ union swid_data {
 
 /* Timestamp to implement SW correction mechanism to the HW clock */
 struct sx_tstamp {
-    struct cyclecounter   cycles;   /* hardware abstraction for a free running counter */
+    struct cyclecounter   cycles;   /* hardware abstraction for a clock */
     struct timecounter    clock;   /* layer above a %struct cyclecounter which counts nanoseconds */
     u32                   nominal_c_mult;   /* Hardware nominal mult */
-    int                   freq_adj;   /* diff of frequency adjustment */
-    bool                  time_adj;   /* is there any time adjustment recently? */
+    int                   freq_adj;   /* diff of frequency adjustment (relevant to SPC1 only) */
+    bool                  time_adj;   /* is there any time adjustment recently? (relevant to SPC1 only) */
     struct sx_dev        *dev;
     struct ptp_clock     *ptp;
     struct ptp_clock_info ptp_info;
@@ -610,6 +598,7 @@ struct ber_work_data {
     struct delayed_work dwork;
 };
 struct sx_priv;
+struct sx_ptp_packet_metadata;
 /* Note - all these callbacks are called when the db_lock spinlock is locked! */
 struct dev_specific_cb {
     int (*get_hw_etclass_cb)(struct isx_meta *meta, u8* hw_etclass);
@@ -617,14 +606,25 @@ struct dev_specific_cb {
     u8  (*max_cpu_etclass_for_unlimited_mtu)(void);
     int (*sx_get_sdq_cb)(struct sx_dev *dev, enum ku_pkt_type type,
                          u8 swid, u8 etclass, u8 *stclass, u8 *sdq);
-    int  (*sx_get_sdq_num_cb)(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq);
-    int  (*get_send_to_port_as_data_supported_cb)(u8 *send_to_port_as_data_supported);
-    int  (*get_rp_vid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u16 *vid);
-    int  (*get_swid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u8 *swid);
-    int  (*get_lag_mid_cb)(u16 lag_id, u16 *mid);
-    int  (*get_ib_system_port_mid)(struct sx_dev *dev, u16 ib_port, u16* sys_port_mid);
-    int  (*sx_ptp_init)(struct sx_priv *priv, ptp_mode_t ptp_mode);
-    int  (*sx_ptp_cleanup)(struct sx_priv *priv);
+    int (*sx_get_sdq_num_cb)(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq);
+    int (*get_send_to_port_as_data_supported_cb)(u8 *send_to_port_as_data_supported);
+    int (*get_rp_vid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u16 *vid);
+    int (*get_swid_cb)(struct sx_dev *dev, struct completion_info *comp_info, u8 *swid);
+    int (*get_lag_mid_cb)(u16 lag_id, u16 *mid);
+    int (*get_ib_system_port_mid)(struct sx_dev *dev, u16 ib_port, u16* sys_port_mid);
+    int (*sx_ptp_init)(struct sx_priv *priv, ptp_mode_t ptp_mode);
+    int (*sx_ptp_cleanup)(struct sx_priv *priv);
+    int (*sx_ptp_dump)(struct seq_file *m, void *v);
+    int (*sx_ptp_rx_handler)(struct sx_priv                      *priv,
+                             struct completion_info              *ci,
+                             ptp_mode_t                           ptp_mode,
+                             const struct sx_ptp_packet_metadata *pkt_meta);
+    int (*sx_ptp_tx_handler)(struct sx_priv                      *priv,
+                             struct sk_buff                      *skb,
+                             const struct sx_ptp_packet_metadata *pkt_meta);
+    int (*sx_ptp_tx_ts_handler)(struct sx_priv        *priv,
+                                struct sk_buff        *skb,
+                                const struct timespec *tx_ts);
     void (*sx_set_device_profile_update_cb)(struct ku_profile* profile, struct profile_driver_params *driver_params);
     void (*sx_init_cq_db_cb)(struct sx_cq *cq, u8 cqn, u8 *cqe_ver);
     void (*sx_printk_cqe_cb)(union sx_cqe *u_cqe);
@@ -637,6 +637,12 @@ struct dev_specific_cb {
     int     (*sx_get_lag_max_cb)(uint16_t *max_lag_p, uint16_t *max_port_lags_p);
     uint8_t (*sx_get_rdq_max_cb)(void);
     int     (*is_eqn_cmd_ifc_only_cb)(int eqn, u8 *is_cmd_ifc_only);
+    int     (*sx_clock_init)(struct sx_priv *priv);
+    int     (*sx_clock_cleanup)(struct sx_priv *priv);
+    int     (*sx_clock_cqe_ts_to_utc)(struct sx_priv        *priv,
+                                      const struct timespec *cqe_ts,
+                                      struct timespec       *utc);
+    int (*sx_clock_dump)(struct seq_file *m, void *v);
 };
 struct sx_priv {
     struct sx_dev              dev;
@@ -659,7 +665,8 @@ struct sx_priv {
 
     /* PTP clock */
     struct sx_tstamp tstamp;
-    void __iomem    *ptp_hw_frc_base;
+    void __iomem    *hw_clock_frc_base;
+    void __iomem    *hw_clock_utc_base;
     int              ptp_cqn;
 
     /* IB only */

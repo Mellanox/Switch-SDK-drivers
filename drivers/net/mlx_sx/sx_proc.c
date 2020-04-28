@@ -1816,7 +1816,7 @@ void __sx_proc_dump_rdq(struct sx_dev *dev)
                    rdq_table->dq[i]->cq->cons_index,
                    rdq_table->dq[i]->cq->nent,
                    atomic_read(&rdq_table->dq[i]->cq->refcount),
-                   (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, cqn) ? 1 : 0),
+                   IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn),
                    (int)rdq_table->dq[i]->is_monitor);
         }
     }

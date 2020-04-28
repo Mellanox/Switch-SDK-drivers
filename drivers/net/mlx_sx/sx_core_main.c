@@ -66,6 +66,7 @@
 #include "sx_dpt.h"
 #include "sx_proc.h"
 #include "sx_clock.h"
+#include "ptp.h"
 #include "sgmii.h"
 #include "counter.h"
 
@@ -330,7 +331,6 @@ static void sx_core_listeners_cleanup(void);
 
 int sx_init_char_dev(struct cdev *cdev_p);
 void sx_deinit_char_dev(struct cdev *cdev_p);
-int sx_core_ptp_cleanup(struct sx_dev *dev);
 
 enum {
     PCI_PROBE_STATE_NONE_E,
@@ -563,93 +563,6 @@ void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 
 }
 EXPORT_SYMBOL(get_lag_id_from_local_port);
 
-int sx_core_get_ptp_state(struct sx_dev *dev, uint8_t *is_ptp_enable)
-{
-    *is_ptp_enable = sx_priv(dev)->tstamp.is_ptp_enable;
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_get_ptp_state);
-
-int sx_core_get_ptp_clock_index(struct sx_dev *dev, uint8_t *ptp_clock_index_p)
-{
-#ifndef __PPC__
-    if (sx_priv(dev)->tstamp.is_ptp_enable) {
-        *ptp_clock_index_p = ptp_clock_index(sx_priv(dev)->tstamp.ptp);
-    }
-#endif
-
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_get_ptp_clock_index);
-
-
-int sx_core_pending_ptp_eg_pkt(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag, u8 *is_ptp_pkt)
-{
-    u8                        ptp_domain_num = 0, ptp_msg_type = 0;
-    u16                       ptp_evt_seqid = 0;
-    struct ptp_tx_event_data *ptp_event;
-    unsigned long             flags;
-    uint16_t                  phy_port_max = 0;
-
-    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
-        printk(KERN_ERR PFX "Failed to get max number of phy ports.\n");
-        return -EINVAL;
-    }
-
-    if (is_lag) {
-        sysport_lag_id += phy_port_max;
-    }
-
-    sx_ptp_pkt_parse(skb, is_ptp_pkt, &ptp_evt_seqid, &ptp_domain_num, &ptp_msg_type);
-
-    if (sx_priv(dev)->tstamp.is_ptp_enable && *is_ptp_pkt) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_TOTAL]);
-
-        /*  with ptp general messages should be dispatch without timestamp */
-        if (((u16)(1 << ptp_msg_type) & PTP_MSG_GENERAL_ALL)) {
-            skb_tstamp_tx(skb, NULL);
-            return 0;
-        }
-
-        if (atomic64_dec_return(&ptp_tx_budget[sysport_lag_id]) < 0) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_RATE_LIMIT]);
-        }
-
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_NEED_TIMESTAMP]);
-
-        ptp_event = ptp_allocate_tx_event_data(GFP_ATOMIC);
-        if (!ptp_event) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_OUT_OF_MEMORY]);
-            return -ENOMEM;
-        }
-
-        ptp_event->skb = skb_clone(skb, GFP_ATOMIC);
-        if (!ptp_event->skb) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_OUT_OF_MEMORY]);
-            ptp_free_tx_event_data(ptp_event);
-            return -ENOMEM;
-        }
-
-        skb_shinfo(ptp_event->skb)->tx_flags |= SKBTX_IN_PROGRESS;
-        ptp_event->skb->sk = skb->sk;
-        sock_hold(ptp_event->skb->sk);
-
-        INIT_LIST_HEAD(&ptp_event->common.list);
-        ptp_event->common.sequence_id = ptp_evt_seqid;
-        ptp_event->common.domain_num = ptp_domain_num;
-        ptp_event->common.msg_type = ptp_msg_type;
-        ptp_event->common.need_timestamp = 1;
-        ptp_event->common.since = jiffies;
-
-        spin_lock_irqsave(&ptp_tx_db.sysport_lock[sysport_lag_id], flags);
-        list_add_tail(&ptp_event->common.list, &ptp_tx_db.sysport_events_list[sysport_lag_id]);
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_PENDING_EVENTS]);
-        spin_unlock_irqrestore(&ptp_tx_db.sysport_lock[sysport_lag_id], flags);
-    }
-
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_pending_ptp_eg_pkt);
 
 int sx_core_get_prio2tc(struct sx_dev *dev, uint16_t port_lag_id, uint8_t is_lag, uint8_t pcp, uint8_t *tc)
 {
@@ -1588,7 +1501,7 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     ci.mirror_cong = 0xFFFF;
     ci.mirror_lantency = 0xFFFFFF;
     ci.mirror_tclass = 0x1F;
-    ci.timestamp_type = 0;
+    SX_RX_TIMESTAMP_INIT(&ci.rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
 
     if (dispatch_pkt(dev, &ci, ci.hw_synd, 0) > 0) {
         dev->stats.rx_eventlist_by_synd[write_data->meta.loopback_data.trap_id]++;
@@ -1651,11 +1564,13 @@ void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p, struct event_data 
         metadata_p->lag_subport = edata_p->lag_sub_port;
     }
 
-    metadata_p->has_timestamp = edata_p->has_timestamp;
+    metadata_p->has_timestamp = (edata_p->rx_timestamp.ts_type != SXD_TS_TYPE_NONE);
     if (metadata_p->has_timestamp) {
-        metadata_p->timestamp.tv_sec = edata_p->timestamp.tv_sec;
-        metadata_p->timestamp.tv_nsec = edata_p->timestamp.tv_nsec;
+        metadata_p->timestamp_type = edata_p->rx_timestamp.ts_type;
+        metadata_p->timestamp.tv_sec = edata_p->rx_timestamp.timestamp.tv_sec;
+        metadata_p->timestamp.tv_nsec = edata_p->rx_timestamp.timestamp.tv_nsec;
     }
+
     metadata_p->dest_is_lag = edata_p->dest_is_lag;
     metadata_p->dest_lag_subport = edata_p->dest_lag_subport;
     metadata_p->dest_sysport = edata_p->dest_sysport;
@@ -1665,7 +1580,6 @@ void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p, struct event_data 
     metadata_p->mirror_cong = edata_p->mirror_cong;
     metadata_p->mirror_lantency = edata_p->mirror_lantency;
     metadata_p->mirror_tclass = edata_p->mirror_tclass;
-    metadata_p->timestamp_type = edata_p->timestamp_type;
 }
 
 
@@ -2214,11 +2128,7 @@ void sx_cq_handle_event_data_prepare(struct event_data      *edata_p,
     edata_p->lag_sub_port = comp_info_p->lag_subport;
     edata_p->swid = comp_info_p->swid;
     edata_p->original_packet_size = comp_info_p->original_packet_size;
-    edata_p->has_timestamp = comp_info_p->has_timestamp;
-
-    if (edata_p->has_timestamp) {
-        memcpy(&edata_p->timestamp, &comp_info_p->timestamp, sizeof(edata_p->timestamp));
-    }
+    SX_RX_TIMESTAMP_COPY(&edata_p->rx_timestamp, &comp_info_p->rx_timestamp);
     edata_p->dest_is_lag = comp_info_p->dest_is_lag;
 
     edata_p->dest_lag_subport = comp_info_p->dest_lag_subport;
@@ -2229,7 +2139,6 @@ void sx_cq_handle_event_data_prepare(struct event_data      *edata_p,
     edata_p->mirror_cong = comp_info_p->mirror_cong;
     edata_p->mirror_lantency = comp_info_p->mirror_lantency;
     edata_p->mirror_tclass = comp_info_p->mirror_tclass;
-    edata_p->timestamp_type = comp_info_p->timestamp_type;
 
 #ifdef SX_DEBUG
     printk(KERN_DEBUG PFX " %s(): skb->len=[%d]  sysport=[%d]"
@@ -2982,6 +2891,10 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .get_ib_system_port_mid = get_ib_system_port_mid_with_fix_up,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -2992,7 +2905,11 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
 };
 struct dev_specific_cb spec_cb_sx_a2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl,
@@ -3007,6 +2924,10 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .get_ib_system_port_mid = get_ib_system_port_mid_with_fix_up,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3017,7 +2938,11 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL
 };
 struct dev_specific_cb spec_cb_pelican = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3032,6 +2957,10 @@ struct dev_specific_cb spec_cb_pelican = {
     .get_ib_system_port_mid = get_ib_system_port_mid_with_fix_up,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3042,7 +2971,11 @@ struct dev_specific_cb spec_cb_pelican = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL
 };
 struct dev_specific_cb spec_cb_quantum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3057,6 +2990,10 @@ struct dev_specific_cb spec_cb_quantum = {
     .get_ib_system_port_mid = get_ib_system_port_mid,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3067,7 +3004,11 @@ struct dev_specific_cb spec_cb_quantum = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max_quantum,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL
 };
 struct dev_specific_cb spec_cb_spectrum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3080,8 +3021,12 @@ struct dev_specific_cb spec_cb_spectrum = {
     .get_swid_cb = get_swid_from_ci,
     .get_lag_mid_cb = sdk_get_lag_mid,
     .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = sx_ptp_init,
-    .sx_ptp_cleanup = sx_ptp_cleanup,
+    .sx_ptp_init = sx_ptp_init_spc1,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc1,
+    .sx_ptp_dump = sx_ptp_dump_spc1,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc1,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc1,
+    .sx_ptp_tx_ts_handler = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
     .sx_init_cq_db_cb = sx_init_cq_db_spc,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
@@ -3092,7 +3037,11 @@ struct dev_specific_cb spec_cb_spectrum = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = sx_clock_init_spc1,
+    .sx_clock_cleanup = sx_clock_cleanup_spc1,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL
 };
 struct dev_specific_cb spec_cb_spectrum2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3105,10 +3054,14 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .get_swid_cb = get_swid_from_ci,
     .get_lag_mid_cb = sdk_get_lag_mid,
     .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = NULL,
-    .sx_ptp_cleanup = NULL,
+    .sx_ptp_init = sx_ptp_init_spc2,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc2,
+    .sx_ptp_dump = sx_ptp_dump_spc2,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
+    .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
-    .sx_init_cq_db_cb = sx_init_cq_db_spc,
+    .sx_init_cq_db_cb = sx_init_cq_db_v2,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
     .is_sw_rate_limiter_supported = NULL,
     .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
@@ -3117,7 +3070,11 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
     .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
-    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only,
+    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_cleanup = sx_clock_cleanup_spc2,
+    .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
+    .sx_clock_dump = sx_clock_dump_spc2
 };
 struct dev_specific_cb spec_cb_spectrum3 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3130,10 +3087,14 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .get_swid_cb = get_swid_from_ci,
     .get_lag_mid_cb = sdk_get_lag_mid,
     .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = NULL,
-    .sx_ptp_cleanup = NULL,
+    .sx_ptp_init = sx_ptp_init_spc2,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc2,
+    .sx_ptp_dump = sx_ptp_dump_spc2,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
+    .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
-    .sx_init_cq_db_cb = sx_init_cq_db_spc,
+    .sx_init_cq_db_cb = sx_init_cq_db_v2,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
     .is_sw_rate_limiter_supported = NULL,
     .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
@@ -3142,7 +3103,11 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
     .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_cleanup = sx_clock_cleanup_spc2,
+    .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
+    .sx_clock_dump = sx_clock_dump_spc2
 };
 
 int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_type, bool force)
@@ -4286,6 +4251,7 @@ out_ret:
     return err;
 }
 
+
 static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id *id)
 {
     struct sx_priv *priv = NULL;
@@ -4446,12 +4412,21 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         sx_glb.oob_backbone_dev = dev;
     }
 
+    err = sx_core_clock_init(priv);
+    if (err) {
+        sx_err(dev, "Failed to initialize clock. aborting.\n");
+        goto out_clock_failed;
+    }
+
     __pci_probe_state = PCI_PROBE_STATE_SUCCESS_E;
 
     /* udev event for system management purpose */
     kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
 
     return 0;
+
+out_clock_failed:
+    sx_core_stop_catas_poll(dev);
 
 out_unregister:
     if (!priv->unregistered) {
@@ -4706,25 +4681,6 @@ void sx_core_disconnect_all_trap_groups(struct sx_dev *dev)
 }
 
 
-int sx_core_ptp_cleanup(struct sx_dev *dev)
-{
-    int             err = 0;
-    struct sx_priv *priv = sx_priv(dev);
-
-    err = __sx_core_dev_specific_cb_get_reference(dev);
-    if (err) {
-        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-        return err;
-    }
-
-    if ((IS_PTP_MODE_EVENTS || IS_PTP_MODE_POLLING) && (priv->dev_specific_cb.sx_ptp_cleanup != NULL)) {
-        priv->dev_specific_cb.sx_ptp_cleanup(priv);
-    }
-
-    __sx_core_dev_specific_cb_release_reference(dev);
-    return err;
-}
-
 static void sx_core_remove_one_pci(struct pci_dev *pdev)
 {
     struct sx_priv *priv;
@@ -4746,6 +4702,7 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     sx_glb.pci_devs_cnt--;
 
     priv = sx_priv(dev);
+
     if (!priv->unregistered) {
         sx_core_unregister_device(dev);
         priv->unregistered = 1;
@@ -4772,7 +4729,8 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     sx_cr_space_cleanup(dev);
     sx_doorbell_cleanup(dev);
 
-    sx_core_ptp_cleanup(dev);
+    sx_core_ptp_cleanup(priv);
+    sx_core_clock_deinit(priv);
 
     if (dev->flags & SX_FLAG_MSI_X) {
         pci_disable_msix(dev->pdev);

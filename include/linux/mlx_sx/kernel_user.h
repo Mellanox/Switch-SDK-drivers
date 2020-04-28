@@ -971,6 +971,7 @@ typedef enum mlxsw_res_id {
     KU_RES_ID_MAX_SPAN = 0x2420,
     KU_RES_ID_COUNTER_SIZE_PACKETS_BYTES = 0x2443,
     KU_RES_ID_COUNTER_SIZE_ROUTER_BASIC = 0x2449,
+    KU_RES_ID_CAP_PTP_FRC_RATE = 0x2460,
     KU_RES_ID_MAX_SYSTEM_PORT = 0x2502,
     KU_RES_ID_MAX_LAG = 0x2520,
     KU_RES_ID_MAX_LAG_MEMBERS = 0x2521,
@@ -1147,6 +1148,19 @@ struct sx_dev_cap {
 struct ku_timespec {
     int32_t tv_sec;
     int32_t tv_nsec;
+};
+
+enum {
+    /* following values are taken from PRM: */
+    SXD_TS_TYPE_CQE_NONE = 0,
+    SXD_TS_TYPE_CQE_FRC = 1,
+    SXD_TS_TYPE_CQE_UTC = 2,
+    SXD_TS_TYPE_CQE_MIRROR_UTC = 3,
+    SXD_TS_TYPE_CQE_MAX = SXD_TS_TYPE_CQE_MIRROR_UTC,
+
+    /* internal driver values */
+    SXD_TS_TYPE_NONE = SXD_TS_TYPE_CQE_NONE,
+    SXD_TS_TYPE_LINUX = SXD_TS_TYPE_CQE_MAX + 1
 };
 
 /**
@@ -1505,6 +1519,8 @@ struct ku_query_fw {
     uint8_t                              dev_id; /**< dev_id - device id */
     uint64_t __attribute__((aligned(8))) frc_offset;
     uint8_t                              frc_bar;
+    uint64_t __attribute__((aligned(8))) utc_offset;
+    uint8_t                              utc_bar;
 };
 struct ku_query_cq {
     uint8_t  eq_num;     /* 0 or 1 */
@@ -5521,9 +5537,11 @@ struct ku_pcnr_reg {
 struct ku_pcmr_reg {
     uint8_t local_port;        /**< local_port - local port number */
     uint8_t tx_fcs_recalc_cap; /**< tx_fcs_recalc_cap - Egress prevent CRC overwrite capability */
+    uint8_t tx_ts_over_crc_cap; /**< tx_ts_over_crc_cap - Egress timestamp over CRC capability */
     uint8_t rx_fcs_drop_cap;   /**< rx_fcs_drop_cap - Ingress forward on bad CRC capability */
     uint8_t fcs_cap;           /**< fcs_cap - FCS check capability */
     uint8_t tx_fcs_recalc;     /**< tx_fcs_recalc - ENA/ DIS - enable Egress prevent CRC overwrite */
+    uint8_t tx_ts_over_crc;    /**< tx_ts_over_crc - ENA/ DIS - enable Egress timestamp over CRC */
     uint8_t rx_fcs_drop;       /**< rx_fcs_drop - ENA/ DIS - enable Ingress forward on bad CRC */
     uint8_t fcs_chk;           /**< FCS check - ENA/ DIS - enable FCS check  */
 };
@@ -8832,16 +8850,6 @@ struct ku_pddr_reg {
 };
 
 /**
- * ku_mogcr_reg structure is used to store the access
- * register MOGCR command parameters
- */
-struct ku_mogcr_reg {
-    uint8_t  ptp_iftc;
-    uint8_t  ptp_eftc;
-    uint16_t mirror_latency_scale;
-};
-
-/**
  * ku_mtpppc_reg structure is used to store the access
  * register MTPPPC command parameters
  */
@@ -8916,16 +8924,6 @@ struct ku_mtpps_reg {
 struct ku_mtptpt_reg {
     uint8_t  trap_id;
     uint16_t message_type;
-};
-
-/**
- * ku_access_mogcr_reg structure is used to store the access
- * register MOGCR command parameters
- */
-struct ku_access_mogcr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mogcr_reg     mogcr_reg; /**< mogcr_reg - mogcr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
 };
 
 /**

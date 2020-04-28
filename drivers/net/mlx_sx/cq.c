@@ -44,7 +44,6 @@
 #include <linux/kthread.h>
 #include <linux/if_vlan.h>
 #include <linux/filter.h>
-#include <linux/ptp_classify.h>
 #include <linux/mlx_sx/device.h>
 #include <linux/mlx_sx/driver.h>
 #include <linux/mlx_sx/cmd.h>
@@ -59,6 +58,7 @@
 #include "alloc.h"
 #include "sx_proc.h"
 #include "sx_clock.h"
+#include "ptp.h"
 #include "sgmii.h"
 
 #define CREATE_TRACE_POINTS
@@ -198,7 +198,6 @@ void sx_fill_ci_from_cqe_v0(struct completion_info *ci, union sx_cqe *u_cqe)
     ci->mirror_cong = 0xFFFF;
     ci->mirror_lantency = 0xFFFFFF;
     ci->mirror_tclass = 0x1F;
-    ci->timestamp_type = 0;
 }
 
 void sx_fill_ci_from_cqe_v2(struct completion_info *ci, union sx_cqe *u_cqe)
@@ -218,10 +217,6 @@ void sx_fill_ci_from_cqe_v2(struct completion_info *ci, union sx_cqe *u_cqe)
     ci->mirror_cong |= (be32_to_cpu(u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) >> 20) & 0xFFF;
     ci->mirror_lantency = (be16_to_cpu(u_cqe->v2->mirror_latency2) << 8) | u_cqe->v2->mirror_latency1;
     ci->mirror_tclass = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 3) & 0x1F;
-    ci->timestamp_type = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 22) & 0x3;
-    ci->hw_utc_timestamp.tv_nsec = ((be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) & 0x3FFF) << 16)
-                                   | be16_to_cpu(u_cqe->v2->time_stamp1);
-    ci->hw_utc_timestamp.tv_sec = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 14) & 0xFF;
 }
 
 void sx_fill_params_from_cqe_v0(union sx_cqe *u_cqe,
@@ -784,111 +779,6 @@ static int chk_completion_info(struct completion_info *ci)
     return err;
 }
 
-int rx_ptp_trap_handler(struct sx_priv *priv, struct completion_info *ci, int cqn)
-{
-    int                       err = 0;
-    struct ptp_rx_event_data *rx_ptp_event;
-    u8                        need_timestamp;
-    u16                       ptp_evt_seqid = 0;
-    u8                        ptp_domain_num = 0, ptp_msg_type = 0;
-    u16                       lag_id = 0, sysport = 0;
-
-    /* PTP L2 Peer to Peer packets received with LLDP trap */
-    if ((ci->hw_synd == PTP_EVENT_PTP0_TRAP_ID) || (ci->hw_synd == PTP_GENERAL_PTP1_TRAP_ID) ||
-        (ci->hw_synd == ETH_L2_LLDP_TRAP_ID)) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_TOTAL]);
-
-        err = sx_ptp_pkt_parse(ci->skb, NULL, &ptp_evt_seqid, &ptp_domain_num, &ptp_msg_type);
-        if (err) {
-            if (ci->hw_synd == PTP_EVENT_PTP0_TRAP_ID) {
-                err = -EINVAL;
-                printk(KERN_ERR PFX "Failed to parse ptp packet(). err: %d \n", err);
-            }
-
-            goto dispatch;
-        }
-
-        if (ci->is_lag) {
-            lag_id = ci->sysport;
-            sysport = priv->lag_member_to_local_db[lag_id][ci->lag_subport];
-        } else {
-            sysport = ci->sysport;
-        }
-
-        /*  with LLDP trap ptp general messages should be dispatch without timestamp */
-        if (((u16)(1 << ptp_msg_type) & PTP_MSG_GENERAL_ALL) && (ci->hw_synd == ETH_L2_LLDP_TRAP_ID)) {
-            need_timestamp = 0;
-        } else if (ci->hw_synd == PTP_GENERAL_PTP1_TRAP_ID) {
-            need_timestamp = 0;
-        } else {
-            need_timestamp = 1;
-
-            if (atomic64_dec_return(&ptp_rx_budget[sysport]) < 0) {
-                /* no more budget for this RX PTP packet! */
-                atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_RATE_LIMIT]);
-            }
-
-            atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_NEED_TIMESTAMP]);
-        }
-
-        priv->ptp_cqn = cqn;
-
-        rx_ptp_event = ptp_allocate_rx_event_data(GFP_ATOMIC);
-        if (!rx_ptp_event) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_OUT_OF_MEMORY]);
-            goto out;
-        }
-
-        INIT_LIST_HEAD(&rx_ptp_event->common.list);
-        rx_ptp_event->common.sequence_id = ptp_evt_seqid;
-        rx_ptp_event->common.domain_num = ptp_domain_num;
-        rx_ptp_event->common.msg_type = ptp_msg_type;
-        rx_ptp_event->common.need_timestamp = need_timestamp;
-        rx_ptp_event->common.since = jiffies;
-        rx_ptp_event->ci = ci;
-
-        spin_lock_bh(&ptp_rx_db.sysport_lock[sysport]);
-        list_add_tail(&rx_ptp_event->common.list, &ptp_rx_db.sysport_events_list[sysport]);
-        atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_PENDING_EVENTS]);
-
-        if (!need_timestamp) {
-            ptp_dequeue_general_messages(sysport, &ptp_rx_db);
-        } else if (IS_PTP_MODE_POLLING) {
-            up(&ptp_polling_sem);
-        }
-
-        spin_unlock_bh(&ptp_rx_db.sysport_lock[sysport]);
-
-        return 0;
-    }
-
-#define MTPPTR_OFFSET (0x24)
-
-    if (ci->hw_synd == PTP_ING_PTP_TRAP_ID) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_FIFO_TRAP]);
-        if (IS_PTP_MODE_EVENTS) {
-            ptp_lookup_event(ci->skb->data + MTPPTR_OFFSET, &ptp_rx_db);
-        }
-
-        goto out;
-    }
-
-    if (ci->hw_synd == PTP_EGR_PTP_TRAP_ID) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_FIFO_TRAP]);
-        ptp_lookup_event(ci->skb->data + MTPPTR_OFFSET, &ptp_tx_db);
-
-        goto out;
-    }
-
-dispatch:
-    dispatch_pkt(&priv->dev, ci, ci->hw_synd, 1);
-
-out:
-    sx_skb_free(ci->skb);
-    kfree(ci);
-
-    return err;
-}
 
 #ifdef SW_PUDE_EMULATION
 /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
@@ -925,12 +815,12 @@ out:
  * extracts the needed data from the cqe and from the packet, calls
  * the filter listeners with that info
  */
-int rx_skb(void                  *context,
-           struct sk_buff        *skb,
-           union sx_cqe          *u_cqe,
-           const struct timespec *timestamp,
-           int                    is_from_monitor_rdq,
-           struct listener_entry* force_listener)
+int rx_skb(void                         *context,
+           struct sk_buff               *skb,
+           union sx_cqe                 *u_cqe,
+           const struct sx_rx_timestamp *rx_timestamp,
+           int                           is_from_monitor_rdq,
+           struct listener_entry       * force_listener)
 {
     struct completion_info *ci = NULL;
     struct sx_priv         *priv = sx_priv((struct sx_dev *)context);
@@ -983,6 +873,8 @@ int rx_skb(void                  *context,
                "probably a LP response\n");
 #endif
     }
+
+    cqn = dqn + NUMBER_OF_SDQS;
 
     /* update skb->len to the real len,
      * instead of the max len we allocated */
@@ -1049,17 +941,7 @@ int rx_skb(void                  *context,
         ci->swid = 0;
     }
 
-    ci->has_timestamp = (timestamp != NULL);
-    if (ci->has_timestamp) {
-        if (sx_bitmap_test(&sx_priv(sx_device)->cq_table.ts_hw_utc_bitmap, dqn + NUMBER_OF_SDQS)) {
-            /* Get timestamp from CQE */
-            memcpy(&ci->timestamp, &ci->hw_utc_timestamp, sizeof(ci->timestamp));
-        } else {
-            /* Get Linux timestamp */
-            memcpy(&ci->timestamp, timestamp, sizeof(ci->timestamp));
-            ci->timestamp_type = 0;
-        }
-    }
+    SX_RX_TIMESTAMP_COPY(&ci->rx_timestamp, rx_timestamp);
 
     sx_core_skb_hook_rx_call(sx_device, skb);
 
@@ -1286,9 +1168,15 @@ int rx_skb(void                  *context,
 #endif
 
     if (priv->tstamp.is_ptp_enable && !is_from_monitor_rdq) {
-        cqn = dqn + NUMBER_OF_SDQS;
-        err = rx_ptp_trap_handler(priv, ci, cqn);
-        return err;
+        err = sx_core_ptp_rx_handler(priv, ci, cqn);
+
+        /* if (err != 0) it is not a real error, it just means that either it is not a PTP packet/event or
+         *               it is a PTP packet that got its timestamp and should continue the packet flow as
+         *               usual [dispatch_pkt(), free skb, free ci].
+         * if (err == 0) it means that packet is being handled by PTP and processing is done here (only on SPC1) */
+        if (!err) {
+            return 0;
+        }
     }
 
     if (force_listener == NULL) {
@@ -1481,18 +1369,19 @@ out:
     return err;
 }
 
-void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
-                                         u16          *trap_id,
-                                         u8           *is_err,
-                                         u8           *is_send,
-                                         u8           *dqn,
-                                         u16          *wqe_counter,
-                                         u16          *byte_count,
-                                         u32          *user_def_val_orig_pkt_len,
-                                         u8           *is_lag,
-                                         u8           *lag_subport,
-                                         u16          *sysport_lag_id,
-                                         u8           *mirror_reason)
+void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe           *u_cqe,
+                                         u16                    *trap_id,
+                                         u8                     *is_err,
+                                         u8                     *is_send,
+                                         u8                     *dqn,
+                                         u16                    *wqe_counter,
+                                         u16                    *byte_count,
+                                         u32                    *user_def_val_orig_pkt_len,
+                                         u8                     *is_lag,
+                                         u8                     *lag_subport,
+                                         u16                    *sysport_lag_id,
+                                         u8                     *mirror_reason,
+                                         struct sx_rx_timestamp *cqe_ts)
 {
     *dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
     if (be16_to_cpu(u_cqe->v0->dqn5_byte_count) & SX_CQE_DQN_MSB_MASK) {
@@ -1508,20 +1397,22 @@ void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
     *lag_subport = u_cqe->v0->vlan2_lag_subport & 0x1F;
     *sysport_lag_id = be16_to_cpu(u_cqe->v0->system_port_lag_id);
     *mirror_reason = 0;
+    SX_RX_TIMESTAMP_INIT(cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
 }
 
-void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
-                                         u16          *trap_id,
-                                         u8           *is_err,
-                                         u8           *is_send,
-                                         u8           *dqn,
-                                         u16          *wqe_counter,
-                                         u16          *byte_count,
-                                         u32          *user_def_val_orig_pkt_len,
-                                         u8           *is_lag,
-                                         u8           *lag_subport,
-                                         u16          *sysport_lag_id,
-                                         u8           *mirror_reason)
+void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe           *u_cqe,
+                                         u16                    *trap_id,
+                                         u8                     *is_err,
+                                         u8                     *is_send,
+                                         u8                     *dqn,
+                                         u16                    *wqe_counter,
+                                         u16                    *byte_count,
+                                         u32                    *user_def_val_orig_pkt_len,
+                                         u8                     *is_lag,
+                                         u8                     *lag_subport,
+                                         u16                    *sysport_lag_id,
+                                         u8                     *mirror_reason,
+                                         struct sx_rx_timestamp *cqe_ts)
 {
     *dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
     *is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
@@ -1534,20 +1425,22 @@ void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
     *lag_subport = u_cqe->v1->rp_lag_subport & 0xFF;
     *sysport_lag_id = be16_to_cpu(u_cqe->v1->rp_system_port_lag_id);
     *mirror_reason = 0;
+    SX_RX_TIMESTAMP_INIT(cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
 }
 
-void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
-                                         u16          *trap_id,
-                                         u8           *is_err,
-                                         u8           *is_send,
-                                         u8           *dqn,
-                                         u16          *wqe_counter,
-                                         u16          *byte_count,
-                                         u32          *user_def_val_orig_pkt_len,
-                                         u8           *is_lag,
-                                         u8           *lag_subport,
-                                         u16          *sysport_lag_id,
-                                         u8           *mirror_reason)
+void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe           *u_cqe,
+                                         u16                    *trap_id,
+                                         u8                     *is_err,
+                                         u8                     *is_send,
+                                         u8                     *dqn,
+                                         u16                    *wqe_counter,
+                                         u16                    *byte_count,
+                                         u32                    *user_def_val_orig_pkt_len,
+                                         u8                     *is_lag,
+                                         u8                     *lag_subport,
+                                         u16                    *sysport_lag_id,
+                                         u8                     *mirror_reason,
+                                         struct sx_rx_timestamp *cqe_ts)
 {
     *dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
     *is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
@@ -1561,30 +1454,63 @@ void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
     *lag_subport = u_cqe->v2->rp_lag_subport & 0xFF;
     *sysport_lag_id = be16_to_cpu(u_cqe->v2->rp_system_port_lag_id);
     *mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
+    cqe_ts->timestamp.tv_sec = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 14) & 0xFF;
+    cqe_ts->timestamp.tv_nsec = ((be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) & 0x3FFF) << 16) |
+                                be16_to_cpu(u_cqe->v2->time_stamp1);
+    cqe_ts->ts_type = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 22) & 0x3;
 }
 
-static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
+
+/* the purpose of this function is to fill the desired timestamp:
+ * 1) if CQ is configured to work with HW timestamp and the timestamp-type is not 'None' (CQE holds
+ *    a valid timestamp), get the timestamp from CQE and adjust it to real UTC (CQEv2 holds only 8bit
+ *    of the seconds).
+ * 2) if CQ is configured to work with Linux timestamp, use it if valid.
+ * 3) On all other cases, put zero timestamp and mark timestamp-type to 'None'.
+ */
+void set_timestamp_of_rx_packet(struct sx_cq                 *cq,
+                                const struct timespec        *linux_ts,
+                                const struct sx_rx_timestamp *cqe_ts,
+                                struct sx_rx_timestamp       *rx_ts)
 {
-    union sx_cqe    u_cqe = {.v0 = NULL, .v1 = NULL, .v2 = NULL};
-    u8              dqn = 0;
-    u8              is_send = 0;
-    u8              is_err = 0;
-    struct sx_dq   *dq;
-    struct sk_buff *skb;
-    int             err = 0;
-    struct sx_priv *priv = sx_priv(cq->sx_dev);
-    u16             wqe_ctr = 0;
-    u16             idx = 0;
-    u16             wqe_counter = 0;
-    u16             trap_id = 0;
-    u16             byte_count = 0;
-    unsigned long   flags;
-    uint8_t         rdq_num = 0;
-    u32             user_def_val_orig_pkt_len = 0;
-    u8              is_lag = 0;
-    u8              lag_subport = 0;
-    u16             sysport_lag_id = 0;
-    u8              mirror_reason = 0;
+    if (IS_CQ_WORKING_WITH_TIMESTAMP(cq->sx_dev, cq->cqn)) { /* CQ is configured to get RX timestamp */
+        if ((cqe_ts->ts_type != SXD_TS_TYPE_NONE) && IS_CQ_WORKING_WITH_HW_TIMESTAMP(cq->sx_dev, cq->cqn)) {
+            sx_core_clock_cqe_ts_to_utc(sx_priv(cq->sx_dev), &cqe_ts->timestamp, &rx_ts->timestamp);
+            rx_ts->ts_type = cqe_ts->ts_type;
+        } else if (linux_ts) {
+            SX_RX_TIMESTAMP_INIT(rx_ts, linux_ts->tv_sec, linux_ts->tv_nsec, SXD_TS_TYPE_LINUX);
+        } else { /* we should not get here but to be on the safe side ... */
+            SX_RX_TIMESTAMP_INIT(rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+        }
+    } else { /* CQ is not configured to get timestamp */
+        SX_RX_TIMESTAMP_INIT(rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+    }
+}
+
+
+static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
+{
+    union sx_cqe           u_cqe = {.v0 = NULL, .v1 = NULL, .v2 = NULL};
+    u8                     dqn = 0;
+    u8                     is_send = 0;
+    u8                     is_err = 0;
+    struct sx_dq          *dq;
+    struct sk_buff        *skb;
+    int                    err = 0;
+    struct sx_priv        *priv = sx_priv(cq->sx_dev);
+    u16                    wqe_ctr = 0;
+    u16                    idx = 0;
+    u16                    wqe_counter = 0;
+    u16                    trap_id = 0;
+    u16                    byte_count = 0;
+    unsigned long          flags;
+    uint8_t                rdq_num = 0;
+    u32                    user_def_val_orig_pkt_len = 0;
+    u8                     is_lag = 0;
+    u8                     lag_subport = 0;
+    u16                    sysport_lag_id = 0;
+    u8                     mirror_reason = 0;
+    struct sx_rx_timestamp cqe_ts, rx_timestamp;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     int should_drop = 0;
@@ -1606,7 +1532,6 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
      */
     rmb();
 
-
     cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe,
                                             &trap_id,
                                             &is_err,
@@ -1618,7 +1543,8 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
                                             &is_lag,
                                             &lag_subport,
                                             &sysport_lag_id,
-                                            &mirror_reason);
+                                            &mirror_reason,
+                                            &cqe_ts);
 
     if (is_send) {
         if (dqn >= NUMBER_OF_SDQS) {
@@ -1670,6 +1596,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
             dq->sge[idx].skb = NULL;
         }
 
+        SX_RX_TIMESTAMP_INIT(&rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
         goto skip;
     }
 
@@ -1684,10 +1611,17 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
             idx = dq->tail++ & (dq->wqe_cnt - 1);
             dq->last_completion = jiffies;
             wqe_sync_for_cpu(dq, idx);
+
+            /* if it is a TX PTP packet, put the timestamp skb */
+            if ((cqe_ts.ts_type != SXD_TS_TYPE_NONE) &&
+                (skb_shinfo(dq->sge[idx].skb)->tx_flags & SKBTX_IN_PROGRESS)) {
+                sx_core_clock_cqe_ts_to_utc(priv, &cqe_ts.timestamp, &cqe_ts.timestamp);
+                sx_core_ptp_tx_ts_handler(priv, dq->sge[idx].skb, &cqe_ts.timestamp);
+            }
+
             sx_skb_free(dq->sge[idx].skb);
             dq->sge[idx].skb = NULL;
         } while (idx != wqe_ctr);
-
 
         if ((0 == cq->sx_dev->global_flushing) && (0 == dq->is_flushing)) {
             sx_add_pkts_to_sdq(dq);
@@ -1731,6 +1665,9 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
 
         skb = dq->sge[idx].skb;
 
+        /* Put timestamp on RX packet */
+        set_timestamp_of_rx_packet(cq, ts_linux, &cqe_ts, &rx_timestamp);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
         if (enable_monitor_rdq_trace_points) {
             should_drop = 0;
@@ -1748,6 +1685,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
             }
         }
 #endif
+
         /*
          *   For monitor rdq we don't need to send the packet to upper layer and
          *   also not to free the packet in case of error , because the same packet
@@ -1759,7 +1697,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
                                                       skb,
                                                       trap_id,
                                                       user_def_val_orig_pkt_len,
-                                                      timestamp,
+                                                      &rx_timestamp.timestamp,
                                                       mirror_reason,
                                                       AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
             }
@@ -1783,7 +1721,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
                 }
             }
 
-            rx_skb(cq->sx_dev, skb, &u_cqe, timestamp, 0, NULL);
+            rx_skb(cq->sx_dev, skb, &u_cqe, &rx_timestamp, 0, NULL);
         } else {
             sx_skb_free(skb);
         }
@@ -1796,9 +1734,10 @@ skip:
         if (!dq->is_monitor) {
             err = post_skb(dq);
         } else {
-            if (timestamp) {
-                cq->cqe_ts_arr[idx] = *timestamp;
+            if (rx_timestamp.ts_type != SXD_TS_TYPE_NONE) {
+                SX_RX_TIMESTAMP_COPY(&cq->cqe_ts_arr[idx], &rx_timestamp);
             }
+
             /* sx_core_post_recv will repost the same buffer for monitor rdq */
             sx_core_post_recv(dq, NULL);
         }
@@ -1834,7 +1773,7 @@ int sx_cq_completion(struct sx_dev         *dev,
         return -EAGAIN;
     }
 
-    if (!sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, cqn)) {
+    if (!IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn)) {
         timestamp = NULL;
     }
 
@@ -2106,30 +2045,31 @@ int iterate_active_cqs(struct sx_dev *dev, struct sx_bitmap *active_cq_bitmap)
 
 int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
 {
-    int                err;
-    struct ku_query_cq cq_context;
-    static __be16      rx_cnt = 0;
-    unsigned long      flags;
-    struct sx_cq      *cq;
-    struct sx_dq      *rdq;
-    int                cqn;
-    struct sx_priv    *priv = sx_priv(dev);
-    int                i;
-    u32                cq_ts_enabled = 0;
-    union sx_cqe       u_cqe;
-    u8                 dqn1 = 0;
-    u8                 is_send = 0;
-    u8                 is_err = 0;
-    u16                trap_id = 0;
-    u16                byte_count = 0;
-    u16                wqe_counter = 0;
-    int                idx;
-    struct sk_buff    *skb;
-    u32                user_def_val_orig_pkt_len = 0;
-    u8                 is_lag = 0;
-    u8                 lag_subport = 0;
-    u16                sysport_lag_id = 0;
-    u8                 mirror_reason = 0;
+    int                    err;
+    struct ku_query_cq     cq_context;
+    static __be16          rx_cnt = 0;
+    unsigned long          flags;
+    struct sx_cq          *cq;
+    struct sx_dq          *rdq;
+    int                    cqn;
+    struct sx_priv        *priv = sx_priv(dev);
+    int                    i;
+    u32                    cq_ts_enabled = 0;
+    union sx_cqe           u_cqe;
+    u8                     dqn1 = 0;
+    u8                     is_send = 0;
+    u8                     is_err = 0;
+    u16                    trap_id = 0;
+    u16                    byte_count = 0;
+    u16                    wqe_counter = 0;
+    int                    idx;
+    struct sk_buff        *skb;
+    u32                    user_def_val_orig_pkt_len = 0;
+    u8                     is_lag = 0;
+    u8                     lag_subport = 0;
+    u16                    sysport_lag_id = 0;
+    u8                     mirror_reason = 0;
+    struct sx_rx_timestamp cqe_ts, rx_ts;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     int should_drop = 0;
@@ -2167,15 +2107,21 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     /* Calculate number of received packets */
     rx_cnt = cq_context.producer_counter - cq->cons_index;
 
-    /* if CQ configured with TS enable add them to each cqe */
-    if (sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn)) {
+    cq_ts_enabled = IS_CQ_WORKING_WITH_TIMESTAMP(dev, cq->cqn);
+
+    /* if CQ configured with TS enable add them to each cqe.
+     * the timestamp source may change later in this function (if enable_monitor_rdq_trace_points enabled)
+     * or in sx_monitor_simulate_rx_skb(). now we have Linux timestamp but the CQ may be configured to get
+     * the timestamp from HW (thus, from CQE).
+     */
+    if (cq_ts_enabled) {
         for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
-            cq->cqe_ts_arr[i % cq->nent] = priv->cq_table.timestamps[cq->cqn];
+            cq->cqe_ts_arr[i % cq->nent].timestamp = priv->cq_table.timestamps[cq->cqn];
+            cq->cqe_ts_arr[i % cq->nent].ts_type = SXD_TS_TYPE_LINUX;
         }
     }
 
     if (enable_monitor_rdq_trace_points) {
-        cq_ts_enabled = sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn);
         for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
             sx_get_cqe_all_versions(cq, i, &u_cqe);
             if (u_cqe.v2 == NULL) {
@@ -2184,7 +2130,7 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
             cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
                                                     &is_send, &dqn1, &wqe_counter, &byte_count,
                                                     &user_def_val_orig_pkt_len, &is_lag, &lag_subport,
-                                                    &sysport_lag_id, &mirror_reason);
+                                                    &sysport_lag_id, &mirror_reason, &cqe_ts);
 
             if (is_send) {
                 continue;
@@ -2207,8 +2153,9 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
 #endif
 
             if (cq_ts_enabled) {
+                set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[i % cq->nent].timestamp, &cqe_ts, &rx_ts);
                 sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len,
-                                                      &cq->cqe_ts_arr[i % cq->nent], mirror_reason,
+                                                      &rx_ts.timestamp, mirror_reason,
                                                       AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
             } else {
                 sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL,

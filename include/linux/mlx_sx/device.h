@@ -97,6 +97,21 @@ enum port_vlan_match {
     PORT_VLAN_MATCH_LAG_VALID = 2,
     PORT_VLAN_MATCH_VLAN_VALID = 3
 };
+struct sx_rx_timestamp {
+    struct timespec timestamp; /* Linux time, HW time */
+    u8              ts_type;   /* CQEv2 timestamp type */
+};
+
+#define SX_RX_TIMESTAMP_INIT(ptr, sec, nsec, type) \
+    do {                                           \
+        (ptr)->timestamp.tv_sec = (sec);           \
+        (ptr)->timestamp.tv_nsec = (nsec);         \
+        (ptr)->ts_type = (type);                   \
+    } while (0)
+
+#define SX_RX_TIMESTAMP_COPY(dst, src) \
+    SX_RX_TIMESTAMP_INIT(dst, (src)->timestamp.tv_sec, (src)->timestamp.tv_nsec, (src)->ts_type)
+
 struct completion_info {
     u8                        swid;
     u16                       sysport;
@@ -113,8 +128,7 @@ struct completion_info {
     struct sx_dev            *dev;
     u32                       original_packet_size;
     u16                       bridge_id;
-    u8                        has_timestamp;
-    struct timespec           timestamp;
+    struct sx_rx_timestamp    rx_timestamp;
     u32                       user_def_val;
     u16                       dest_sysport;
     u8                        dest_is_lag;
@@ -123,8 +137,6 @@ struct completion_info {
     u8                        mirror_tclass;
     u16                       mirror_cong;
     u32                       mirror_lantency;
-    u8                        timestamp_type;
-    struct timespec           hw_utc_timestamp;
 };
 
 typedef void (*cq_handler)(struct completion_info*, void *);
@@ -222,7 +234,6 @@ enum {
     MJTAG_REG_ID = 0x901F,
     PMPC_REG_ID = 0x501F,
     MPSC_REG_ID = 0x9080,
-    MOGCR_REG_ID = 0x9086,
     MTPPPC_REG_ID = 0x9090,
     MTPPTR_REG_ID = 0x9091,
     MTPTPT_REG_ID = 0x9092,

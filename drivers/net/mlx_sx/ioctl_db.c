@@ -37,6 +37,7 @@
 
 #include "alloc.h"
 #include "sx_dpt.h"
+#include "cq.h"
 #include "ioctl_internal.h"
 
 /**
@@ -390,7 +391,7 @@ static int sx_core_ioctl_get_rdq_properties(struct sx_dev *dev, struct ku_sx_cor
         goto out;
     }
     for (i = 0; i < sx_priv(dev)->cq_table.ts_bitmap.max; i++) {
-        if (sx_bitmap_test(&(sx_priv(dev)->cq_table.ts_bitmap), i)) {
+        if (IS_CQ_WORKING_WITH_TIMESTAMP(dev, i)) {
             err = put_user((uint8_t)1, &(sx_core_db->ts_bitmap.table[i]));
         } else {
             err = put_user((uint8_t)0, &(sx_core_db->ts_bitmap.table[i]));

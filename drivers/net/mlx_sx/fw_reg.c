@@ -4101,54 +4101,6 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MLCR);
 
 
 /************************************************
- * MOGCR
- ***********************************************/
-#define PTP_EFTC_BIT                          0
-#define PTP_IFTC_BIT                          1
-#define REG_MOGCR_FTC_OFFSET                  0x17
-#define REG_MOGCR_MIRROR_LATENCY_SCALE_OFFSET 0x1A
-#define MOGCR_REG_LEN                         0x2
-
-static int __MOGCR_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_mogcr_reg *mogcr_reg = (struct ku_mogcr_reg*)ku_reg;
-    u8                   ftc = 0;
-
-    ftc |= mogcr_reg->ptp_iftc << PTP_IFTC_BIT;
-    ftc |= mogcr_reg->ptp_eftc << PTP_EFTC_BIT;
-    SX_PUT_REG_FIELD(inbox, ftc, REG_MOGCR_FTC_OFFSET);
-    SX_PUT_REG_FIELD(inbox, mogcr_reg->mirror_latency_scale, REG_MOGCR_MIRROR_LATENCY_SCALE_OFFSET);
-    return 0;
-}
-
-static int __MOGCR_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_mogcr_reg *mogcr_reg = (struct ku_mogcr_reg*)ku_reg;
-    u8                   ftc;
-
-    SX_GET_REG_FIELD(ftc, outbox, REG_MOGCR_FTC_OFFSET);
-    mogcr_reg->ptp_iftc = !!(ftc & PTP_IFTC_BIT);
-    mogcr_reg->ptp_eftc = !!(ftc & PTP_EFTC_BIT);
-    SX_GET_REG_FIELD(mogcr_reg->mirror_latency_scale, outbox, REG_MOGCR_MIRROR_LATENCY_SCALE_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_MOGCR(struct sx_dev *dev, struct ku_access_mogcr_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __MOGCR_encode,
-                                  __MOGCR_decode,
-                                  MOGCR_REG_LEN,
-                                  &reg_data->mogcr_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MOGCR);
-
-
-/************************************************
  * MTPPPC
  ***********************************************/
 #define REG_MTPPPC_WRITE_ENABLE_OFFSET           0x17

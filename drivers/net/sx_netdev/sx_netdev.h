@@ -207,10 +207,9 @@ struct sx_core_interface {
     void         * (*sx_detach_interface)(struct sx_interface *intf, struct sx_dev *dev);
     int            (*sx_core_get_ptp_state)(struct sx_dev *dev, uint8_t *is_ptp_enable);
     int            (*sx_core_get_ptp_clock_index)(struct sx_dev *dev, uint8_t *ptp_clock_index_p);
-    int            (*sx_core_pending_ptp_eg_pkt)(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id,
-                                                 u8 is_lag, u8 *is_ptp_pkt);
-    int (*sx_core_get_lag_max)(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag);
-    int (*sx_core_get_rp_mode)(struct sx_dev *dev, u8 is_lag, u16 sysport_lag_id, u16 vlan_id, u8 *is_rp);
+    int            (*sx_core_ptp_tx_handler)(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag);
+    int            (*sx_core_get_lag_max)(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag);
+    int            (*sx_core_get_rp_mode)(struct sx_dev *dev, u8 is_lag, u16 sysport_lag_id, u16 vlan_id, u8 *is_rp);
 };
 extern struct sx_core_interface sx_core_if;
 

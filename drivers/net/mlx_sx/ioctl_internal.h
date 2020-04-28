@@ -95,7 +95,6 @@ int get_edata_from_elist(int               *evlist_size,
 void sx_copy_pkt_metadata_prepare(struct ku_read    *metadata_p,
                                   struct event_data *edata_p);
 void unset_monitor_rdq(struct sx_dq *dq);
-int sx_core_ptp_cleanup(struct sx_dev *dev);
 int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid);
 
 /* ioctl_cmd_ifc.c */

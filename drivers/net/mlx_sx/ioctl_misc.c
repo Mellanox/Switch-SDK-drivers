@@ -37,7 +37,7 @@
 #include <linux/mlx_sx/kernel_user.h>
 #include "sx.h"
 #include "alloc.h"
-#include "sx_clock.h"
+#include "ptp.h"
 #include "sgmii.h"
 #include "ioctl_internal.h"
 
@@ -165,39 +165,6 @@ long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigne
 }
 #endif /* SW_PUDE_EMULATION */
 
-static int __sx_core_ptp_init(struct sx_dev *dev, ptp_mode_t ptp_mode)
-{
-    int             err = 0;
-    struct sx_priv *priv = sx_priv(dev);
-
-    err = __sx_core_dev_specific_cb_get_reference(dev);
-    if (err) {
-        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-        return err;
-    }
-
-    if (!priv->dev_specific_cb.sx_ptp_init) {
-        err = -ENOSYS;
-        goto out;
-    }
-
-    if (IS_PTP_MODE_EVENTS || IS_PTP_MODE_POLLING) {
-        printk(KERN_ERR "PTP mode is already configured. can't do it more than once.\n");
-        err = -EBUSY;
-        goto out;
-    }
-
-    /*
-     * KU_PTP_MODE_EVENTS  - for each RX PTP packet trap, FW will also send a FIFO trap
-     * KU_PTP_MODE_POLLING - for each RX PTP packet trap, should poll FW for the FIFO record
-     */
-    err = priv->dev_specific_cb.sx_ptp_init(priv, ptp_mode);
-
-out:
-    __sx_core_dev_specific_cb_release_reference(dev);
-    return err;
-}
-
 
 long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -219,18 +186,15 @@ long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long da
         goto out;
     }
 
-    if ((ptp_mode.ptp_mode == KU_PTP_MODE_EVENTS) ||
-        (ptp_mode.ptp_mode == KU_PTP_MODE_POLLING)) {
-        err = __sx_core_ptp_init(dev, ptp_mode.ptp_mode);
+    if (ptp_mode.ptp_mode != KU_PTP_MODE_DISABLED) {
+        err = sx_core_ptp_init(sx_priv(dev), ptp_mode.ptp_mode);
         if (err) {
             printk(KERN_ERR PFX "__sx_core_ptp_init failed, err:%d\n", err);
-            goto out;
         }
-    } else if (ptp_mode.ptp_mode == KU_PTP_MODE_DISABLED) {
-        err = sx_core_ptp_cleanup(dev);
+    } else { /* ptp_mode.ptp_mode == KU_PTP_MODE_DISABLED */
+        err = sx_core_ptp_cleanup(sx_priv(dev));
         if (err) {
             printk(KERN_ERR PFX "__sx_core_ptp_cleanup failed, err:%d\n", err);
-            goto out;
         }
     }
 

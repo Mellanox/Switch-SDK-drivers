@@ -164,28 +164,7 @@ start()
 		return $RC
 	fi
 
-	if [ "x$udevd_restart" != "xno" ]; then
-		if [ -x /sbin/udevtrigger ]; then
-			echo "Reloading udev:"
-			/sbin/udevtrigger
-			RC=$?
-			if [ $RC = 1 ]; then
-				echo "Failed to run udevtrigger."
-				return $RC
-			fi
-		fi
-		if [ -x /sbin/udevadm ]; then
-			echo "Reloading udev:"
-			/sbin/udevadm trigger
-			RC=$?
-			if [ $RC = 1 ]; then
-				echo "Failed to run udevadm."
-				return $RC
-			fi
-		fi
-	fi
-
-       /sbin/modprobe sx_netdev
+        /sbin/modprobe sx_netdev
         RC=$?
         if [ $RC -ne 0 ]; then
                 echo_failure $"Loading sx_netdev: "

@@ -157,11 +157,10 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     }
 
     /* Make sure that for WJH we will be able to see timestamp for this packet (if it was enabled there) */
-    if (sx_bitmap_test(&sx_priv(sx_dev)->cq_table.ts_bitmap, file->bound_monitor_rdq->cq->cqn)) {
-        edata->has_timestamp = true;
-        getnstimeofday(&edata->timestamp);
+    if (IS_CQ_WORKING_WITH_TIMESTAMP(sx_dev, file->bound_monitor_rdq->cq->cqn)) {
+        SX_RX_TIMESTAMP_COPY(&edata->rx_timestamp, &comp_info->rx_timestamp);
     } else {
-        edata->has_timestamp = false;
+        SX_RX_TIMESTAMP_INIT(&edata->rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
     }
 
     if (enable_monitor_rdq_trace_points) {
@@ -181,12 +180,12 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
             goto out_free;
         }
 #endif
-        if (edata->has_timestamp) {
+        if (edata->rx_timestamp.ts_type != SXD_TS_TYPE_NONE) {
             sx_core_call_rdq_agg_trace_point_func(dqn,
                                                   skb,
                                                   comp_info->hw_synd,
                                                   comp_info->user_def_val,
-                                                  &edata->timestamp,
+                                                  &edata->rx_timestamp.timestamp,
                                                   comp_info->mirror_reason,
                                                   AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
                                                                  comp_info->sysport));
@@ -509,30 +508,30 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
                                       size_t                *total_packet_cnt_p,
                                       struct listener_entry *force_listener)
 {
-    int              err = 0;
-    struct sx_cq    *cq = bound_monitor_rdq->cq;
-    struct sx_priv  *priv = sx_priv(cq->sx_dev);
-    uint32_t         mon_rx_count = bound_monitor_rdq->mon_rx_count;
-    uint32_t         mon_rx_start = bound_monitor_rdq->mon_rx_start;
-    uint32_t         i, idx;
-    struct sk_buff * skb;
-    union sx_cqe     u_cqe;
-    struct timespec* timestamp = NULL;
-    u8               dqn = 0;
-    u8               is_send = 0;
-    u8               is_err = 0;
-    u16              trap_id = 0;
-    u16              byte_count = 0;
-    u16              wqe_counter = 0;
-    struct sx_dq    *dq;
-    uint32_t         packets_sent_to_fd_count = 0;
-    uint32_t         packets_sent_to_fd_total_size = 0;
-    u32              user_def_val_orig_pkt_len = 0;
-    u8               is_lag = 0;
-    u8               lag_subport = 0;
-    u16              sysport_lag_id = 0;
-    uint32_t         skb_mark_dropped_count = 0;
-    u8               mirror_reason = 0;
+    int                    err = 0;
+    struct sx_cq          *cq = bound_monitor_rdq->cq;
+    struct sx_priv        *priv = sx_priv(cq->sx_dev);
+    uint32_t               mon_rx_count = bound_monitor_rdq->mon_rx_count;
+    uint32_t               mon_rx_start = bound_monitor_rdq->mon_rx_start;
+    uint32_t               i, idx;
+    struct sk_buff       * skb;
+    union sx_cqe           u_cqe;
+    u8                     dqn = 0;
+    u8                     is_send = 0;
+    u8                     is_err = 0;
+    u16                    trap_id = 0;
+    u16                    byte_count = 0;
+    u16                    wqe_counter = 0;
+    struct sx_dq          *dq;
+    uint32_t               packets_sent_to_fd_count = 0;
+    uint32_t               packets_sent_to_fd_total_size = 0;
+    u32                    user_def_val_orig_pkt_len = 0;
+    u8                     is_lag = 0;
+    u8                     lag_subport = 0;
+    u16                    sysport_lag_id = 0;
+    uint32_t               skb_mark_dropped_count = 0;
+    u8                     mirror_reason = 0;
+    struct sx_rx_timestamp rx_ts, cqe_ts;
 
     mon_rx_start = bound_monitor_rdq->mon_rx_start;
     mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
@@ -569,7 +568,7 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
         cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
                                                 &is_send, &dqn, &wqe_counter, &byte_count,
                                                 &user_def_val_orig_pkt_len, &is_lag, &lag_subport, &sysport_lag_id,
-                                                &mirror_reason);
+                                                &mirror_reason, &cqe_ts);
 
         if (is_send) {
             printk(KERN_ERR "%s(): Error SDQ %d was provided when only RDQ is supported.\n",
@@ -618,10 +617,13 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
             continue;
         }
 
-        if (sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn)) {
-            timestamp = &cq->cqe_ts_arr[idx];
+        if (IS_CQ_WORKING_WITH_TIMESTAMP(cq->sx_dev, cq->cqn)) {
+            set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[idx].timestamp, &cqe_ts, &rx_ts);
+        } else {
+            SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
         }
-        err = rx_skb(cq->sx_dev, skb, &u_cqe, timestamp, 1, force_listener);
+
+        err = rx_skb(cq->sx_dev, skb, &u_cqe, &rx_ts, 1, force_listener);
         if (err) {
             printk(KERN_WARNING PFX "rx_skb error %d . Aborting\n", err);
             goto out;

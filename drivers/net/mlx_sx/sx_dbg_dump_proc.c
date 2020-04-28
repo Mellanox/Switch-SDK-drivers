@@ -1002,6 +1002,7 @@ error:
 }
 
 int sx_dbg_ptp_dump_proc_show(struct seq_file *m, void *v);
+int sx_dbg_clock_dump_proc_show(struct seq_file *m, void *v);
 
 
 void __sx_dbg_dump_proc_fs_unregister(struct proc_info *proc_info)
@@ -1057,6 +1058,7 @@ int __init sx_dbg_dump_proc_fs_init(void)
     sx_dbg_dump_proc_fs_register("ber_monitor_dump", sx_dbg_ber_monitor_dump_proc_show, NULL);
     sx_dbg_dump_proc_fs_register("tele_thrs_dump", sx_dbg_tele_thrs_dump_proc_show, NULL);
     sx_dbg_dump_proc_fs_register("ptp_dump", sx_dbg_ptp_dump_proc_show, NULL);
+    sx_dbg_dump_proc_fs_register("clock_dump", sx_dbg_clock_dump_proc_show, NULL);
     sx_dbg_dump_proc_fs_register("monitor_rdq_dump", sx_dbg_dump_monitor_rdq_show, NULL);
     sx_dbg_dump_proc_fs_register("fid_to_hwfid_dump", sx_dbg_dump_fid_to_hwfid_show, NULL);
     sx_dbg_dump_proc_fs_register("rif_to_hwfid_dump", sx_dbg_dump_rif_to_hwfid_show, NULL);
