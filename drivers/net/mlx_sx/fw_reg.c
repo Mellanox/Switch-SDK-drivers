@@ -4189,6 +4189,54 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MTPTPT);
 
 
 /************************************************
+ * MTPCPC
+ ***********************************************/
+#define REG_MTPCPC_PPORT_OFFSET                   0x14
+#define REG_MTPCPC_LOCAL_PORT_OFFSET              0x15
+#define REG_MTPCPC_PTP_TRAP_EN_OFFSET             0x1B
+#define REG_MTPCPC_ING_CORRECTION_MSG_TYPE_OFFSET 0x26
+#define REG_MTPCPC_EGR_CORRECTION_MSG_TYPE_OFFSET 0x2A
+#define MTPCPC_REG_LEN                            0xB
+
+static int __MTPCPC_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_mtpcpc_reg *mtpcpc_reg = (struct ku_mtpcpc_reg*)ku_reg;
+
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->pport, REG_MTPCPC_PPORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->local_port, REG_MTPCPC_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->ptp_trap_en, REG_MTPCPC_PTP_TRAP_EN_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->ing_correction_msg_type, REG_MTPCPC_ING_CORRECTION_MSG_TYPE_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->egr_correction_msg_type, REG_MTPCPC_EGR_CORRECTION_MSG_TYPE_OFFSET);
+    return 0;
+}
+
+static int __MTPCPC_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_mtpcpc_reg *mtpcpc_reg = (struct ku_mtpcpc_reg*)ku_reg;
+
+    SX_GET_REG_FIELD(mtpcpc_reg->pport, outbox, REG_MTPCPC_PPORT_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->local_port, outbox, REG_MTPCPC_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->ptp_trap_en, outbox, REG_MTPCPC_PTP_TRAP_EN_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->ing_correction_msg_type, outbox, REG_MTPCPC_ING_CORRECTION_MSG_TYPE_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->egr_correction_msg_type, outbox, REG_MTPCPC_EGR_CORRECTION_MSG_TYPE_OFFSET);
+    return 0;
+}
+
+int sx_ACCESS_REG_MTPCPC(struct sx_dev *dev, struct ku_access_mtpcpc_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __MTPCPC_encode,
+                                  __MTPCPC_decode,
+                                  MTPCPC_REG_LEN,
+                                  &reg_data->mtpcpc_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_MTPCPC);
+
+/************************************************
  * MTPPTR
  ***********************************************/
 #define REG_MTPPTR_LOCAL_PORT_OFFSET   0x15

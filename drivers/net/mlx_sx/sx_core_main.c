@@ -3041,7 +3041,7 @@ struct dev_specific_cb spec_cb_spectrum = {
     .sx_clock_init = sx_clock_init_spc1,
     .sx_clock_cleanup = sx_clock_cleanup_spc1,
     .sx_clock_cqe_ts_to_utc = NULL,
-    .sx_clock_dump = NULL
+    .sx_clock_dump = sx_clock_dump_spc1
 };
 struct dev_specific_cb spec_cb_spectrum2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3104,7 +3104,7 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
     .is_eqn_cmd_ifc_only_cb = NULL,
-    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_init = sx_clock_init_spc3,
     .sx_clock_cleanup = sx_clock_cleanup_spc2,
     .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
     .sx_clock_dump = sx_clock_dump_spc2

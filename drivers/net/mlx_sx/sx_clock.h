@@ -128,6 +128,9 @@ void sx_clock_log_add(struct sx_clock_log_db *log_db, s64 value);
 void sx_clock_log_dump(struct sx_clock_log_db *log_db,
                        struct seq_file        *m,
                        const char             *title);
+void sx_clock_log_add_settime(s64 value);
+void sx_clock_log_add_adjtime(s64 value);
+void sx_clock_log_add_adjfreq(s64 value);
 int sx_clock_register(struct sx_priv              *priv,
                       const struct ptp_clock_info *ptp_clock_info);
 struct sx_dev * sx_clock_get_dev(void);
@@ -148,5 +151,8 @@ int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv        *priv,
                                 const struct timespec *cqe_ts,
                                 struct timespec       *utc);
 int sx_clock_dump_spc2(struct seq_file *m, void *v);
+
+/* SPC3 functions */
+int sx_clock_init_spc3(struct sx_priv *priv);
 
 #endif  /* SX_CLOCK_H */

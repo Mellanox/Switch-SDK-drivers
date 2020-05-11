@@ -38,10 +38,14 @@
 #include "sx_clock.h"
 #include "sx.h"
 
-static struct sx_clock_log_db __log_settime;
-static struct sx_clock_log_db __log_adjtime;
-static struct sx_clock_log_db __log_adjfreq;
-static inline void __read_cr_space_utc(sx_clock_timespec_t *ts)
+/* The only difference between SPC2 and SPC3 is the UTC register layout in BAR0:
+ * SPC2: 64bit UTC ==> sec=32msb, nsec=32lsb
+ * SPC3: 64bit UTC ==> sec=32lsb, nsec=32msb
+ */
+
+static void (*__read_hw_utc_cb)(sx_clock_timespec_t *ts);
+static u32 __sec_offset;
+static inline void __read_cr_space_utc(u32 *utc_high, u32* utc_low)
 {
     struct sx_dev *dev;
     u64            hw_utc;
@@ -49,8 +53,30 @@ static inline void __read_cr_space_utc(sx_clock_timespec_t *ts)
     dev = sx_clock_get_dev();
 
     hw_utc = swab64(__raw_readq(sx_priv(dev)->hw_clock_utc_base));
-    ts->tv_nsec = hw_utc & 0xffffffff;
-    ts->tv_sec = hw_utc >> 32;
+    *utc_low = hw_utc & 0xffffffff;
+    *utc_high = hw_utc >> 32;
+}
+
+
+static void __read_cr_space_utc_spc2(sx_clock_timespec_t *ts)
+{
+    u32 sec, nsec;
+
+    /* SPC2: 64bit UTC ==> sec=32msb, nsec=32lsb */
+    __read_cr_space_utc(&sec, &nsec);
+    ts->tv_nsec = nsec;
+    ts->tv_sec = sec;
+}
+
+
+static void __read_cr_space_utc_spc3(sx_clock_timespec_t *ts)
+{
+    u32 sec, nsec;
+
+    /* SPC3: 64bit UTC ==> sec=32lsb, nsec=32msb */
+    __read_cr_space_utc(&nsec, &sec);
+    ts->tv_nsec = nsec;
+    ts->tv_sec = sec;
 }
 
 
@@ -83,7 +109,7 @@ static int __adjfreq_spc2(struct ptp_clock_info *ptp, s32 delta)
     reg_mtutc.mtutc_reg.freq_adjustment = delta;
     err = __write_mtutc(&reg_mtutc, "adj-freq");
     if (!err) {
-        sx_clock_log_add(&__log_adjfreq, orig_delta);
+        sx_clock_log_add_adjfreq(orig_delta);
     }
 
     return err;
@@ -92,7 +118,7 @@ static int __adjfreq_spc2(struct ptp_clock_info *ptp, s32 delta)
 
 static int __gettime_spc2(struct ptp_clock_info *ptp, sx_clock_timespec_t *ts)
 {
-    __read_cr_space_utc(ts);
+    __read_hw_utc_cb(ts);
     return 0;
 }
 
@@ -108,7 +134,7 @@ static int __settime_spc2(struct ptp_clock_info *ptp, const sx_clock_timespec_t 
     reg_mtutc.mtutc_reg.utc_nsec = ts->tv_nsec;
     err = __write_mtutc(&reg_mtutc, "set-time");
     if (!err) {
-        sx_clock_log_add(&__log_settime, ((s64)(ts->tv_sec * NSEC_PER_SEC)) + ts->tv_nsec);
+        sx_clock_log_add_settime(((s64)(ts->tv_sec * NSEC_PER_SEC)) + ts->tv_nsec);
     }
 
     return err;
@@ -123,7 +149,7 @@ static int __adjtime_spc2(struct ptp_clock_info *ptp, s64 delta)
     int                        err;
 
     if ((delta < -32768) || (delta > 32767)) { /* if it is out of range, convert it to 'set_time' */
-        __read_cr_space_utc(&hw_utc);
+        __read_hw_utc_cb(&hw_utc);
         nsec = SX_CLOCK_TIMESPEC_TO_NS(&hw_utc);
         nsec += delta;
 
@@ -138,7 +164,7 @@ static int __adjtime_spc2(struct ptp_clock_info *ptp, s64 delta)
     }
 
     if (!err) {
-        sx_clock_log_add(&__log_adjtime, delta);
+        sx_clock_log_add_adjtime(delta);
     }
 
     return err;
@@ -162,7 +188,7 @@ static const struct ptp_clock_info __clock_info_spc2 = {
 
 int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv *priv, const struct timespec *cqe_ts, struct timespec *utc)
 {
-    u64 utc_sec = swab32(__raw_readl(priv->hw_clock_utc_base));
+    u64 utc_sec = swab32(__raw_readl(priv->hw_clock_utc_base + __sec_offset));
     u8  utc_sec_8bit;
 
     utc_sec_8bit = utc_sec & 0xff; /* CQEv2 UTC ==> 8bits seconds, 30bits nano-seconds */
@@ -180,10 +206,16 @@ int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv *priv, const struct timespec *cqe
 
 int sx_clock_init_spc2(struct sx_priv *priv)
 {
-    sx_clock_log_init(&__log_settime);
-    sx_clock_log_init(&__log_adjfreq);
-    sx_clock_log_init(&__log_adjtime);
+    __sec_offset = 0;
+    __read_hw_utc_cb = __read_cr_space_utc_spc2;
+    return sx_clock_register(priv, &__clock_info_spc2);
+}
 
+
+int sx_clock_init_spc3(struct sx_priv *priv)
+{
+    __sec_offset = 4;
+    __read_hw_utc_cb = __read_cr_space_utc_spc3;
     return sx_clock_register(priv, &__clock_info_spc2);
 }
 
@@ -202,15 +234,12 @@ int sx_clock_dump_spc2(struct seq_file *m, void *v)
 
     dev = sx_clock_get_dev();
 
-    __read_cr_space_utc(&cr_space_ts);
+    __read_hw_utc_cb(&cr_space_ts);
     getnstimeofday(&linux_ts);
 
     seq_printf(m, "Hardware UTC:  %u.%09u\n", (u32)cr_space_ts.tv_sec, (u32)cr_space_ts.tv_nsec);
     seq_printf(m, "Linux UTC:     %u.%09u\n", (u32)linux_ts.tv_sec, (u32)linux_ts.tv_nsec);
     seq_printf(m, "\n\n");
 
-    sx_clock_log_dump(&__log_settime, m, "set-time log");
-    sx_clock_log_dump(&__log_adjfreq, m, "adj-freq log");
-    sx_clock_log_dump(&__log_adjtime, m, "adj-time log");
     return 0;
 }

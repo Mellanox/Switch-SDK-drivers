@@ -45,10 +45,10 @@ sx_core-y := sx_core_main.o      \
              sx_proc.o           \
              sx_clock.o          \
              sx_clock_spc1.o     \
-             sx_clock_spc2.o     \
+             sx_clock_spc2_3.o   \
              ptp_common.o        \
              ptp_spc1.o          \
-             ptp_spc2.o          \
+             ptp_spc2_3.o        \
              sx_dbg_dump_proc.o  \
              sxd_access_reg_pddr.o \
              auto_registers/sx_proc_auto.o \

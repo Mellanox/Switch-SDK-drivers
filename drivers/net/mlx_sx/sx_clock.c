@@ -41,6 +41,10 @@
 
 static struct sx_priv          *__priv;
 static struct workqueue_struct *__clock_wq;
+static struct sx_clock_log_db   __log_settime;
+static struct sx_clock_log_db   __log_adjtime;
+static struct sx_clock_log_db   __log_adjfreq;
+
 
 void sx_clock_fill_hwtstamp_nsec(u64 nsec, struct skb_shared_hwtstamps *hwts)
 {
@@ -61,8 +65,18 @@ static int __sx_clock_init(struct sx_priv *priv)
         goto out;
     }
 
+    /* This is a WA for SPC3, the UTC offset is not initialized in QUERY_FW
+     * Once FW fixes this, this code must be removed!!! */
+    if (priv->fw.utc_offset == 0) {
+        priv->fw.utc_offset = 0xf1fb0;
+    }
+
     priv->hw_clock_frc_base = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.frc_bar) + priv->fw.frc_offset, 8);
     priv->hw_clock_utc_base = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.utc_bar) + priv->fw.utc_offset, 8);
+
+    sx_clock_log_init(&__log_settime);
+    sx_clock_log_init(&__log_adjfreq);
+    sx_clock_log_init(&__log_adjtime);
 
     err = SX_CLOCK_DEV_SPECIFIC_CB(&priv->dev, sx_clock_init, priv);
     if (err) {
@@ -182,28 +196,6 @@ int sx_core_clock_deinit(struct sx_priv *priv)
 }
 
 
-int sx_dbg_clock_dump_proc_show(struct seq_file *m, void *v)
-{
-    struct sx_dev  *dev;
-    struct sx_priv *priv;
-
-    dev = sx_clock_get_dev();
-    if (!dev) {
-        return 0;
-    }
-
-    priv = sx_priv(dev);
-
-    seq_printf(m, "HW Clock Dump\n");
-    seq_printf(m, "-------------\n");
-
-    SX_CLOCK_DEV_SPECIFIC_CB(dev, sx_clock_dump, m, v);
-
-    seq_printf(m, "\n\n");
-    return 0;
-}
-
-
 void sx_clock_log_init(struct sx_clock_log_db *log_db)
 {
     memset(log_db, 0, sizeof(*log_db));
@@ -256,4 +248,48 @@ void sx_clock_log_dump(struct sx_clock_log_db *log_db, struct seq_file *m, const
     spin_unlock_bh(&log_db->lock);
 
     seq_printf(m, "\n\n");
+}
+
+
+void sx_clock_log_add_settime(s64 value)
+{
+    sx_clock_log_add(&__log_settime, value);
+}
+
+
+void sx_clock_log_add_adjtime(s64 value)
+{
+    sx_clock_log_add(&__log_adjtime, value);
+}
+
+
+void sx_clock_log_add_adjfreq(s64 value)
+{
+    sx_clock_log_add(&__log_adjfreq, value);
+}
+
+
+int sx_dbg_clock_dump_proc_show(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev;
+    struct sx_priv *priv;
+
+    dev = sx_clock_get_dev();
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    seq_printf(m, "HW Clock Dump\n");
+    seq_printf(m, "-------------\n");
+
+    SX_CLOCK_DEV_SPECIFIC_CB(dev, sx_clock_dump, m, v);
+
+    sx_clock_log_dump(&__log_settime, m, "set-time log");
+    sx_clock_log_dump(&__log_adjfreq, m, "adj-freq log");
+    sx_clock_log_dump(&__log_adjtime, m, "adj-time log");
+
+    seq_printf(m, "\n\n");
+    return 0;
 }

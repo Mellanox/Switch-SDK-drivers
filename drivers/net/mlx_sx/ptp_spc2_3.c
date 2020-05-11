@@ -52,7 +52,8 @@ static struct sx_clock_log_db __log_rx;
 
 int sx_ptp_init_spc2(struct sx_priv *priv, ptp_mode_t ptp_mode)
 {
-    int i;
+    struct ku_access_mtpcpc_reg mtpcpc;
+    int                         err, i;
 
     sx_clock_log_init(&__log_tx);
     sx_clock_log_init(&__log_rx);
@@ -67,7 +68,20 @@ int sx_ptp_init_spc2(struct sx_priv *priv, ptp_mode_t ptp_mode)
         atomic64_set(&__ptp_spc2_counters[PTP_PACKET_EGRESS][i], 0);
     }
 
-    return 0;
+    memset(&mtpcpc, 0, sizeof(mtpcpc));
+    mtpcpc.dev_id = priv->dev.device_id;
+    sx_cmd_set_op_tlv(&mtpcpc.op_tlv, MTPCPC_REG_ID, 2);
+    mtpcpc.mtpcpc_reg.pport = 0; /* global */
+    mtpcpc.mtpcpc_reg.local_port = 0; /* reserved when global configuration */
+    mtpcpc.mtpcpc_reg.ptp_trap_en = 1;
+    mtpcpc.mtpcpc_reg.ing_correction_msg_type = 0x3; /* chip-design recommendation: SYNC | DELAY_REQ */
+    mtpcpc.mtpcpc_reg.egr_correction_msg_type = 0x3; /* chip-design recommendation: SYNC | DELAY_REQ */
+    err = sx_ACCESS_REG_MTPCPC(&priv->dev, &mtpcpc);
+    if (err) {
+        printk(KERN_ERR "failed to configure MTPCPC, err=%d\n", err);
+    }
+
+    return err;
 }
 
 

@@ -8927,6 +8927,18 @@ struct ku_mtptpt_reg {
 };
 
 /**
+ * ku_mtpcpc_reg structure is used to store the access
+ * register MTPCPC command parameters
+ */
+struct ku_mtpcpc_reg {
+    uint8_t  pport; /* per-port/global */
+    uint8_t  local_port;
+    uint8_t  ptp_trap_en;
+    uint16_t ing_correction_msg_type;
+    uint16_t egr_correction_msg_type;
+};
+
+/**
  * ku_access_mtpppc_reg structure is used to store the access
  * register MTPPPC command parameters
  */
@@ -8943,6 +8955,16 @@ struct ku_access_mtpppc_reg {
 struct ku_access_mtptpt_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_mtptpt_reg    mtptpt_reg; /**< mtptpt_reg - mtptpt register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_mtpcpc_reg structure is used to store the access
+ * register MTPCPC command parameters
+ */
+struct ku_access_mtpcpc_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_mtpcpc_reg    mtpcpc_reg; /**< mtpcpc_reg - mtpcpc register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 

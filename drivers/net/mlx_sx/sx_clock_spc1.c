@@ -32,6 +32,7 @@
 
 #include <linux/clocksource.h>
 #include <linux/delay.h>
+#include <linux/seq_file.h>
 #include <linux/mlx_sx/cmd.h>
 #include <linux/mlx_sx/auto_registers/cmd_auto.h>
 #include "sx_clock.h"
@@ -192,6 +193,8 @@ static int __adjtime_spc1(struct ptp_clock_info *ptp, s64 delta)
     tstamp->clock.nsec += delta;
     tstamp->time_adj = true;
     spin_unlock_bh(&tstamp->lock);
+
+    sx_clock_log_add_adjtime(delta);
     return 0;
 }
 
@@ -225,6 +228,8 @@ static int __adjfreq_spc1(struct ptp_clock_info *ptp, s32 delta)
                           tstamp->nominal_c_mult + diff;
     tstamp->freq_adj += delta;
     spin_unlock_bh(&tstamp->lock);
+
+    sx_clock_log_add_adjfreq(delta);
     return 0;
 }
 
@@ -251,6 +256,8 @@ static int __settime_spc1(struct ptp_clock_info *ptp, const sx_clock_timespec_t 
     timecounter_init(&tstamp->clock, &tstamp->cycles, ns);
     tstamp->time_adj = true;
     spin_unlock_bh(&tstamp->lock);
+
+    sx_clock_log_add_settime(((s64)(ts->tv_sec * NSEC_PER_SEC)) + ts->tv_nsec);
     return 0;
 }
 
@@ -340,4 +347,32 @@ void sx_clock_fill_hwtstamp_spc1(u64 frc, struct skb_shared_hwtstamps *hwts)
     u64 nsec = __frc2nsec(frc);
 
     sx_clock_fill_hwtstamp_nsec(nsec, hwts);
+}
+
+
+int sx_clock_dump_spc1(struct seq_file *m, void *v)
+{
+    struct sx_dev    *dev;
+    struct sx_tstamp *tstamp;
+    struct timespec   linux_ts;
+    u64               frc, nsec;
+
+
+    dev = sx_clock_get_dev();
+    tstamp = &sx_priv(dev)->tstamp;
+
+    spin_lock_bh(&tstamp->lock);
+    frc = __read_hw_clock_spc1(&tstamp->cycles);
+    spin_unlock_bh(&tstamp->lock);
+
+    nsec = __frc2nsec(frc);
+
+    getnstimeofday(&linux_ts);
+
+    seq_printf(m, "Hardware FRC:             %llu\n", frc);
+    seq_printf(m, "Hardware time (from FRC): %u.%09u\n", (u32)(nsec / NSEC_PER_SEC), (u32)(nsec % NSEC_PER_SEC));
+    seq_printf(m, "Linux UTC:                %u.%09u\n", (u32)linux_ts.tv_sec, (u32)linux_ts.tv_nsec);
+    seq_printf(m, "\n\n");
+
+    return 0;
 }
