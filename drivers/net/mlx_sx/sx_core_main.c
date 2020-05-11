@@ -4420,8 +4420,10 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
 
     __pci_probe_state = PCI_PROBE_STATE_SUCCESS_E;
 
-    /* udev event for system management purpose */
-    kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
+    if (__perform_chip_reset) {
+        /* udev event for system management purpose (only if chip was reset) */
+        kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
+    }
 
     return 0;
 
@@ -4687,8 +4689,10 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     struct sx_dev  *dev;
     int             i;
 
-    /* udev event for system management purpose */
-    kobject_uevent(&pdev->dev.kobj, KOBJ_REMOVE);
+    if (__perform_chip_reset) {
+        /* udev event for system management purpose (only if chip was reset on last registration) */
+        kobject_uevent(&pdev->dev.kobj, KOBJ_REMOVE);
+    }
 
     spin_lock(&sx_glb.pci_devs_lock);
     dev = pci_get_drvdata(pdev);
