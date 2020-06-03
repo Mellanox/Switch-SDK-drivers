@@ -981,6 +981,10 @@ uint8_t mlxsw_reg_ppcnt_pnat_get(const char *buf);
 
 void mlxsw_reg_ppcnt_pnat_set(char *buf, uint8_t val);
 
+uint8_t mlxsw_reg_ppcnt_port_type_get(const char *buf);
+
+void mlxsw_reg_ppcnt_port_type_set(char *buf, uint8_t val);
+
 uint8_t mlxsw_reg_ppcnt_grp_get(const char *buf);
 
 void mlxsw_reg_ppcnt_grp_set(char *buf, uint8_t val);
@@ -1465,6 +1469,30 @@ uint32_t mlxsw_reg_ppcnt_eth_discard_cntrs_grp_ingress_discard_all_high_get(cons
 
 uint32_t mlxsw_reg_ppcnt_eth_discard_cntrs_grp_ingress_discard_all_low_get(const char *buf);
 
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_cells_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_cells_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_error_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_error_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_crc_error_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_crc_error_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_cells_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_cells_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_cells_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_cells_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_events_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_events_low_get(const char *buf);
+
 uint32_t mlxsw_reg_ppcnt_eth_per_prio_grp_data_layout_rx_octets_high_get(const char *buf);
 
 uint32_t mlxsw_reg_ppcnt_eth_per_prio_grp_data_layout_rx_octets_low_get(const char *buf);
@@ -1544,72 +1572,6 @@ uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_layout_transmit_queue_low_get(con
 uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_layout_no_buffer_discard_uc_high_get(const char *buf);
 
 uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_layout_no_buffer_discard_uc_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_wred_discard_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_wred_discard_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_ecn_marked_tc_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_ecn_marked_tc_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_cells_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_cells_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_error_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_error_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_crc_error_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_rx_crc_error_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_cells_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_cells_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_cells_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_cells_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_events_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_link_level_retrans_cntr_grp_data_llr_tx_ret_events_low_get(const char *buf);
-
-uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_symbol_error_counter_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_link_error_recovery_counter_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_link_downed_counter_get(const char *buf);
-
-uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_errors_get(const char *buf);
-
-uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_get(const char *buf);
-
-uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_get(const char *buf);
-
-uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_discards_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_constraint_errors_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_constraint_errors_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_local_link_integrity_errors_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_get(const char *buf);
-
-uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_vl_15_dropped_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_data_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_data_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_pkts_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_pkts_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_wait_get(const char *buf);
 
 uint32_t mlxsw_reg_ppcnt_phys_layer_cntrs_time_since_last_clear_high_get(const char *buf);
 
@@ -1711,6 +1673,304 @@ uint32_t mlxsw_reg_ppcnt_phys_layer_cntrs_link_down_events_get(const char *buf);
 
 uint32_t mlxsw_reg_ppcnt_phys_layer_cntrs_successful_recovery_events_get(const char *buf);
 
+uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_wred_discard_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_wred_discard_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_ecn_marked_tc_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_per_traffic_class_cong_layout_ecn_marked_tc_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_per_receive_buffer_grp_rx_no_buffer_discard_uc_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_per_receive_buffer_grp_rx_no_buffer_discard_uc_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_time_since_last_clear_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_time_since_last_clear_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_received_bits_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_received_bits_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_symbol_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_symbol_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_corrected_bits_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_corrected_bits_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane0_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane0_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane1_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane1_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane2_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane2_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane3_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane3_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane4_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane4_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane5_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane5_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane6_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane6_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane7_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane7_low_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_raw_ber_magnitude_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_raw_ber_coef_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_effective_ber_magnitude_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_effective_ber_coef_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_post_fec_ber_magnitude_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_post_fec_ber_coef_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_ucast_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_ucast_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_octets_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_octets_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_discards_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_discards_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_crc_align_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_crc_align_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_undersize_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_undersize_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_oversize_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_oversize_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3stats_symbol_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3stats_symbol_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3in_pause_frames_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3in_pause_frames_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3control_in_unknown_opcodes_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3control_in_unknown_opcodes_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_ucast_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_ucast_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_octets_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_octets_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3out_pause_frames_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3out_pause_frames_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_time_since_last_clear_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_time_since_last_clear_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_received_bits_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_received_bits_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_symbol_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_symbol_errors_low_get(const char *buf);
+
+uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_symbol_error_counter_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_link_error_recovery_counter_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_link_downed_counter_get(const char *buf);
+
+uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_errors_get(const char *buf);
+
+uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_get(const char *buf);
+
+uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_get(const char *buf);
+
+uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_discards_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_constraint_errors_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_constraint_errors_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_local_link_integrity_errors_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_get(const char *buf);
+
+uint16_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_vl_15_dropped_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_data_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_data_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_pkts_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_rcv_pkts_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_portcntrs_attribute_grp_data_port_xmit_wait_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_symbol_error_counter_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_symbol_error_counter_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_link_error_recovery_counter_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_link_error_recovery_counter_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_link_downed_counter_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_link_downed_counter_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_discards_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_discards_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_constraint_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_constraint_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_constraint_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_constraint_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_local_link_integrity_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_local_link_integrity_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_vl_15_dropped_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_vl_15_dropped_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_data_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_data_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_data_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_data_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_rcv_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_wait_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_xmit_wait_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_effective_rcv_pkts_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_effective_rcv_pkts_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_effective_rcv_data_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_IB_long_portcntrs_attribute_grp_data_port_effective_rcv_data_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_codes_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_codes_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_code_err_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_code_err_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_uncorrectable_code_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_uncorrectable_code_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_codes_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_codes_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_codes_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_codes_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_events_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_events_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_sync_events_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_sync_events_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_hi_retransmission_rate_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_hi_retransmission_rate_low_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_codes_within_t_sec_max_high_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_codes_within_t_sec_max_low_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_ppcnt_plr_counters_pre_plr_ber_magnitude_get(const char *buf);
+
+uint8_t mlxsw_reg_ppcnt_ppcnt_plr_counters_pre_plr_ber_coef_get(const char *buf);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_hi_get(const char *buf, unsigned short index);
+
+void mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_hi_set(char *buf, unsigned short index, uint32_t val);
+
+uint32_t mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_lo_get(const char *buf, unsigned short index);
+
+void mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_lo_set(char *buf, unsigned short index, uint32_t val);
+
 uint32_t mlxsw_reg_ppcnt_usr_xsr_physical_layer_time_since_last_clear_high_get(const char *buf);
 
 uint32_t mlxsw_reg_ppcnt_usr_xsr_physical_layer_time_since_last_clear_low_get(const char *buf);
@@ -1780,170 +2040,6 @@ uint32_t mlxsw_reg_ppcnt_usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane
 uint32_t mlxsw_reg_ppcnt_usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_low_get(const char *buf);
 
 uint32_t mlxsw_reg_ppcnt_usr_xsr_physical_layer_link_down_events_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_time_since_last_clear_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_time_since_last_clear_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_received_bits_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_received_bits_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_symbol_errors_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_symbol_errors_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_corrected_bits_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_corrected_bits_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane0_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane0_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane1_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane1_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane2_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane2_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane3_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane3_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane4_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane4_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane5_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane5_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane6_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane6_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane7_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_phy_raw_errors_lane7_low_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_raw_ber_magnitude_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_raw_ber_coef_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_effective_ber_magnitude_get(const char *buf);
-
-uint8_t mlxsw_reg_ppcnt_phys_layer_stat_cntrs_effective_ber_coef_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_codes_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_codes_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_code_err_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_code_err_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_uncorrectable_code_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_rcv_uncorrectable_code_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_codes_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_codes_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_codes_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_codes_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_events_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_xmit_retry_events_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_sync_events_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_plr_sync_events_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_hi_retransmission_rate_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_plr_counters_hi_retransmission_rate_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_hi_get(const char *buf, unsigned short index);
-
-void mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_hi_set(char *buf, unsigned short index, uint32_t val);
-
-uint32_t mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_lo_get(const char *buf, unsigned short index);
-
-void mlxsw_reg_ppcnt_ppcnt_rs_fec_histograms_counters_lo_set(char *buf, unsigned short index, uint32_t val);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_ucast_pkts_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_ucast_pkts_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_octets_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_octets_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_discards_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_discards_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_errors_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_in_errors_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_crc_align_errors_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_crc_align_errors_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_undersize_pkts_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_undersize_pkts_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_oversize_pkts_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_ether_stats_oversize_pkts_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3stats_symbol_errors_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3stats_symbol_errors_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3in_pause_frames_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3in_pause_frames_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3control_in_unknown_opcodes_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3control_in_unknown_opcodes_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_ucast_pkts_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_ucast_pkts_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_octets_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_octets_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3out_pause_frames_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_dot3out_pause_frames_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_errors_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_if_out_errors_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_time_since_last_clear_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_time_since_last_clear_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_received_bits_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_received_bits_low_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_symbol_errors_high_get(const char *buf);
-
-uint32_t mlxsw_reg_ppcnt_eth_oob_port_cntrs_phy_symbol_errors_low_get(const char *buf);
 
 /* tidem
  * -----

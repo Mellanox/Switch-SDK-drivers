@@ -67,37 +67,26 @@
  *
  */
 /* clear
- * Clear counters
  * Access: OP
  */
 MLXSW_ITEM8(reg, pecnrr, clear, 0x0, 7, 1);
 
 /* tcam_trigger_high
- * Count number of tcam triggers (bind to ACL group)
- * For example: if a packet has iACL and eirfACL then inc by 2
- * Note: packets from CPU ingress are not counted
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecnrr, tcam_trigger_high, 0x10, 0, 32);
 
 /* tcam_trigger_low
- * Count number of tcam triggers (bind to ACL group)
- * For example: if a packet has iACL and eirfACL then inc by 2
- * Note: packets from CPU ingress are not counted
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecnrr, tcam_trigger_low, 0x14, 0, 32);
 
 /* tcam_full_lookup_high
- * Count number of tcam triggers which needed a full lookup
- * Note: packets from CPU ingress are not counted
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecnrr, tcam_full_lookup_high, 0x18, 0, 32);
 
 /* tcam_full_lookup_low
- * Count number of tcam triggers which needed a full lookup
- * Note: packets from CPU ingress are not counted
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecnrr, tcam_full_lookup_low, 0x1c, 0, 32);
@@ -107,89 +96,41 @@ MLXSW_ITEM32(reg, pecnrr, tcam_full_lookup_low, 0x1c, 0, 32);
  *
  */
 /* swid
- * For HCA: must always be 0.
- * Switch partition ID with which to associate the port.
- * Switch partitions are numbered from 0 to 7 inclusively.
- * The 
- * swid
- *  field is only valid when the 
- * local_port
- *  is the router port. 
- * In this case, the 
- * swid
- *  indicates which of the router ports to config
- * ure/query.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, paos, swid, 0x0, 0, 8);
 
 /* local_port
- * Local port number.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, paos, local_port, 0x1, 0, 8);
 
 /* pnat
- * Port number access type. determines the way 
- * local_port
- *  
- * is inter
- * preted:
- * 0: Local_port_number
- * 1: Label_port_number
- * 3: Out_of_band_or_PCI
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, paos, pnat, 0x2, 6, 2);
 
 /* admin_status
- * Port administrative state (the desired state of the interface):
- * 1: up
- * 2: down_by_configuration
- * 3: up_once - if the port goes up and then down, the operational 
- * status should go to "down by port failure" and can only go back 
- * up upon explicit command
- * 4: disabled_by_system - this mode cannot be set by the software, 
- * only by the hardware.
  * Access: RW
  */
 MLXSW_ITEM8(reg, paos, admin_status, 0x2, 0, 4);
 
 /* oper_status
- * Port operational state:
- * 1: up
- * 2: down
- * 4: down_by_port_failure - (transitioned by the hardware)
  * Access: RO
  */
 MLXSW_ITEM8(reg, paos, oper_status, 0x3, 0, 4);
 
 /* ase
- * Admin state update enable. If this bit is set, admin state will be 
- * updated based on 
- * admin_state
- *  field. Only relevant on Set() opera
- * tions.
  * Access: WO
  */
 MLXSW_ITEM8(reg, paos, ase, 0x4, 7, 1);
 
 /* ee
- * Event update enable. If this bit is set, event generation will be 
- * updated based on the 
- * e
- *  field. Only relevant on Set operations.
- * Not Supported for HCA.
  * Access: WO
  */
 MLXSW_ITEM8(reg, paos, ee, 0x4, 6, 1);
 
 /* e
- * Event generation on operational state change:
- * 0: Do_not_generate_event
- * 1: Generate_Event 
- * 2: Generate_Single_Event
- * Not Supported for HCA.
  * Access: RW
  */
 MLXSW_ITEM8(reg, paos, e, 0x7, 0, 2);
@@ -199,17 +140,11 @@ MLXSW_ITEM8(reg, paos, e, 0x7, 0, 2);
  *
  */
 /* overlay_ecn
- * ECN of the IP header in the overlay network.
- * If the packet has no IP header, the encapsulation uses the 
- * mapped value for 
- * overlay_ecn
- *  of 0.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tieem, overlay_ecn, 0x4, 0, 2);
 
 /* underlay_ecn
- * ECN of the IP header in the underlay network.
  * Access: RW
  */
 MLXSW_ITEM8(reg, tieem, underlay_ecn, 0x5, 0, 2);
@@ -219,235 +154,86 @@ MLXSW_ITEM8(reg, tieem, underlay_ecn, 0x5, 0, 2);
  *
  */
 /* op
- * Operation
- * 0: FID is valid
- * 1: FID is not valid
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, op, 0x0, 0, 4);
 
 /* fid
- * Filtering Identifier
- * Also supported for values of 0..4K-1
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, sfmr, fid, 0x2, 0, 16);
 
 /* disable_tport_encap
- * Disable tunnel_port encap for this fid. Bitwise:
- * Bit0: disable NVE encap for this fid
- * When set then the tunnel-encap will match the trap DIS
- * CARD_LOOKUP_SWITCH_UC or DISCARD_LOOK
- * UP_SWITCH_MC_NULL and will count on 
- * PPCNT.
- * ingress_tx_link_down
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, disable_tport_encap, 0x7, 0, 4);
 
 /* flood_rsp
- * Router sub-port flooding tables:
- * 0: regular flooding tables
- * 1: router sub-port flooding table, for this fid the flooding is 
- * per router-sub-port local_port. Must not be set for a fid which 
- * is not a router-sub-port. 
- * Note: must be set prior to enabling the relevant RIF!
- * Reserved when 
- * ubridge
- *  = 0
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, flood_rsp, 0x8, 7, 1);
 
 /* flood_bridge_type
- * Flood bridge type (see SFGC.
- * bridge_type
- * ):
- * 0: type_0
- * 1: type_1
- * Reserved when 
- * ubridge
- *  = 0
- * Reserved when 
- * flood_rsp
- *  = 1
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, flood_bridge_type, 0x8, 4, 1);
 
 /* fid_offset
- * FID Offset
- * Used to point into the flooding table selected by SFGC regis
- * ter if the table is of type FID-Offset. 
- * For other flooding table types, this field is reserved.
- * Reserved when 
- * op
- *  = 1
- * Reserved when 
- * flood_rsp
- *  = 1
  * Access: RW
  */
 MLXSW_ITEM16(reg, sfmr, fid_offset, 0xa, 0, 16);
 
 /* vtfp
- * Tunnel Flood Pointer Valid
- * If it is not set, 
- * nve_tunnel_flood_ptr
- *  is reserved and is con
- * sidered as NULL pointer.
- * For Spectrum
- *  when ubridge=0 and 802.1Q FIDs - reserved 
- * Reserved when 
- * op
- *  = 1
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, vtfp, 0xc, 7, 1);
 
 /* nve_tunnel_flood_ptr
- * Underlay Flooding and BC Pointer. Used as a pointer to the 
- * first entry of the group based link lists of flooding or BC 
- * entries (for NVE tunnels). 
- * For Spectrum-1 the number of link lists in the group is con
- * figured by TNGCR.
- * nve_group_size_flood
- * .
- * For Spectrum-2 and on points to first entry (which may point 
- * to a group).
- * The pointer points to entries which are configured by 
- * TNUMT or by TNGEE, see 
- * Section 15.12.6, "TNUMT - 
- * Tunneling NVE Underlay Multicast Table Register," on 
- * page 2068
- * , 
- * Section 15.12.3, "TNGEE - TuNnel Generic 
- * Encapsulation Entry Register," on page 2059
- * For Spectrum/-2, this points to an entry in the KVD Linear, 
- * see 
- * Appendix A.4.1.2, "KVD Central Database Linear 
- * Entries" (page 2182)
- * Reserved when 
- * op
- *  = 1
  * Access: RW
  */
 MLXSW_ITEM32(reg, sfmr, nve_tunnel_flood_ptr, 0xc, 0, 24);
 
 /* vv
- * VNI Valid.
- * If it is not set, 
- * vni
- *  is reserved
- * Reserved when 
- * op
- *  = 1
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, vv, 0x10, 7, 1);
 
 /* vni
- * Virtual Network Identifier
- * SW must not assign a given VNI to more than one FID
- * Reserved when 
- * op
- *  = 1
- * Reserved when 
- * vv
- *  = 0
- * Range 0.. (2^24-2)
  * Access: RW
  */
 MLXSW_ITEM32(reg, sfmr, vni, 0x10, 0, 24);
 
 /* irif_v
- * Ingress RIF valid:
- * 0: irif is not valid, no irif assigned
- * 1: irif valid
- * Must not be set for a non valid RIF
- * Reserved when 
- * ubridge 
- * = 0
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, irif_v, 0x14, 0, 1);
 
 /* irif
- * Ingress RIF (Router Interface)
- * Range is 0.. 
- * cap_max_router_interfaces
- * -1
- * Reserved when 
- * ubridge 
- * = 0
- * Reserved when 
- * irif_v 
- * = 0
  * Access: RW
  */
 MLXSW_ITEM16(reg, sfmr, irif, 0x16, 0, 16);
 
 /* decap_counter_set_type
- * Counter Set Type for flow counters.
- * Counts NVE Decap from vni to fid
- * For Spectrum/-2: See 
- * Section 4.2.2, "Counter Set Type," on 
- * page 604
- * Not supported by SwitchX/-2
- * Reserved when 
- * ubridge
- * =1
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, decap_counter_set_type, 0x18, 0, 8);
 
 /* decap_counter_index
- * Counter Index for flow counters.
- * Counts NVE Decap from vni to fid
- * For Spectrum/-2: See 
- * Section 4.1, "Performance and Moni
- * toring Counters," on page 602
- * Not supported by SwitchX/-2
- * Reserved when 
- * ubridge
- * =1
  * Access: RW
  */
 MLXSW_ITEM32(reg, sfmr, decap_counter_index, 0x18, 0, 24);
 
 /* nve_flood_prf_id
- * Fid Flooding profile_id for NVE Encap
- * Reserved when SwitchX/-2 and Spectrum-1
- * [Spectrum-2-phase2]
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, nve_flood_prf_id, 0x26, 0, 2);
 
 /* smpe_valid
- * SMPE is valid
- * Reserved when 
- * ubridge 
- * = 0
- * Reserved when 
- * flood_rsp
- *  = 1
- * Reserved when SwitchX/-2 or when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfmr, smpe_valid, 0x29, 4, 1);
 
 /* smpe
- * Switch multicast port to egress VID
- * Range is 0.. 
- * cap_max_rmpe
- *  - 1
- * Reserved when 
- * ubridge 
- * = 0
- * Reserved when 
- * flood_rsp
- *  = 1
- * Reserved when SwitxcX/-2 or when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM16(reg, sfmr, smpe, 0x2a, 0, 16);
@@ -457,21 +243,16 @@ MLXSW_ITEM16(reg, sfmr, smpe, 0x2a, 0, 16);
  *
  */
 /* base_address
- * Base cr-space address for reading
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, icsr, base_address, 0x4, 0, 32);
 
 /* num_reads
- * Number of cr-space consecutive reads.
- * EAch read is 4B (DWord)
- * Range 1..256
  * Access: OP
  */
 MLXSW_ITEM16(reg, icsr, num_reads, 0xa, 0, 9);
 
 /* data
- * The cr-space read data
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, icsr, data, 0x10, 0, 32, 4, 0, false);
@@ -481,77 +262,41 @@ MLXSW_ITEM32_INDEXED(reg, icsr, data, 0x10, 0, 32, 4, 0, false);
  *
  */
 /* record_type
- * 0: IPv4
- * 1: IPv6
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnumt, record_type, 0x0, 4, 4);
 
 /* underlay_mc_ptr
- * Index to the Underlay Multicast Table
- * For Spectrum familiy the index is to the KVD linear, see 
- * Appen
- * dix A.4.1.2, "
- * KVD Central Database Linear Entries
- * " 
- * (page 2182)
- * May point also to TNGEE
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, tnumt, underlay_mc_ptr, 0x0, 0, 24);
 
 /* vnext
- * Next valid
- * The 
- * next_underlay_mc_ptr
- *  is valid
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnumt, vnext, 0x4, 7, 1);
 
 /* next_underlay_mc_ptr
- * The next index to the Underlay Multicast Table
- * For Spectrum familiy the index is to the KVD linear, see 
- * Appen
- * dix A.4.1.2, "
- * KVD Central Database Linear Entries
- * " 
- * (page 2182)
  * Access: RW
  */
 MLXSW_ITEM32(reg, tnumt, next_underlay_mc_ptr, 0x4, 0, 24);
 
 /* tunnel_mc_ipv4_size
- * Number of IP addresses in the record
- * Range is 1..
- * cap_max_nve_mc_entries_ipv4
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnumt, tunnel_mc_ipv4_size, 0xb, 0, 3);
 
 /* tunnel_mc_ipv4_udip
- * The underlay IPv4 addresses, while i=0 .. (
- * size
- * -1).
- * udip<i> is reserved if i >= 
- * size
- * When 
- * udip
- * =0 then no replication
  * Access: RW
  */
 MLXSW_ITEM32_INDEXED(reg, tnumt, tunnel_mc_ipv4_udip, 0xc, 0, 32, 4, 0, false);
 
 /* tunnel_mc_ipv6_size
- * Number of IP addresses in the record
- * Range is 1..
- * cap_max_nve_mc_entries_ipv6
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnumt, tunnel_mc_ipv6_size, 0xb, 0, 3);
 
 /* tunnel_mc_ipv6_udip_ptr
- * 
  * Access: 
  */
 MLXSW_ITEM32_INDEXED(reg, tnumt, tunnel_mc_ipv6_udip_ptr, 0xc, 0, 24, 0x4, 0x0, false);
@@ -561,49 +306,26 @@ MLXSW_ITEM32_INDEXED(reg, tnumt, tunnel_mc_ipv6_udip_ptr, 0xc, 0, 24, 0x4, 0x0, 
  *
  */
 /* op
- * 0: Read activity
- * 1: Read and clear activity
  * Access: OP
  */
 MLXSW_ITEM8(reg, ptcead, op, 0x0, 6, 2);
 
 /* offset
- * Offset within the multicast forwarding table
- * Must be N*32
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, ptcead, offset, 0x2, 0, 16);
 
 /* num_rec
- * Number of records to read
- * Range 1..4096
  * Access: OP
  */
 MLXSW_ITEM16(reg, ptcead, num_rec, 0x6, 0, 13);
 
 /* tcam_region_info
- * Opaque object that represents the TCAM region.
- * See 
- * Table 1662, "tcam_region_info Layout," on page 1696
  * Access: INDEX
  */
 MLXSW_ITEM_BUF(reg, ptcead, tcam_region_info, 0x10, 16);
 
 /* activity_vector
- * Activity per offset
- * Line 20h bit 31 is for entry 
- * offset+
- * 4095
- * Line 21C bit 0 is for entry 
- * offset+
- * 0
- * Bits higher than 
- * num_rec 
- * are reserved
- * Bits higher than region_size
- *  
- * are reserved
- * For non-valid offsets the activity is reserved
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, ptcead, activity_vector, 0x20, 0, 32, 4, 0, false);
@@ -613,16 +335,11 @@ MLXSW_ITEM32_INDEXED(reg, ptcead, activity_vector, 0x20, 0, 32, 4, 0, false);
  *
  */
 /* index
- * Index to IPv6 address
- * For Spectrum, the index is to the KVD linear, see 
- * Section A.4.1, 
- * "KVD Central Database," on page 2178
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, rips, index, 0x0, 0, 24);
 
 /* ipv6
- * IPv6 address
  * Access: RW
  */
 MLXSW_ITEM32_INDEXED(reg, rips, ipv6, 0x4, 0, 32, 4, 0, false);
@@ -632,49 +349,26 @@ MLXSW_ITEM32_INDEXED(reg, rips, ipv6, 0x4, 0, 32, 4, 0, false);
  *
  */
 /* underlay_ecn
- * ECN field of the IP header in the underlay network
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tndem, underlay_ecn, 0x4, 0, 2);
 
 /* overlay_ecn
- * ECN field of the IP header in the overlay network
- * If the packet has no overlay IP header, the decapsulation uses the 
- * mapped value '0'
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tndem, overlay_ecn, 0x5, 0, 2);
 
 /* eip_ecn
- * Egress IP ECN
- * ECN field of the IP header of the packet which goes out from the 
- * decapsulation
  * Access: RW
  */
 MLXSW_ITEM8(reg, tndem, eip_ecn, 0x6, 0, 2);
 
 /* trap_en
- * Trap enable:
- * 0: no trap due to decap ecn
- * 1: trap enable with 
- * trap_id
- * .
- *  
- * HPKT can control the trap action. 
- * See 
- * Section 2.15.3, "
- * HPKT - Host PacKet Trap
- * ," on page 396
  * Access: RW
  */
 MLXSW_ITEM8(reg, tndem, trap_en, 0x8, 4, 4);
 
 /* trap_id
- * Trap ID
- * Trap-ID is DECAP_ECN0 or DECAP_ECN1
- * Reserved when 
- * trap_en
- *  is '0'
  * Access: RW
  */
 MLXSW_ITEM16(reg, tndem, trap_id, 0xa, 0, 9);
@@ -684,44 +378,16 @@ MLXSW_ITEM16(reg, tndem, trap_id, 0xa, 0, 9);
  *
  */
 /* ddd_lpm_high_ipv6
- * For DDD for IPv6 LPM
- * LPM_High is for routes with prefixes from 
- * ddd_lpm_high_ipv6
- *  .. 
- * 128
- * LPM_Low is for routes with prefixes from 1 to 
- * ddd_lp
- * m_high_ipv6
- * -1
- * Range: 1..128, default: 33
- * Note: can only be changed when the router is disabled
  * Access: RW
  */
 MLXSW_ITEM8(reg, igcr, ddd_lpm_high_ipv6, 0x1, 0, 8);
 
 /* ddd_lpm_high_ipv4
- * For DDD for IPv4 LPM
- * LPM_High is for routes with prefixes from 
- * ddd_lpm_high_ipv4
- *  .. 
- * 32
- * LPM_Low is for routes with prefixes from 1 to  
- * ddd_lp
- * m_high_ipv4
- * -1
- * Range: 1..32, default: 9
- * Note: can only be changed when the router is disabled
  * Access: RW
  */
 MLXSW_ITEM8(reg, igcr, ddd_lpm_high_ipv4, 0x3, 0, 8);
 
 /* ddd_pe_actions_priority
- * For DDD on ACL actions
- * ACL actions which are pointed by a rule with priority equal to or 
- * smaller than this value will have DDD
- * For example if the value is 0 then only default actions will have 
- * DDD
- * Default 0
  * Access: RW
  */
 MLXSW_ITEM32(reg, igcr, ddd_pe_actions_priority, 0x8, 0, 24);
@@ -731,26 +397,21 @@ MLXSW_ITEM32(reg, igcr, ddd_pe_actions_priority, 0x8, 0, 24);
  *
  */
 /* local_port
- * Local port number (receive port)
- * Supported for CPU port
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tiqdr, local_port, 0x1, 0, 8);
 
 /* color
- * For encapsulation, the default values of packet Color
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqdr, color, 0x4, 0, 2);
 
 /* switch_prio
- * For encapsulation, the default values of Switch Priority
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqdr, switch_prio, 0x5, 0, 4);
 
 /* dscp
- * For encapsulation, the default DSCP
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqdr, dscp, 0x7, 0, 6);
@@ -760,28 +421,16 @@ MLXSW_ITEM8(reg, tiqdr, dscp, 0x7, 0, 6);
  *
  */
 /* learn_enable_v4
- * When decap:
- * Enable learning from tunnel port for IPv4 packets
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnpc, learn_enable_v4, 0x7, 0, 1);
 
 /* lb_tx_uc_tunnel_port
- * For unicast packets:
- * Bit0: Allow loopback from NVE to NVE
- * Values:
- * 0: loopback_filter - (default)
- * 1: loopback_allowed
  * Access: RW
  */
 MLXSW_ITEM32(reg, tnpc, lb_tx_uc_tunnel_port, 0x14, 0, 32);
 
 /* lb_tx_mc_tunnel_port
- * For multicast packets:
- * Bit0: Allow loopback filter from NVE to NVE
- * Values:
- * 0: loopback filter (default)
- * 1: loopback allowed
  * Access: RW
  */
 MLXSW_ITEM32(reg, tnpc, lb_tx_mc_tunnel_port, 0x18, 0, 32);
@@ -791,34 +440,11 @@ MLXSW_ITEM32(reg, tnpc, lb_tx_mc_tunnel_port, 0x18, 0, 32);
  *
  */
 /* region_id
- * Region identifier
- * Range 0 .. 
- * cap_max_regions
- * -1
- * Note: the counter (PECNRR) is always enabled. It is suggested 
- * to clear the counter (PECNRR.
- * clear
- * ) after changing the 
- * region_id
  * Access: RW
  */
 MLXSW_ITEM16(reg, pecnre, region_id, 0xa, 0, 16);
 
 /* region_id_mask
- * Region_id mask
- * Per bit:
- * 0: ignore 
- * region_id
- *  relevant bit
- * 1: compare 
- * region_id
- *  relevant bit
- * Can be used for a binary search on regions with high count val
- * ues
- * Note: value of all '0' is not supported 
- * Range 0 .. 2^ (round_down(log2(
- * cap_max_regions
- * -1)) + 1)
  * Access: RW
  */
 MLXSW_ITEM16(reg, pecnre, region_id_mask, 0xe, 0, 16);
@@ -828,22 +454,11 @@ MLXSW_ITEM16(reg, pecnre, region_id_mask, 0xe, 0, 16);
  *
  */
 /* protocol
- * Protocol:
- * 0: IPv4
- * 1: IPv6
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pemrbt, protocol, 0x3, 0, 1);
 
 /* group_id
- * ACL group identifier (
- * acl_group_id)
- * Range of group id is 0..
- * cap_max_acl_groups
- * -1
- * Note: the 
- * group_id
- *  must be configured prior to enabling mc router
  * Access: RW
  */
 MLXSW_ITEM16(reg, pemrbt, group_id, 0x12, 0, 16);
@@ -853,131 +468,56 @@ MLXSW_ITEM16(reg, pemrbt, group_id, 0x12, 0, 16);
  *
  */
 /* l2_enc_index
- * Index to L2 encap entry
- * For Spectrum familiy the index is to the KVD linear, see 
- * Appen
- * dix A.4.1.2, "
- * KVD Central Database Linear Entries
- * " 
- * (page 2182)
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, tngee, l2_enc_index, 0x0, 0, 24);
 
 /* tunnel_type
- * Tunnel type:
- * 0: NVE (L2 enc NVE)
  * Access: RW
  */
 MLXSW_ITEM8(reg, tngee, tunnel_type, 0x7, 0, 4);
 
 /* vnext
- * Next valid
- * The 
- * next_l2_enc_index
- *  is valid
  * Access: RW
  */
 MLXSW_ITEM8(reg, tngee, vnext, 0x8, 7, 1);
 
 /* next_l2_enc_ptr
- * Index to next L2 encap entry
- * Note: may be point either to a TNGEE entry or to a TNUMT 
- * entry. 
- * For Spectrum-2 ... KVH ...
- * Reserved when 
- * vnext
- *  = 0
  * Access: RW
  */
 MLXSW_ITEM32(reg, tngee, next_l2_enc_ptr, 0x8, 0, 24);
 
 /* ecmp_size
- * ecmp_size is the amount of sequential entries starting from 
- * nex
- * t_l2_enc_ptr 
- * (the number of ECMPs).
- * Values: 1-128, 256, 512, 1024, 2048 and 4096
- * Reserved when 
- * vnext
- *  = 0
  * Access: RW
  */
 MLXSW_ITEM16(reg, tngee, ecmp_size, 0xe, 0, 13);
 
 /* protocol
- * Protocol:
- * 0: IPv4
- * 1: IPv6
  * Access: RW
  */
 MLXSW_ITEM8(reg, tngee, protocol, 0x10, 4, 1);
 
 /* uirif
- * Underlay Ingress Router Interface
- * Valid range is 0..
- * cap_max_router_interfaces
- *  - 1
  * Access: RW
  */
 MLXSW_ITEM16(reg, tngee, uirif, 0x12, 0, 16);
 
 /* udip
- * If 
- * protocol
- *  is IPv4:
- * The underlay destination IPv4 of the remote VTEP (the least sig
- * nificant bits)
- * Else if 
- * protocol
- *  is IPv6:
- * A pointer to the IPv6 address of the remote VTEP destination in 
- * the overlay network. See 
- * Section 13.13.19, "
- * RIPS - Router IP 
- * version Six Register
- * ," on page 1919
- * .
- * When 
- * protocol
- *  is IPv4 and 
- * udip
- * =0 then no replication, the 
- * uirif
- * , 
- * entry
- *  have no significance.
  * Access: RW
  */
 MLXSW_ITEM32(reg, tngee, udip, 0x14, 0, 32);
 
 /* counter_set_type
- * Counter Set Type for flow counters
- * For Spectrum: See 
- * Section 4.2.2, "
- * Counter Set Type
- * ," on 
- * page 604
  * Access: RW
  */
 MLXSW_ITEM8(reg, tngee, counter_set_type, 0x3c, 0, 8);
 
 /* counter_index
- * Counter Index for flow counters
- * For Spectrum: see 
- * Section 4.2, "
- * Flow Counters
- * ," on page 603
  * Access: RW
  */
 MLXSW_ITEM32(reg, tngee, counter_index, 0x3c, 0, 24);
 
 /* entry
- * Entry
- * See 
- * Table 2077, "
- * TNGEE - NVE Layout
- * ," on page 2062
  * Access: RW
  */
 MLXSW_ITEM32_INDEXED(reg, tngee, entry, 0x40, 0, 32, 4, 0, false);
@@ -987,254 +527,96 @@ MLXSW_ITEM32_INDEXED(reg, tngee, entry, 0x40, 0, 32, 4, 0, false);
  *
  */
 /* all
- * If set to '01', activates the flow of preparation for FW ISSU, on all 
- * services. The values in op-codes for "per-service" are ignored.
- * If set to '10', returns to operational state on all services. The val
- * ues in op-codes for "per-service" are ignored.
- * 11 - Reserved
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, all, 0x0, 6, 2);
 
 /* gearbox
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, gearbox, 0x5, 0, 2);
 
 /* leds
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, leds, 0x6, 6, 2);
 
 /* voltage_current
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, voltage_current, 0x6, 4, 2);
 
 /* power
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, power, 0x6, 2, 2);
 
 /* fans
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, fans, 0x6, 0, 2);
 
 /* thermal
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, thermal, 0x7, 6, 2);
 
 /* module_mng
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, module_mng, 0x7, 4, 2);
 
 /* cpld
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, cpld, 0x7, 2, 2);
 
 /* ports
- * For each of the services, the following operations are available:
- * 0: N/A (no action)
- * 1: start preparation flow for FW ISSU 
- * 2: return to operational service (end of FW ISSU flow)
- * 3: get status
- * When set to '3', the current status will appear in corresponding 
- * _stat 
- * fields.
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpcir, ports, 0x7, 0, 2);
 
 /* gearbox_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, gearbox_stat, 0xd, 0, 2);
 
 /* leds_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, leds_stat, 0xe, 6, 2);
 
 /* voltage_current_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, voltage_current_stat, 0xe, 4, 2);
 
 /* power_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, power_stat, 0xe, 2, 2);
 
 /* fans_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, fans_stat, 0xe, 0, 2);
 
 /* thermal_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, thermal_stat, 0xf, 6, 2);
 
 /* module_mng_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, module_mng_stat, 0xf, 4, 2);
 
 /* cpld_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, cpld_stat, 0xf, 2, 2);
 
 /* ports_stat
- * Status for each of the services. 
- * 0: not in FW ISSU flow state (FW ISSU flow is not initiated) 
- * 1: done with preparations for FW ISSU flow
- * 2: Preparation for FW ISSU flow started but FW still not done ser
- * vice handling
- *  [Internal]: busy with some other critical flow)
- * .
- * For not implemented services on a particular system, the status 
- * should be '1'.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mpcir, ports_stat, 0xf, 0, 2);
@@ -1244,18 +626,11 @@ MLXSW_ITEM8(reg, mpcir, ports_stat, 0xf, 0, 2);
  *
  */
 /* virtual_router
- * Virtual Router ID
- * Range is 0..
- * cap_max_virtual_routers
- * -1
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, ralcm, virtual_router, 0x0, 0, 16);
 
 /* protocol
- * Protocol:
- * 0: Unicast IPv4
- * 1: Unicast IPv6
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ralcm, protocol, 0x2, 4, 4);
@@ -1265,39 +640,16 @@ MLXSW_ITEM8(reg, ralcm, protocol, 0x2, 4, 4);
  *
  */
 /* local_port
- * Local port number
- * CPU port is not supported
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, rmpe, local_port, 0x1, 0, 8);
 
 /* rmpe_index
- * Router multicast port to ERIF
- * When 
- * ubridge
- * =0: Range is 0.. 
- * cap_max_rmpe
- *  - 
- * max_fid
- *  - 1
- * When 
- * ubridge
- * =1: Range is 0.. 
- * cap_max_rmpe
- *  - 1
- * Note: when 
- * ubridge
- * =1 the rmpe and smpe use the same range, see 
- * SMPE register
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, rmpe, rmpe_index, 0x6, 0, 16);
 
 /* erif
- * Egress Router Interface
- * Valid range is 0..
- * cap_max_router_interfaces
- *  - 1
  * Access: RW
  */
 MLXSW_ITEM16(reg, rmpe, erif, 0xa, 0, 16);
@@ -1307,57 +659,21 @@ MLXSW_ITEM16(reg, rmpe, erif, 0xa, 0, 16);
  *
  */
 /* region_id
- * Region identifier
- * Range 0 .. 
- * cap_max_regions
- * -1
- * Note: the counter (PECNER) is always enabled. It is suggested 
- * to clear the counter (PECNER.
- * clear
- * ) after changing the 
- * region_id, erp_id_bitwise
- *  or 
- * ctcam
  * Access: RW
  */
 MLXSW_ITEM16(reg, pecnee, region_id, 0xa, 0, 16);
 
 /* region_id_mask
- * Region_id mask
- * Per bit:
- * 0: ignore 
- * region_id
- *  relevant bit
- * 1: compare 
- * region_id
- *  relevant bit
- * Can be used for a binary search on regions with high count val
- * ues
- * Range 0 .. 2^ (round_down(log2(
- * cap_max_regions
- * -1)) + 1)
  * Access: RW
  */
 MLXSW_ITEM16(reg, pecnee, region_id_mask, 0xe, 0, 16);
 
 /* erp_id_bitwise
- * Erp ID to count on
- * Value as bitwise. Can set either one erp or all erps. (e.g. value of 
- * b'101 is not allowed).
- * When more than 1 region is counted then all erps are counted
- * Reserved when 
- * region_id_mask
- *  != FF's (more than 1 region)
  * Access: RW
  */
 MLXSW_ITEM16(reg, pecnee, erp_id_bitwise, 0x12, 0, 16);
 
 /* ctcam
- * Count on C-TCAM
- * When more than 1 region then all C-TCAM access are counted
- * Reserved when 
- * region_id_mask
- *  != 0 (more than 1 region)
  * Access: RW
  */
 MLXSW_ITEM8(reg, pecnee, ctcam, 0x17, 0, 1);
@@ -1367,103 +683,56 @@ MLXSW_ITEM8(reg, pecnee, ctcam, 0x17, 0, 1);
  *
  */
 /* device_type
- * Peripheral device type
- * 1: Vega_Gearbox
- * 2: Tile
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mdfcr, device_type, 0x3, 0, 8);
 
 /* all
- * All devices are selected and 
- * device_index
- *  is ignored
- * When set to '1', the 
- * fw_status
- *  should represent the worst case of 
- * any of the devices. 
- * fw_version
- * , 
- * build_id
- * , 
- * major
- *  and 
- * minor
- *  should 
- * be of device number 0.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mdfcr, all, 0x4, 7, 1);
 
 /* device_index
- * Device number 
- * For gearboxes, the index represents the gearbox die.
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, mdfcr, device_index, 0x6, 0, 12);
 
 /* fw_status
- * FW load status.
- * 0: No errors, FW has loaded successfully. 
- * 1: Flash error. 
- * 2: FW load error. 
- * 15: Not ready yet for displaying the status.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mdfcr, fw_status, 0xd, 4, 4);
 
 /* first_fw_status_device
- * The first device representing the 
- * fw_status
  * Access: RO
  */
 MLXSW_ITEM16(reg, mdfcr, first_fw_status_device, 0xe, 0, 12);
 
 /* expected_fw_version
- * Expected FW version
  * Access: RO
  */
 MLXSW_ITEM32(reg, mdfcr, expected_fw_version, 0x10, 0, 32);
 
 /* fw_version
- * FW version
  * Access: RO
  */
 MLXSW_ITEM32(reg, mdfcr, fw_version, 0x14, 0, 32);
 
 /* build_id
- * FW build ID
  * Access: RO
  */
 MLXSW_ITEM16(reg, mdfcr, build_id, 0x1a, 0, 16);
 
 /* major
- * FW major version
  * Access: RO
  */
 MLXSW_ITEM8(reg, mdfcr, major, 0x1f, 0, 8);
 
 /* minor
- * FW minor version
  * Access: RO
  */
 MLXSW_ITEM8(reg, mdfcr, minor, 0x23, 0, 8);
 
 /* error_id
- * FW burning status error.
- * 1: no_errors
- * 2: error_in_total_size
- * 3: error_in_iRAM_size_read
- * 4: error_in_DRAM_size_read
- * 5: SPI_read_from_EEPROM_time-out
- * 6: CRC_on_downloaded_EEPROM_content
- * 7: Download_process_is_on-going
- * 8: SPI_reset_time-out
- * 9: memory_protection
- * 10: unknown_parameter_was_received_by_bootloader 
- * 11: invalid_message_was_received_by_bootloader
- * 12: message_was_aborted_by_host
- * Values from 13-32 are reserved
  * Access: RO
  */
 MLXSW_ITEM8(reg, mdfcr, error_id, 0x26, 3, 5);
@@ -1473,38 +742,16 @@ MLXSW_ITEM8(reg, mdfcr, error_id, 0x26, 3, 5);
  *
  */
 /* smpe_index
- * Switch multicast port to egress VID
- * When 
- * ubridge
- * =0: Range is 0.. 
- * cap_max_rmpe
- *  - 
- * max_fid
- *  - 1
- * When 
- * ubridge
- * =1: Range is 0.. 
- * cap_max_rmpe
- *  - 1
- * Note: when 
- * ubridge
- * =1 the rmpe and smpe use the same range, see 
- * RMPE register
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, smpeb, smpe_index, 0x6, 0, 16);
 
 /* update
- * Update enable (when write):
- * 0: do not update the entry
- * 1: update the entry
  * Access: OP
  */
 MLXSW_ITEM8_INDEXED(reg, smpeb, update, MLXSW_SMPEB_ELPORT_RECORD_BASE_LEN, 7, 1, MLXSW_SMPEB_ELPORT_RECORD_REC_LEN, 0, false);
 
 /* value
- * Value:
- * egress vid, range 0..4095
  * Access: RW
  */
 MLXSW_ITEM32_INDEXED(reg, smpeb, value, MLXSW_SMPEB_ELPORT_RECORD_BASE_LEN, 0, 20, MLXSW_SMPEB_ELPORT_RECORD_REC_LEN, 0, false);
@@ -1514,17 +761,11 @@ MLXSW_ITEM32_INDEXED(reg, smpeb, value, MLXSW_SMPEB_ELPORT_RECORD_BASE_LEN, 0, 2
  *
  */
 /* local_port
- * Ingress local port 
- * Not including CPU port
- * Note: Spectrum-2: no VLAN binding for tunnel_port
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pevpb, local_port, 0x1, 0, 8);
 
 /* ev
- * Enable VLAN binding from ingress port
- * 0: disable
- * 1: enable (default)
  * Access: RW
  */
 MLXSW_ITEM8(reg, pevpb, ev, 0x7, 0, 1);
@@ -1534,119 +775,51 @@ MLXSW_ITEM8(reg, pevpb, ev, 0x7, 0, 1);
  *
  */
 /* sensor_index
- * Sensors index to access.
- * 64-127 of 
- * sensor_index
- *  are mapped to the SFP+/QSFP modules 
- * sequentially (module 0 is mapped to 
- * sensor_index
- *  64, module 1 
- * to 
- * sensor_index
- *  65 and so on). Gearbox sensors are from index 
- * 256.
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, mtmp, sensor_index, 0x2, 0, 12);
 
 /* temperature
- * Temperature reading from the sensor. Reading is in 0.125 Cel
- * sius degrees units.
- * For negative values 2's complement is used (for example: -3.25 
- * Celsius will read as 0xFFE6)
  * Access: RO
  */
 MLXSW_ITEM16(reg, mtmp, temperature, 0x6, 0, 16);
 
 /* mte
- * Max Temperature Enable - enables measuring the max tempera
- * ture on a sensor
  * Access: RW
  */
 MLXSW_ITEM8(reg, mtmp, mte, 0x8, 7, 1);
 
 /* mtr
- * Max Temperature Reset - clears the value of the max tempera
- * ture register
  * Access: OP
  */
 MLXSW_ITEM8(reg, mtmp, mtr, 0x8, 6, 1);
 
 /* max_temperature
- * The highest measured temperature from the sensor.
- * When the bit 
- * mte
- *  is cleared, the field 
- * max_temperature
- *  is 
- * reserved.
  * Access: RO
  */
 MLXSW_ITEM16(reg, mtmp, max_temperature, 0xa, 0, 16);
 
 /* tee
- * Temperature Event Enable
- * 0 - do not generate event
- * 1 - generate event 
- * 2 - generate single event
- * Note: events may be delayed by up to 60 Seconds from "gener
- * ate event" or "generate single event"
- * Supported Only for switch devices. For HCA devices, SW 
- * should register Temperature Warning Event to an EQ.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mtmp, tee, 0xc, 6, 2);
 
 /* temperature_threshold_hi
- * temperature_threshold_hi refers to the high threshold of Warn
- * ing Event. If the sensor temperature measurement is above the 
- * threshold (and events are enabled), an event will be generated.
- * threshold_hi
- *  and 
- * threshold_lo
- *  implements hysteresis mecha
- * nism of the threshold preventing toggling of the indication.
- * Note that 
- * temperature_threshold_hi
- *  must be equal or lower 
- * than the system requirement.
- * System requirement for module is the module warning tempera
- * ture.
- * System requirement for board/silicon sensors is according to 
- * product information parameters
- * Note that the temperature threshold can be used to generate an 
- * event message or an interrupt using GPIO
  * Access: RW
  */
 MLXSW_ITEM16(reg, mtmp, temperature_threshold_hi, 0xe, 0, 16);
 
 /* temperature_threshold_lo
- * temperature_threshold_hi refers to the low threshold of Warning 
- * Event. The offset 
- * threshold_lo 
- * implements the lower threshold 
- * for the hysteresis mechanism of over temperature alert. Once 
- * alert is set, if the temperature goes below this threshold, the alert 
- * is cleared.
- * Note that 
- * temperature_threshold_lo
- *  must be at least 5 degrees 
- * lower than 
- * temperature_threshold_hi
  * Access: RW
  */
 MLXSW_ITEM16(reg, mtmp, temperature_threshold_lo, 0x12, 0, 16);
 
 /* sensor_name_hi
- * Sensor Name
- * 8 character long sensor name
  * Access: RO
  */
 MLXSW_ITEM32(reg, mtmp, sensor_name_hi, 0x18, 0, 32);
 
 /* sensor_name_lo
- * Sensor Name
- * 8 character long sensor name
  * Access: RO
  */
 MLXSW_ITEM32(reg, mtmp, sensor_name_lo, 0x1c, 0, 32);
@@ -1656,25 +829,16 @@ MLXSW_ITEM32(reg, mtmp, sensor_name_lo, 0x1c, 0, 32);
  *
  */
 /* atm_v
- * Attribute Modifier valid
- * The 
- * attribute_modifier
- *  is valid
  * Access: RO
  */
 MLXSW_ITEM8(reg, ibfmr, atm_v, 0x3, 0, 1);
 
 /* attribute_id
- * Attribute ID of the received MAD
- * Supported:
- * 0x0019: LinearForwardingTable
- * 0x001B: MulticastForwardingTable
  * Access: RO
  */
 MLXSW_ITEM16(reg, ibfmr, attribute_id, 0xa, 0, 16);
 
 /* attribute_modifier
- * AttributeModifier of the received MAD
  * Access: RO
  */
 MLXSW_ITEM32(reg, ibfmr, attribute_modifier, 0xc, 0, 32);
@@ -1684,107 +848,41 @@ MLXSW_ITEM32(reg, ibfmr, attribute_modifier, 0xc, 0, 32);
  *
  */
 /* enc_set_dscp
- * For encapsulation: how to set DSCP field:
- * 0: Copy the DSCP from the overlay (inner) IP header to the underlay 
- * (outer) IP header. If there is no IP header, use TIQDR.
- * dscp
- * 1: Set the DSCP field as the TIQDR.
- * dscp
- * The 
- * dscp
- *  field is configured by TIQDR. See 
- * Table 2114, "TIQDR - 
- * Tunneling IPinIP QoS Default Register Layout," on page 2089
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, enc_set_dscp, 0x4, 4, 1);
 
 /* enc_set_sp
- * For encapsulation: how to set Switch Priority and packet Color:
- * 0: Preserve Switch Priority and packet Color
- * 1: Set new Switch Priority and packet Color as configured by 
- * TIQDR.
- * See 
- * Section 16.5.3, "TIQDR - Tunneling IPinIP QoS Default Regis
- * ter," on page 2089
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, enc_set_sp, 0x4, 0, 1);
 
 /* enc_dscp_rw
- * For encapsulation: how to handle the 
- * dscp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * dscp_rewrite_en
- * 2: Clear the 
- * dscp_rewrite_en
- * 3: Set the 
- * dscp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, enc_dscp_rw, 0x7, 2, 2);
 
 /* enc_pcp_rw
- * For encapsulation: how to handle the 
- * pcp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * pcp_rewrite_en
- * 2: Clear the 
- * pcp_rewrite_en
- * 3: Set the 
- * pcp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, enc_pcp_rw, 0x7, 0, 2);
 
 /* dec_set_dscp
- * For decapsulation: how to set the overlay DSCP field, if exists, 
- * while stripping off the underlay headers:
- * 0: Preserve inner DSCP
- * 1: Copy the DSCP from the underlay IP header
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, dec_set_dscp, 0x8, 4, 1);
 
 /* dec_set_sp
- * For decapsulation: how to set Switch Priority and packet Color:
- * 0: Preserve Switch Priority
- * 1: Set a new Switch Priority from overlay DSCP as configured by 
- * RDPM (of the overlay packet, later the overlay router may re-mod
- * ify).
- * See 
- * Section 13.13.20, "RDPM - Router DSCP to Priority Mapping 
- * Register," on page 1920
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, dec_set_sp, 0x8, 0, 1);
 
 /* dec_dscp_rw
- * For decapsulation: how to handle the 
- * dscp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * dscp_rewrite_en
- * 2: Clear the 
- * dscp_rewrite_en
- * 3: Set the 
- * dscp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, dec_dscp_rw, 0xb, 2, 2);
 
 /* dec_pcp_rw
- * For decapsulation: how to handle the 
- * pcp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * pcp_rewrite_en
- * 2: Clear the 
- * pcp_rewrite_en
- * 3: Set the 
- * pcp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tiqcr, dec_pcp_rw, 0xb, 0, 2);
@@ -1794,96 +892,41 @@ MLXSW_ITEM8(reg, tiqcr, dec_pcp_rw, 0xb, 0, 2);
  *
  */
 /* tele_managed
- * Telemetry is managed:
- * 0: telemetery is unmanged (default for IB switches)
- * 1: telemetery is manged (default for Eth switches)
- * When unmanaged - the events are by VS-MADs
- * When managed - the events are by EMADs
- * Reserved when Ethernet switches
  * Access: RW
  */
 MLXSW_ITEM8(reg, mogcr, tele_managed, 0x2, 0, 1);
 
 /* ptp_iftc
- * PTP Ingress FIFO Trap Clear
- * The PTP_ING_FIFO trap provides MTPPTR with 
- * clr
- *  according 
- * to this value. Default 0.
- * Reserved when IB switches and when SwitchX/-2, Spectrum-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, mogcr, ptp_iftc, 0x3, 1, 1);
 
 /* ptp_eftc
- * PTP Egress FIFO Trap Clear
- * The PTP_EGR_FIFO trap provides MTPPTR with 
- * clr
- *  according 
- * to this value. Default 0.
- * Reserved when IB switches and when SwitchX/-2, Spectrum-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, mogcr, ptp_eftc, 0x3, 0, 1);
 
 /* sid
- * Sample ingress discards:
- * 0: ingress discards are not sampled
- * 1: ingress discards are sampled
- * Reserved when Switch-IB/2, Quantum, 
- * Spectrum-2 TBD
  * Access: RW
  */
 MLXSW_ITEM8(reg, mogcr, sid, 0xb, 0, 1);
 
 /* mirroring_pid_base
- * Base policer id for mirroring policers.
- * Must have an even value (e.g. 1000, not 1001).
- * Reserved when SwitchX/-2, Switch-IB/2, Spectrum-1 and Quan
- * tum
  * Access: RW
  */
 MLXSW_ITEM16(reg, mogcr, mirroring_pid_base, 0xe, 0, 14);
 
 /* mirror_latency_units
- * Units of mirror header latency
- * Units of nSec
- * For Spectrum-2
- * /3
- * : values are 1,2,4..32768nSec
- * Default 32nSec
- * See 
- * Table 513, "ETH-ERSPAN Mirror Header TLV LATENCY 
- * Frame Layout," on page 624
- * Reserved when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM16(reg, mogcr, mirror_latency_units, 0x16, 0, 16);
 
 /* latency_histogram_units
- * Units of latency histograms
- * Units of nSec
- * For Spectrum-2
- * /3
- * : values are 1,2,4..32768nSec
- * Default 32nSec
- * See 
- * Section 9.6.4.1, "Latency Histograms," on page 1237
- * Reserved when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM16(reg, mogcr, latency_histogram_units, 0x1a, 0, 16);
 
 /* timestamp_over_crc_units
- * Units of timestamp over CRC
- * Units of nSec
- * For Spectrum-2
- * /3
- * : values are 1,2,4..32768nSec
- * Default 32nSec
- * See 
- * Table 554, "Format of Timestamp over CRC," on page 655
- * Reserved when Spectrum-1, Quantum
  * Access: RW
  */
 MLXSW_ITEM16(reg, mogcr, timestamp_over_crc_units, 0x1e, 0, 16);
@@ -1893,42 +936,31 @@ MLXSW_ITEM16(reg, mogcr, timestamp_over_crc_units, 0x1e, 0, 16);
  *
  */
 /* clear_counters
- * Clear counters
  * Access: OP
  */
 MLXSW_ITEM8(reg, tncr_v2, clear_counters, 0x0, 7, 1);
 
 /* tunnel_port
- * Tunnel port:
- * 0: NVE
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tncr_v2, tunnel_port, 0x3, 0, 4);
 
 /* count_decap_discards_high
- * Count number of packets had decapsulation discards of NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr_v2, count_decap_discards_high, 0x28, 0, 32);
 
 /* count_decap_discards_low
- * Count number of packets had decapsulation discards of NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr_v2, count_decap_discards_low, 0x2c, 0, 32);
 
 /* count_encap_discards_high
- * Count number of packets had encapsulation discards of NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr_v2, count_encap_discards_high, 0x30, 0, 32);
 
 /* count_encap_discards_low
- * Count number of packets had encapsulation discards of NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr_v2, count_encap_discards_low, 0x34, 0, 32);
@@ -1938,312 +970,131 @@ MLXSW_ITEM32(reg, tncr_v2, count_encap_discards_low, 0x34, 0, 32);
  *
  */
 /* swid
- * Switch partition ID for queries. Reserved on Write.
- * Reserved when Spectrum/-2
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppbs, swid, 0x4, 0, 8);
 
 /* type
- * Entry type:
- * 0x0: Unicast_Record
- * 0x1: Unicast_LAG_Record
- * 0x2: Multicast_Record
- * 0xC: Unicast_Tunnel_Record
- * 0xF: Multicast_Tunnel_Record
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, type, 0x5, 4, 4);
 
 /* pbs_ptr
- * Index into the PBS table. 
- * In SwitchX/-2 
- * pbs_ptr
- *  is limited to 0 .. (
- * pbs_table_size
- * -1)
- * For Spectrum/-2, the index points to the KVD Linear, see 
- * Appendix 
- * A.4.1.2, "KVD Central Database Linear Entries" (page 2182)
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, ppbs, pbs_ptr, 0x8, 0, 24);
 
 /* ppbs_unicast_v_fid
- * valid FID:
- * 0: .1Q bridge, the VID is maintained
- * 1: .1D bridge, the VID is modified according to:
- * {fid, system_port} -> vid
- * Where the mapping is according to SVFA register
- * Reserved when 
- * ubridge
- * =1
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, ppbs_unicast_v_fid, 0xc, 7, 1);
 
 /* ppbs_unicast_set_vid
- * Set VID:
- * 0: do not update VID
- * 1: set VID
- * For Spectrum-2 when 
- * set_vid
- * =0 and 
- * smpe_valid
- * =1 then the smpe 
- * will modify the vid
- * Reserved when 
- * ubridge
- * =0
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, ppbs_unicast_set_vid, 0xc, 6, 1);
 
 /* ppbs_unicast_vid
- * New VID when 
- * set_vid
- *  = 1
- * Reserved when 
- * set_vid
- *  = 0
- * Reserved when 
- * ubridge
- * =0
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, ppbs_unicast_vid, 0xc, 0, 12);
 
 /* ppbs_unicast_fid
- * Filtering identifier (FID)
- * Reserved when 
- * v_fid
- *  = 0
- * Reserved when 
- * ubridge
- * =1
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, ppbs_unicast_fid, 0xe, 0, 16);
 
 /* ppbs_unicast_action
- * Action to apply on the packet:
- * 0: NOP - forward (based on the system_port destination)
- * 3: FORWARD_TO_IP_ROUTER
- * 4: FORWARD_TO_FCF - Reserved when Spectrum/-2
- * 5: DISCARD - Reserved when Spectrum/-2
- * 15: DISCARD_ERROR
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, ppbs_unicast_action, 0x10, 4, 4);
 
 /* ppbs_unicast_system_port
- * Unique port identifier for the final destination of the packet
- * Must be '0' when 
- * action
- *  is '3' - forward to IP router 
- * For SwitchX/-2 value of 0 is for drop
- * Note: for Spectrum/-2, if 
- * action
- *  is 0 (forward) and 
- * system_port
- *  is 0 
- * then the PPBS entry must not be used! (Must not be pointed by an 
- * ACL action)
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, ppbs_unicast_system_port, 0x12, 0, 16);
 
 /* unicast_lag_uvid
- * Update VID. 
- * If set, the packet's VLAN ID is updated to 
- * vid
- * . This can be used for 
- * .1D entries.
- * Reserved when SwitchX/-2
- * For Spectrum-2 when 
- * set_vid
- * =0 and 
- * smpe_valid
- * =1 then the smpe will 
- * modify the vid
- * Note: supported regardless of 
- * ubridge
- *  value
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, unicast_lag_uvid, 0xe, 7, 1);
 
 /* unicast_lag_vid
- * VLAN ID to be used when 
- * uvid 
- * is set. 
- * Reserved when 
- * uvid
- *  = 0
- * Note: supported regardless of 
- * ubridge
- *  value
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, unicast_lag_vid, 0xe, 0, 12);
 
 /* unicast_lag_lag_id
- * LAG Identifier - pointer into the LAG descriptor table, see also 
- * Section 6.2.11, "LAG Descriptor Table," on page 777
- * .
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, unicast_lag_lag_id, 0x12, 0, 10);
 
 /* ppbs_multicast_v_fid
- * valid FID:
- * 0: .1Q bridge
- * 1: .1D bridge
- * Reserved when 
- * ubridge
- * =1
- * Reserved when Spectrum-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, ppbs_multicast_v_fid, 0xc, 7, 1);
 
 /* ppbs_multicast_pgi
- * Multicast port group index - index into the Port Group Table.
- * Value 0x1FFF indicates the 
- * pgi
- *  should point to the MID entry.
- * For Spectrum/-2 this value must be set to 0x1FFF
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, ppbs_multicast_pgi, 0xc, 0, 13);
 
 /* ppbs_multicast_fid
- * Filtering identifier (FID)
- * Reserved when 
- * v_fid
- *  = 0
- * Reserved when 
- * ubridge
- * =1
- * Reserved when Spectrum-2
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, ppbs_multicast_fid, 0xe, 0, 16);
 
 /* ppbs_multicast_mid
- * Multicast port group index - index to the port group table.
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, ppbs_multicast_mid, 0x12, 0, 16);
 
 /* unicast_tunnel_udip
- * If 
- * gen_enc
- *  = 1:
- * A pointer to the generic L2 encapsulation entry, see TNGEE
- * Else If 
- * protocol
- *  is IPv4:
- * The underlay destination IPv4 of the remote VTEP
- * If 
- * protocol
- *  is IPv6:
- * A pointer to the IPv6 address of the remote VTEP destination in 
- * the overlay network. See 
- * Section 13.13.19, "RIPS - Router IP ver
- * sion Six Register," on page 1919
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppbs, unicast_tunnel_udip, 0xc, 0, 32);
 
 /* unicast_tunnel_protocol
- * Protocol:
- * 0: IPv4
- * 1: IPv6
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, unicast_tunnel_protocol, 0x10, 3, 1);
 
 /* unicast_tunnel_gen_enc
- * Generic L2 encapsulation
- * Reserved when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, unicast_tunnel_gen_enc, 0x10, 2, 1);
 
 /* unicast_tunnel_ecmp_size
- * ecmp_size is the amount of sequential entries starting from the
- * pointer to the first TNGEE (the number of ECMPs).
- * Values: 1-128, 256, 512, 1024, 2048 and 4096
- * Reserved when 
- * gen_enc
- *  = 0
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, unicast_tunnel_ecmp_size, 0x1a, 0, 13);
 
 /* multicast_tunnel_underlay_mc_ptr_msb
- * Most significant bits of Underlay Multicast Pointer. Used as a 
- * pointer to the first entry of the group based link lists of MC entries 
- * (for NVE tunnels). For Spectrum-1 the number of link lists in the 
- * group is configured by TNGCR.
- * nve_group_size_mc
- * .
- * The pointer points to entries which are configured by TNUMT or 
- * by TNGEE
- * For Spectrum/-2, this points to an entry in the KVD Linear, see 
- * Appendix A.5.1, "KVD Central Database" (page 2187)
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, multicast_tunnel_underlay_mc_ptr_msb, 0xc, 0, 16);
 
 /* multicast_tunnel_fid
- * Filtering identifier (FID)
- * Reserved when 
- * v_fid
- *  = 0
- * Reserved when 
- * ubridge
- * =1
- * Reserved when Spectrum-2
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, multicast_tunnel_fid, 0xe, 0, 16);
 
 /* multicast_tunnel_underlay_mc_ptr_lsb
- * Least significant bits of pointer to link list of flooding entries (for 
- * NVE tunnels)
- * The pointer may point to TNGEE
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, multicast_tunnel_underlay_mc_ptr_lsb, 0x10, 0, 8);
 
 /* multicast_tunnel_v_fid
- * valid FID:
- * 0: .1Q bridge
- * 1: .1D bridge
- * Reserved when 
- * ubridge
- * =1
- * Reserved when Spectrum-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, ppbs, multicast_tunnel_v_fid, 0x11, 7, 1);
 
 /* multicast_tunnel_mid
- * Multicast identifier - global identifier that represents the multicast 
- * group across all devices
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, multicast_tunnel_mid, 0x12, 0, 16);
 
 /* multicast_tunnel_ecmp_size
- * ecmp_size:
- * ecmp_size is the amount of sequential entries starting from the
- * pointer to the first TNUMT/TNGEE (the number of ECMPs).
- * 0: controlled by TNGCR.
- * nve_group_size_mc
- * Values: 1-128, 256, 512, 1024, 2048 and 4096
  * Access: RW
  */
 MLXSW_ITEM16(reg, ppbs, multicast_tunnel_ecmp_size, 0x1a, 0, 13);
@@ -2253,131 +1104,56 @@ MLXSW_ITEM16(reg, ppbs, multicast_tunnel_ecmp_size, 0x1a, 0, 13);
  *
  */
 /* type
- * Type of the RTDP entry:
- * 0: NVE
- * 1: IPinIP
  * Access: RW
  */
 MLXSW_ITEM8(reg, rtdp, type, 0x0, 4, 4);
 
 /* tunnel_index
- * Index to the Decap entry
- * For Spectrum, Index to KVD Linear, see 
- * Section A.4.1.2, "KVD 
- * Central Database Linear Entries," on page 2182
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, rtdp, tunnel_index, 0x0, 0, 24);
 
 /* rtdp_nve_decap_decap_disable
- * When set, disable decap. 
- * This is a bitwise configuration:
- * Bit 0: Disable VXLAN
- * Bit 1: Disable VXLAN-GPE
- * Bit 2: Disable GENEVE
- * Bit 3: Disable NVGRE
  * Access: RW
  */
 MLXSW_ITEM8(reg, rtdp, rtdp_nve_decap_decap_disable, 0x7, 0, 4);
 
 /* rtdp_ipinip_irif
- * Ingress Router Interface for the overlay router
  * Access: RW
  */
 MLXSW_ITEM16(reg, rtdp, rtdp_ipinip_irif, 0x4, 0, 16);
 
 /* rtdp_ipinip_sip_check
- * 0: No sip checks 
- * 1: filter packet if underlay is not IPv4 or if underlay SIP does 
- * not equal to 
- * ipv4_usip
- * 3: filter packet if underlay is not IPv6 
- * or if underlay SIP does not equal to 
- * ipv6_usip
- * If decapsulation failed due to these configurations then 
- * trap_id is IPIP_DECAP_ERROR
  * Access: RW
  */
 MLXSW_ITEM8(reg, rtdp, rtdp_ipinip_sip_check, 0x7, 0, 3);
 
 /* rtdp_ipinip_type_check
- * Bit0:
- * 0: do not allow IPinIP (without GRE) decapsulation
- * 1: allow IPinIP (without GRE) decapsulation
- * Bit1:
- * 0: do not allow IPinGREinIP without a key decapsulation
- * 1: allow IPinGREinIP without a key decapsulation
- * Bit2:
- * 0: do not allow IPinGREinIP with a key decapsulation
- * 1: allow IPinGREinIP with a key decapsulation
- * If decapsulation failed due to these configurations then 
- * trap_id is IPIP_DECAP_ERROR
  * Access: RW
  */
 MLXSW_ITEM8(reg, rtdp, rtdp_ipinip_type_check, 0x8, 0, 3);
 
 /* rtdp_ipinip_gre_key_check
- * 0: do not check GRE key
- * 1: Check GRE key
- * When check is enabled:
- * A packet received as IPinIP (without GRE) will always pass.
- * A packet received as IPinGREinIP without a key will not 
- * pass the check.
- * A packet received as IPinGREinIP with a key will pass the 
- * check only if the key in the packet is equal to 
- * expect
- * ed_gre_key
- * .
- * If decapsulation failed due to GRE key then trap_id is IPIP_
- * DECAP_ERROR
  * Access: RW
  */
 MLXSW_ITEM8(reg, rtdp, rtdp_ipinip_gre_key_check, 0x9, 7, 1);
 
 /* rtdp_ipinip_ipv4_usip
- * Underlay IPv4 address for ipv4 
- * source address 
- * check
- * Reserved when 
- * sip_check
- *  is not '1'
  * Access: RW
  */
 MLXSW_ITEM32(reg, rtdp, rtdp_ipinip_ipv4_usip, 0xc, 0, 32);
 
 /* rtdp_ipinip_ipv6_usip_ptr
- * This field is valid when 
- * sip_check
- *  is "sipv6 check explic
- * itly"
- * This is a pointer to the IPv6 DIP which is configured by 
- * RIPS, see 
- * Section 13.13.19, "RIPS - Router IP version Six 
- * Register," on page 1919
- * For Spectrum, the index is to the KVD linear, see 
- * Section A.4.1, "KVD Central Database," on page 2178
- * Reserved when 
- * sip_check
- *  is not '2' or '3'
  * Access: RW
  */
 MLXSW_ITEM32(reg, rtdp, rtdp_ipinip_ipv6_usip_ptr, 0x10, 0, 24);
 
 /* rtdp_ipinip_expected_gre_key
- * GRE key for checking
- * Reserved when 
- * gre_key_check
- *  is '0'
  * Access: RW
  */
 MLXSW_ITEM32(reg, rtdp, rtdp_ipinip_expected_gre_key, 0x14, 0, 32);
 
 /* egress_router_interface
- * Underlay egress router interface
- * Range is 0 .. 
- * cap_max_router_interfaces
- *  - 1
- * Reserved when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM16(reg, rtdp, egress_router_interface, 0x42, 0, 16);
@@ -2387,3634 +1163,2505 @@ MLXSW_ITEM16(reg, rtdp, egress_router_interface, 0x42, 0, 16);
  *
  */
 /* swid
- * For HCA: must be always 0.
- * Switch partition ID to associate port with.
- * Switch partitions are numbered from 0 to 7 inclusively.
- * Switch partition 254 indicates stacking ports.
- * Switch partition 255 indicates all switch partitions.
- * Only valid on Set() operation with local_port=255.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppcnt, swid, 0x0, 0, 8);
 
 /* local_port
- * Local port number. 
- * 255 indicates all ports on the device, and is only allowed for Set() operation.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppcnt, local_port, 0x1, 0, 8);
 
 /* pnat
- * Port number access type:
- * 0: Local_port_number
- * 1: IB_port_number
- * 2: host_port_number
- * 3: OOB_port_number - Internal
- * Note - 
- * pnat=2 is supported for "Per Traffic Class Congestion Counters" and 
- * "Per Traffic Class Counters" groups.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppcnt, pnat, 0x2, 6, 2);
 
+/* port_type
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, ppcnt, port_type, 0x2, 0, 4);
+
 /* grp
- * Performance counter group.
- * Group 63 indicates all groups (include all per priority/TC/Receive Buffer 
- * counters). Only valid on Set() operation with 
- * clr
- *  bit set.
- * 0x0: IEEE 802.3 Counters
- * 0x1: RFC 2863 Counters
- * 0x2: RFC 2819 Counters
- * 0x3: RFC 3635 Counters
- * 0x5: Ethernet Extended Counters
- * 0x6: Ethernet Discard Counters 
- * [Internal] 0x8: Link Level Retransmission Counters
- * 0x10: Per Priority Counters 
- * 0x11: Per Traffic Class Counters. 
- * 0x12: Physical Layer Counters
- * 0x13: Per Traffic Class Congestion Counters
- * [Internal] 0x15: Per Receive Buffer counter
- * 0x16: Physical Layer Statistical Counters
- * [Internal]: 0x19: Out of Band PortCounters. Note: This group is valid only 
- * for OOB ports.
- * 0x20: InfiniBand PortCounters
- * 0x21: InfiniBand Extended PortCounters
- * 0x22: PLR counters group
- * [Internal] 0x23: RS-FEC Histogram group
- * [Internal] 0x24: USR-XSR Physical layer counters group
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppcnt, grp, 0x3, 0, 6);
 
 /* clr
- * Clear counters. Setting the 
- * clr
- *  bit will reset the counter value for all counters 
- * in the counter group. This bit can be set for both Set() and Get() operation.
  * Access: OP
  */
 MLXSW_ITEM8(reg, ppcnt, clr, 0x4, 7, 1);
 
 /* prio_tc
- * Priority index for per priority counter sets, valid values: 0-7
- * For Spectrum-2 and on at tx side range can be 0 .. 
- * cap_max_tclass_data
- * -1, 
- * see QGCR.
- * tx_cnt_tclass
- * Traffic class index for per traffic class counter set, valid values: 
- * For Switches, valid values: 0 .. 
- * cap_max_tclass_data
- * -1 
- * For HCA, valid values: 0.. 
- * HCA_CAP.max_tc
- * Otherwise must be 0.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppcnt, prio_tc, 0x7, 0, 5);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frames_transmitted_ok_high
- * A count of frames that are successfully transmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frames_transmitted_ok_high, 0x8, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frames_transmitted_ok_low
- * A count of frames that are successfully transmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frames_transmitted_ok_low, 0xc, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frames_received_ok_high
- * A count of frames that are successfully received. This 
- * does not include frames received with frame-too-long, 
- * frame check sequence (FCS), length or alignment errors, 
- * or frames lost due to other MAC errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frames_received_ok_high, 0x10, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frames_received_ok_low
- * A count of frames that are successfully received. This 
- * does not include frames received with frame-too-long, 
- * frame check sequence (FCS), length or alignment errors, 
- * or frames lost due to other MAC errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frames_received_ok_low, 0x14, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frame_check_sequence_errors_high
- * A count of receive frames that are an integral number of 
- * octets in length and do not pass the FCS check. This 
- * does not include frames received with frame-too-long, or 
- * frame-too-short (frame fragment) errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frame_check_sequence_errors_high, 0x18, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frame_check_sequence_errors_low
- * A count of receive frames that are an integral number of 
- * octets in length and do not pass the FCS check. This 
- * does not include frames received with frame-too-long, or 
- * frame-too-short (frame fragment) errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frame_check_sequence_errors_low, 0x1c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_alignment_errors_high
- * A count of frames that are not an integral number of 
- * octets in length and do not pass the FCS check.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_alignment_errors_high, 0x20, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_alignment_errors_low
- * A count of frames that are not an integral number of 
- * octets in length and do not pass the FCS check.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_alignment_errors_low, 0x24, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_octets_transmitted_ok_high
- * A count of data and padding octets of frames that are 
- * successfully transmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_octets_transmitted_ok_high, 0x28, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_octets_transmitted_ok_low
- * A count of data and padding octets of frames that are 
- * successfully transmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_octets_transmitted_ok_low, 0x2c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_octets_received_ok_high
- * A count of data and padding octets in frames that are 
- * successfully received. This does not include octets in 
- * frames received with frame-too-long, FCS, length or 
- * alignment errors, or frames lost due to other MAC 
- * errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_octets_received_ok_high, 0x30, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_octets_received_ok_low
- * A count of data and padding octets in frames that are 
- * successfully received. This does not include octets in 
- * frames received with frame-too-long, FCS, length or 
- * alignment errors, or frames lost due to other MAC 
- * errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_octets_received_ok_low, 0x34, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_multicast_frames_xmitted_ok_high
- * A count of frames that are successfully transmitted to a 
- * group destination address other than broadcast.
- * 
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_multicast_frames_xmitted_ok_high, 0x38, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_multicast_frames_xmitted_ok_low
- * A count of frames that are successfully transmitted to a 
- * group destination address other than broadcast.
- * 
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_multicast_frames_xmitted_ok_low, 0x3c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_xmitted_ok_high
- * A count of the frames that were successfully transmitted 
- * to the broadcast address. Frames transmitted to multicast 
- * addresses are not broadcast frames and are excluded.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_xmitted_ok_high, 0x40, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_xmitted_ok_low
- * A count of the frames that were successfully transmitted 
- * to the broadcast address. Frames transmitted to multicast 
- * addresses are not broadcast frames and are excluded.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_xmitted_ok_low, 0x44, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_multicast_frames_received_ok_high
- * A count of frames that are successfully received and 
- * directed to an active nonbroadcast group address. This 
- * does not include frames received with frame-too-long, 
- * FCS, length or alignment errors, or frames lost due to 
- * internal MAC sublayer error. 
- *  
- * 
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_multicast_frames_received_ok_high, 0x48, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_multicast_frames_received_ok_low
- * A count of frames that are successfully received and 
- * directed to an active nonbroadcast group address. This 
- * does not include frames received with frame-too-long, 
- * FCS, length or alignment errors, or frames lost due to 
- * internal MAC sublayer error. 
- *  
- * 
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_multicast_frames_received_ok_low, 0x4c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_received_ok_high
- * A count of the frames that were successfully transmitted 
- * to the broadcast address. Frames transmitted to multicast 
- * addresses are not broadcast frames and are excluded.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_received_ok_high, 0x50, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_received_ok_low
- * A count of the frames that were successfully transmitted 
- * to the broadcast address. Frames transmitted to multicast 
- * addresses are not broadcast frames and are excluded.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_broadcast_frames_received_ok_low, 0x54, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_in_range_length_errors_high
- * A count of frames with a length/type field value between 
- * the minimum unpadded MAC client data size and the 
- * maximum allowed MAC client data size, inclusive, that 
- * does not match the number of MAC client data octets 
- * received. The counter also increments for frames whose 
- * length/type field value is less than the minimum allowed 
- * unpadded MAC client data size and the number of MAC 
- * client data octets received is greater than the minimum 
- * unpadded MAC client data size.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_in_range_length_errors_high, 0x58, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_in_range_length_errors_low
- * A count of frames with a length/type field value between 
- * the minimum unpadded MAC client data size and the 
- * maximum allowed MAC client data size, inclusive, that 
- * does not match the number of MAC client data octets 
- * received. The counter also increments for frames whose 
- * length/type field value is less than the minimum allowed 
- * unpadded MAC client data size and the number of MAC 
- * client data octets received is greater than the minimum 
- * unpadded MAC client data size.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_in_range_length_errors_low, 0x5c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_out_of_range_length_field_high
- * A count of frames with a length field value greater than 
- * the maximum allowed LLC data size.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_out_of_range_length_field_high, 0x60, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_out_of_range_length_field_low
- * A count of frames with a length field value greater than 
- * the maximum allowed LLC data size.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_out_of_range_length_field_low, 0x64, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frame_too_long_errors_high
- * A count of frames received that exceed the maximum 
- * permitted frame size by IEEE 802.3 (
- * MTU size).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frame_too_long_errors_high, 0x68, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_frame_too_long_errors_low
- * A count of frames received that exceed the maximum 
- * permitted frame size by IEEE 802.3 (
- * MTU size).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_frame_too_long_errors_low, 0x6c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_symbol_error_during_carrier_high
- * For full duplex operation at 1000 Mb/s, it is a count of 
- * the number of times the receiving media is non-idle (a 
- * carrier event) for a period of time equal to or greater than 
- * minFrameSize, and during which there was at least one 
- * occurrence of an event that causes the PHY to indicate 
- * "Data reception error".
- * For operation at 10 Gb/s, 40 Gb/s, and 100 Gb/s, it is a 
- * count of the number of times the receiving media is non-
- * idle for a period of time equal to or greater than min
- * FrameSize, and during which there was at least one 
- * occurrence of an event that causes the PHY to indicate
- * Error.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_symbol_error_during_carrier_high, 0x70, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_symbol_error_during_carrier_low
- * For full duplex operation at 1000 Mb/s, it is a count of 
- * the number of times the receiving media is non-idle (a 
- * carrier event) for a period of time equal to or greater than 
- * minFrameSize, and during which there was at least one 
- * occurrence of an event that causes the PHY to indicate 
- * "Data reception error".
- * For operation at 10 Gb/s, 40 Gb/s, and 100 Gb/s, it is a 
- * count of the number of times the receiving media is non-
- * idle for a period of time equal to or greater than min
- * FrameSize, and during which there was at least one 
- * occurrence of an event that causes the PHY to indicate
- * Error.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_symbol_error_during_carrier_low, 0x74, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_transmitted_high
- * A count of MAC Control frames passed to the MAC 
- * sublayer for transmission.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_transmitted_high, 0x78, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_transmitted_low
- * A count of MAC Control frames passed to the MAC 
- * sublayer for transmission.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_transmitted_low, 0x7c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_received_high
- * A count of MAC Control frames passed by the MAC 
- * sublayer to the MAC Control sublayer.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_received_high, 0x80, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_received_low
- * A count of MAC Control frames passed by the MAC 
- * sublayer to the MAC Control sublayer.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_mac_control_frames_received_low, 0x84, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_unsupported_opcodes_received_high
- * A count of MAC Control frames received that contain an 
- * opcode that is not supported by the device.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_unsupported_opcodes_received_high, 0x88, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_unsupported_opcodes_received_low
- * A count of MAC Control frames received that contain an 
- * opcode that is not supported by the device.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_unsupported_opcodes_received_low, 0x8c, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_received_high
- * A count of MAC PAUSE frames passed by the MAC 
- * sublayer to the MAC Control sublayer.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_received_high, 0x90, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_received_low
- * A count of MAC PAUSE frames passed by the MAC 
- * sublayer to the MAC Control sublayer.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_received_low, 0x94, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_transmitted_high
- * A count of PAUSE frames passed to the MAC sublayer 
- * for transmission.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_transmitted_high, 0x98, 0, 32);
 
 /* eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_transmitted_low
- * A count of PAUSE frames passed to the MAC sublayer 
- * for transmission.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_802_3_cntrs_grp_data_layout_a_pause_mac_ctrl_frames_transmitted_low, 0x9c, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_octets_high
- * The total number of octets received, including framing charac
- * ters. Including MAC control frames.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_octets_high, 0x8, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_octets_low
- * The total number of octets received, including framing charac
- * ters. Including MAC control frames.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_octets_low, 0xc, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_ucast_pkts_high
- * The number of packets successfully received, which were not 
- * addressed to a multicast or broadcast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_ucast_pkts_high, 0x10, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_ucast_pkts_low
- * The number of packets successfully received, which were not 
- * addressed to a multicast or broadcast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_ucast_pkts_low, 0x14, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_discards_high
- * The number of inbound packets which were chosen to be dis
- * carded even though no errors had been detected to prevent 
- * their being deliverable to a higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_discards_high, 0x18, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_discards_low
- * The number of inbound packets which were chosen to be dis
- * carded even though no errors had been detected to prevent 
- * their being deliverable to a higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_discards_low, 0x1c, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_errors_high
- * The number of inbound packets that contained errors prevent
- * ing them from being deliverable to a higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_errors_high, 0x20, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_errors_low
- * The number of inbound packets that contained errors prevent
- * ing them from being deliverable to a higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_errors_low, 0x24, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_unknown_protos_high
- * The number of packets received via the interface which were 
- * discarded because of an unknown or unsupported protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_unknown_protos_high, 0x28, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_unknown_protos_low
- * The number of packets received via the interface which were 
- * discarded because of an unknown or unsupported protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_unknown_protos_low, 0x2c, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_octets_high
- * The total number of octets transmitted out of the interface, 
- * including framing characters.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_octets_high, 0x30, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_octets_low
- * The total number of octets transmitted out of the interface, 
- * including framing characters.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_octets_low, 0x34, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_ucast_pkts_high
- * The total number of packets that higher-level protocols 
- * requested be transmitted and were not addressed to a multicast 
- * or broadcast MAC address, including those that were discarded 
- * or not sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_ucast_pkts_high, 0x38, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_ucast_pkts_low
- * The total number of packets that higher-level protocols 
- * requested be transmitted and were not addressed to a multicast 
- * or broadcast MAC address, including those that were discarded 
- * or not sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_ucast_pkts_low, 0x3c, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_discards_high
- * The number of outbound packets which were chosen to be dis
- * carded, even though no errors had been detected to prevent 
- * their being transmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_discards_high, 0x40, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_discards_low
- * The number of outbound packets which were chosen to be dis
- * carded, even though no errors had been detected to prevent 
- * their being transmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_discards_low, 0x44, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_errors_high
- * The number of outbound packets that could not be transmitted 
- * because of errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_errors_high, 0x48, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_errors_low
- * The number of outbound packets that could not be transmitted 
- * because of errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_errors_low, 0x4c, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_multicast_pkts_high
- * The number of packets successfully received, which were 
- * addressed to a multicast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_multicast_pkts_high, 0x50, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_multicast_pkts_low
- * The number of packets successfully received, which were 
- * addressed to a multicast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_multicast_pkts_low, 0x54, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_broadcast_pkts_high
- * The number of packets successfully received, which were 
- * addressed to a broadcast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_broadcast_pkts_high, 0x58, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_in_broadcast_pkts_low
- * The number of packets successfully received, which were 
- * addressed to a broadcast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_in_broadcast_pkts_low, 0x5c, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_multicast_pkts_high
- * The total number of packets that higher-level protocols 
- * requested be transmitted, and which were addressed to a multi
- * cast MAC address, including those that were discarded or not 
- * sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_multicast_pkts_high, 0x60, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_multicast_pkts_low
- * The total number of packets that higher-level protocols 
- * requested be transmitted, and which were addressed to a multi
- * cast MAC address, including those that were discarded or not 
- * sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_multicast_pkts_low, 0x64, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_broadcast_pkts_high
- * The total number of packets that higher-level protocols 
- * requested be transmitted, and which were addressed to a broad
- * cast MAC address, including those that were discarded or not 
- * sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_broadcast_pkts_high, 0x68, 0, 32);
 
 /* eth_2863_cntrs_grp_data_layout_if_out_broadcast_pkts_low
- * The total number of packets that higher-level protocols 
- * requested be transmitted, and which were addressed to a broad
- * cast MAC address, including those that were discarded or not 
- * sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2863_cntrs_grp_data_layout_if_out_broadcast_pkts_low, 0x6c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_drop_events_high
- * The total number of events in which packets were 
- * dropped by the probe due to lack of resources.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_drop_events_high, 0x8, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_drop_events_low
- * The total number of events in which packets were 
- * dropped by the probe due to lack of resources.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_drop_events_low, 0xc, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_octets_high
- * The total number of octets of data (including those in 
- * bad packets) received (excluding framing bits but 
- * including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_octets_high, 0x10, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_octets_low
- * The total number of octets of data (including those in 
- * bad packets) received (excluding framing bits but 
- * including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_octets_low, 0x14, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts_high
- * The total number of packets (including bad packets, 
- * broadcast packets, and multicast packets) received.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts_high, 0x18, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts_low
- * The total number of packets (including bad packets, 
- * broadcast packets, and multicast packets) received.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts_low, 0x1c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_broadcast_pkts_high
- * The total number of good packets received that were 
- * directed to the broadcast address. 
- * Note: This does not include multicast packets.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_broadcast_pkts_high, 0x20, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_broadcast_pkts_low
- * The total number of good packets received that were 
- * directed to the broadcast address. 
- * Note: This does not include multicast packets.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_broadcast_pkts_low, 0x24, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_multicast_pkts_high
- * The total number of good packets received that were 
- * directed to a multicast MAC address. 
- * Note: This number does not include packets directed 
- * to the broadcast address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_multicast_pkts_high, 0x28, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_multicast_pkts_low
- * The total number of good packets received that were 
- * directed to a multicast MAC address. 
- * Note: This number does not include packets directed 
- * to the broadcast address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_multicast_pkts_low, 0x2c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_crc_align_errors_high
- * The total number of packets received that had a length 
- * (excluding framing bits, but including FCS octets) of 
- * between 64 and MTU
- *  octets, inclusive, but had either 
- * a bad frame check sequence (FCS) with an integral 
- * number of octets (FCS error) or a bad FCS with a 
- * non-integral number of octets (alignment error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_crc_align_errors_high, 0x30, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_crc_align_errors_low
- * The total number of packets received that had a length 
- * (excluding framing bits, but including FCS octets) of 
- * between 64 and MTU
- *  octets, inclusive, but had either 
- * a bad frame check sequence (FCS) with an integral 
- * number of octets (FCS error) or a bad FCS with a 
- * non-integral number of octets (alignment error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_crc_align_errors_low, 0x34, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_undersize_pkts_high
- * The total number of packets received that were less 
- * than 64 octets long (excluding framing bits, but 
- * including FCS octets) and were otherwise well 
- * formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_undersize_pkts_high, 0x38, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_undersize_pkts_low
- * The total number of packets received that were less 
- * than 64 octets long (excluding framing bits, but 
- * including FCS octets) and were otherwise well 
- * formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_undersize_pkts_low, 0x3c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_oversize_pkts_high
- * The total number of packets received that were longer 
- * than MTU octets (excluding framing bits, but includ
- * ing FCS octets) but were otherwise well formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_oversize_pkts_high, 0x40, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_oversize_pkts_low
- * The total number of packets received that were longer 
- * than MTU octets (excluding framing bits, but includ
- * ing FCS octets) but were otherwise well formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_oversize_pkts_low, 0x44, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_fragments_high
- * The total number of packets received that were less 
- * than 64 octets in length (excluding framing bits but 
- * including FCS octets) and had either a bad FCS with 
- * an integral number of octets (FCS error) or a bad FCS 
- * with a non-integral number of octets (alignment 
- * error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_fragments_high, 0x48, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_fragments_low
- * The total number of packets received that were less 
- * than 64 octets in length (excluding framing bits but 
- * including FCS octets) and had either a bad FCS with 
- * an integral number of octets (FCS error) or a bad FCS 
- * with a non-integral number of octets (alignment 
- * error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_fragments_low, 0x4c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_jabbers_high
- * The total number of packets received that were longer 
- * than MTU octets (excluding framing bits, but includ
- * ing FCS octets), and had either a bad FCS with an 
- * integral number of octets (FCS error) or a bad FCS 
- * with a non-integral number of octets (alignment 
- * error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_jabbers_high, 0x50, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_jabbers_low
- * The total number of packets received that were longer 
- * than MTU octets (excluding framing bits, but includ
- * ing FCS octets), and had either a bad FCS with an 
- * integral number of octets (FCS error) or a bad FCS 
- * with a non-integral number of octets (alignment 
- * error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_jabbers_low, 0x54, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_collisions_high
- * The best estimate of the total number of collisions on 
- * this Ethernet segment.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_collisions_high, 0x58, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_collisions_low
- * The best estimate of the total number of collisions on 
- * this Ethernet segment.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_collisions_low, 0x5c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts64octets_high
- * The total number of packets (including bad packets) 
- * received that were 64 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts64octets_high, 0x60, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts64octets_low
- * The total number of packets (including bad packets) 
- * received that were 64 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts64octets_low, 0x64, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts65to127octets_high
- * The total number of packets (including bad packets) 
- * received that were between 65 and 127 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts65to127octets_high, 0x68, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts65to127octets_low
- * The total number of packets (including bad packets) 
- * received that were between 65 and 127 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts65to127octets_low, 0x6c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts128to255octets_high
- * The total number of packets (including bad packets) 
- * received that were between 128 and 255 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts128to255octets_high, 0x70, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts128to255octets_low
- * The total number of packets (including bad packets) 
- * received that were between 128 and 255 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts128to255octets_low, 0x74, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts256to511octets_high
- * The total number of packets (including bad packets) 
- * received that were between 256 and 511 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts256to511octets_high, 0x78, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts256to511octets_low
- * The total number of packets (including bad packets) 
- * received that were between 256 and 511 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts256to511octets_low, 0x7c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts512to1023octets_high
- * The total number of packets (including bad packets) 
- * received that were between 512 and 1023 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts512to1023octets_high, 0x80, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts512to1023octets_low
- * The total number of packets (including bad packets) 
- * received that were between 512 and 1023 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts512to1023octets_low, 0x84, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts1024to1518octets_high
- * The total number of packets (including bad packets) 
- * received that were between 1024 and 1518 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts1024to1518octets_high, 0x88, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts1024to1518octets_low
- * The total number of packets (including bad packets) 
- * received that were between 1024 and 1518 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts1024to1518octets_low, 0x8c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts1519to2047octets_high
- * The total number of packets (including bad packets) 
- * received that were between 1519 and 2047 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts1519to2047octets_high, 0x90, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts1519to2047octets_low
- * The total number of packets (including bad packets) 
- * received that were between 1519 and 2047 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts1519to2047octets_low, 0x94, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts2048to4095octets_high
- * The total number of packets (including bad packets) 
- * received that were between 2048 and 4095 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts2048to4095octets_high, 0x98, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts2048to4095octets_low
- * The total number of packets (including bad packets) 
- * received that were between 2048 and 4095 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts2048to4095octets_low, 0x9c, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts4096to8191octets_high
- * The total number of packets (including bad packets) 
- * received that were between 4096 and 8191 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts4096to8191octets_high, 0xa0, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts4096to8191octets_low
- * The total number of packets (including bad packets) 
- * received that were between 4096 and 8191 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts4096to8191octets_low, 0xa4, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts8192to10239octets_high
- * The total number of packets (including bad packets) 
- * received that were between 8192 and 10239 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts8192to10239octets_high, 0xa8, 0, 32);
 
 /* eth_2819_cntrs_grp_data_layout_ether_stats_pkts8192to10239octets_low
- * The total number of packets (including bad packets) 
- * received that were between 8192 and 10239 octets in 
- * length (excluding framing bits but including FCS 
- * octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_2819_cntrs_grp_data_layout_ether_stats_pkts8192to10239octets_low, 0xac, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_alignment_errors_high
- * A count of frames received that are not an integral number 
- * of octets in length and do not pass the FCS check.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_alignment_errors_high, 0x8, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_alignment_errors_low
- * A count of frames received that are not an integral number 
- * of octets in length and do not pass the FCS check.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_alignment_errors_low, 0xc, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_fcs_errors_high
- * A count of frames received that are an integral number of 
- * octets in length but do not pass the FCS check. This count 
- * does not include frames received with frame-too-long or 
- * frame-too-short errors.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_fcs_errors_high, 0x10, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_fcs_errors_low
- * A count of frames received that are an integral number of 
- * octets in length but do not pass the FCS check. This count 
- * does not include frames received with frame-too-long or 
- * frame-too-short errors.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_fcs_errors_low, 0x14, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_single_collision_frames_high
- * A count of frames that are involved in a single collision, 
- * and are subsequently transmitted successfully.
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_single_collision_frames_high, 0x18, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_single_collision_frames_low
- * A count of frames that are involved in a single collision, 
- * and are subsequently transmitted successfully.
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_single_collision_frames_low, 0x1c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_multiple_collision_frames_high
- * A count of frames that are involved in more than one colli
- * sion and are subsequently transmitted successfully. 
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_multiple_collision_frames_high, 0x20, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_multiple_collision_frames_low
- * A count of frames that are involved in more than one colli
- * sion and are subsequently transmitted successfully. 
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_multiple_collision_frames_low, 0x24, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_sqe_test_errors_high
- * A count of times that the SQE TEST ERROR is received 
- * on a particular interface.
- * This counter does not increment on interfaces operating at 
- * speeds greater than 10 Mb/s, or on interfaces operating in 
- * full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_sqe_test_errors_high, 0x28, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_sqe_test_errors_low
- * A count of times that the SQE TEST ERROR is received 
- * on a particular interface.
- * This counter does not increment on interfaces operating at 
- * speeds greater than 10 Mb/s, or on interfaces operating in 
- * full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_sqe_test_errors_low, 0x2c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_deferred_transmissions_high
- * A count of frames for which the first transmission attempt 
- * on a particular interface is delayed because the medium is 
- * busy. 
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_deferred_transmissions_high, 0x30, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_deferred_transmissions_low
- * A count of frames for which the first transmission attempt 
- * on a particular interface is delayed because the medium is 
- * busy. 
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_deferred_transmissions_low, 0x34, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_late_collisions_high
- * The number of times that a collision is detected on a par
- * ticular interface later than one slotTime into the transmis
- * sion of a packet.
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_late_collisions_high, 0x38, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_late_collisions_low
- * The number of times that a collision is detected on a par
- * ticular interface later than one slotTime into the transmis
- * sion of a packet.
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_late_collisions_low, 0x3c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_excessive_collisions_high
- * A count of frames for which transmission on a particular 
- * interface fails due to excessive collisions.
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_excessive_collisions_high, 0x40, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_excessive_collisions_low
- * A count of frames for which transmission on a particular 
- * interface fails due to excessive collisions.
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_excessive_collisions_low, 0x44, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_transmit_errors_high
- * A count of frames for which transmission failed and were 
- * discarded even though no errors had been detected to pre
- * vent their being deliverable to a higher-layer protocol.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_transmit_errors_high, 0x48, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_transmit_errors_low
- * A count of frames for which transmission failed and were 
- * discarded even though no errors had been detected to pre
- * vent their being deliverable to a higher-layer protocol.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_transmit_errors_low, 0x4c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_carrier_sense_errors_high
- * The number of times that the carrier sense condition was 
- * lost or never asserted when attempting to transmit a frame 
- * on a particular interface. 
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_carrier_sense_errors_high, 0x50, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_carrier_sense_errors_low
- * The number of times that the carrier sense condition was 
- * lost or never asserted when attempting to transmit a frame 
- * on a particular interface. 
- * This counter does not increment when the interface is 
- * operating in full-duplex mode.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_carrier_sense_errors_low, 0x54, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_frame_too_longs_high
- * A count of frames received that exceed the maximum per
- * mitted frame size.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_frame_too_longs_high, 0x58, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_frame_too_longs_low
- * A count of frames received that exceed the maximum per
- * mitted frame size.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_frame_too_longs_low, 0x5c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_receive_errors_high
- * A count of frames for which reception failed and were dis
- * carded even though no errors had been detected to prevent 
- * their being deliverable to a higher-layer protocol.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_receive_errors_high, 0x60, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_receive_errors_low
- * A count of frames for which reception failed and were dis
- * carded even though no errors had been detected to prevent 
- * their being deliverable to a higher-layer protocol.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_internal_mac_receive_errors_low, 0x64, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_symbol_errors_high
- * The number of times the receiving media is non-idle (a 
- * carrier event) for a period of time equal to or greater than 
- * minFrameSize, and during which there was at least one 
- * occurrence of an event that causes the PHY to indicate 
- * "Receive Error".
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_symbol_errors_high, 0x68, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3stats_symbol_errors_low
- * The number of times the receiving media is non-idle (a 
- * carrier event) for a period of time equal to or greater than 
- * minFrameSize, and during which there was at least one 
- * occurrence of an event that causes the PHY to indicate 
- * "Receive Error".
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3stats_symbol_errors_low, 0x6c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3control_in_unknown_opcodes_high
- * A count of MAC Control frames received that contain an 
- * opcode that is not supported.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3control_in_unknown_opcodes_high, 0x70, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3control_in_unknown_opcodes_low
- * A count of MAC Control frames received that contain an 
- * opcode that is not supported.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3control_in_unknown_opcodes_low, 0x74, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3in_pause_frames_high
- * A count of MAC Control frames received with an opcode 
- * indicating the PAUSE operation.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3in_pause_frames_high, 0x78, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3in_pause_frames_low
- * A count of MAC Control frames received with an opcode 
- * indicating the PAUSE operation.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3in_pause_frames_low, 0x7c, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3out_pause_frames_high
- * A count of MAC Control frames transmitted with an 
- * opcode indicating the PAUSE operation.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3out_pause_frames_high, 0x80, 0, 32);
 
 /* eth_3635_cntrs_grp_data_layout_dot3out_pause_frames_low
- * A count of MAC Control frames transmitted with an 
- * opcode indicating the PAUSE operation.
  * Access: RW
  */
 MLXSW_ITEM32(reg, ppcnt, eth_3635_cntrs_grp_data_layout_dot3out_pause_frames_low, 0x84, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_port_transmit_wait_high
- * The time (in 4ns resolution) during which the port selected had 
- * data to transmit but no data was sent.
- * time = 
- * port_transmit_wait
- * *4 [ns]
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_port_transmit_wait_high, 0x8, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_port_transmit_wait_low
- * The time (in 4ns resolution) during which the port selected had 
- * data to transmit but no data was sent.
- * time = 
- * port_transmit_wait
- * *4 [ns]
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_port_transmit_wait_low, 0xc, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_ecn_marked_high
- * A count of packets marked as ECN or potentially marked as 
- * ECN.
- * ECN Counting enable/disable is configurable. 
- * Valid only for Spectrum family.
- * 
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_ecn_marked_high, 0x10, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_ecn_marked_low
- * A count of packets marked as ECN or potentially marked as 
- * ECN.
- * ECN Counting enable/disable is configurable. 
- * Valid only for Spectrum family.
- * 
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_ecn_marked_low, 0x14, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_no_buffer_discard_mc_high
- * The number of multicast packets dropped due to lack of egress 
- * buffer resources.
- * Valid only for Spectrum.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_no_buffer_discard_mc_high, 0x18, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_no_buffer_discard_mc_low
- * The number of multicast packets dropped due to lack of egress 
- * buffer resources.
- * Valid only for Spectrum.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_no_buffer_discard_mc_low, 0x1c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_ebp_high
- * The number of received EBP packets.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_ebp_high, 0x20, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_ebp_low
- * The number of received EBP packets.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_ebp_low, 0x24, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_ebp_high
- * The number of transmitted EBP packets.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_ebp_high, 0x28, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_ebp_low
- * The number of transmitted EBP packets.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_ebp_low, 0x2c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_buffer_almost_full_high
- * The number of events where the port rx buffer has passed a full
- * ness threshold 
- * Reserved for Switches.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_buffer_almost_full_high, 0x30, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_buffer_almost_full_low
- * The number of events where the port rx buffer has passed a full
- * ness threshold 
- * Reserved for Switches.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_buffer_almost_full_low, 0x34, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_buffer_full_high
- * The number of events where the port rx buffer has reached 100% 
- * fullness 
- * Reserved for Switches.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_buffer_full_high, 0x38, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_buffer_full_low
- * The number of events where the port rx buffer has reached 100% 
- * fullness 
- * Reserved for Switches.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_buffer_full_low, 0x3c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_icrc_encapsulated_high
- * The number of roce packets with ICRC error
- * Reserved for Switches.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_icrc_encapsulated_high, 0x40, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_rx_icrc_encapsulated_low
- * The number of roce packets with ICRC error
- * Reserved for Switches.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_rx_icrc_encapsulated_low, 0x44, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts64octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were 64 octets in length (excluding framing bits but includ
- * ing FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts64octets_high, 0x58, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts64octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were 64 octets in length (excluding framing bits but includ
- * ing FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts64octets_low, 0x5c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts65to127octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 65 and 127 octets in length (excluding fram
- * ing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts65to127octets_high, 0x60, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts65to127octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 65 and 127 octets in length (excluding fram
- * ing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts65to127octets_low, 0x64, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts128to255octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 128 and 255 octets in length (excluding fram
- * ing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts128to255octets_high, 0x68, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts128to255octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 128 and 255 octets in length (excluding fram
- * ing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts128to255octets_low, 0x6c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts256to511octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 256 and 511 octets in length (excluding fram
- * ing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts256to511octets_high, 0x70, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts256to511octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 256 and 511 octets in length (excluding fram
- * ing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts256to511octets_low, 0x74, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts512to1023octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 512 and 1023 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts512to1023octets_high, 0x78, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts512to1023octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 512 and 1023 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts512to1023octets_low, 0x7c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts1024to1518octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 1024 and 1518 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts1024to1518octets_high, 0x80, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts1024to1518octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 1024 and 1518 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts1024to1518octets_low, 0x84, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts1519to2047octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 1519 and 2047 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts1519to2047octets_high, 0x88, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts1519to2047octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 1519 and 2047 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts1519to2047octets_low, 0x8c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts2048to4095octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 2048 and 4095 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts2048to4095octets_high, 0x90, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts2048to4095octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 2048 and 4095 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts2048to4095octets_low, 0x94, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts4096to8191octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 4096 and 8191 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts4096to8191octets_high, 0x98, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts4096to8191octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 4096 and 8191 octets in length (excluding 
- * framing bits but including FCS octets).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts4096to8191octets_low, 0x9c, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts8192to10239octets_high
- * The total number of packets (including bad packets) transmitted 
- * that were between 8192 and 10239 octets in length (excluding 
- * framing bits but including FCS octets).transmitted
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts8192to10239octets_high, 0xa0, 0, 32);
 
 /* eth_extended_cntrs_grp_data_layout_tx_stats_pkts8192to10239octets_low
- * The total number of packets (including bad packets) transmitted 
- * that were between 8192 and 10239 octets in length (excluding 
- * framing bits but including FCS octets).transmitted
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_extended_cntrs_grp_data_layout_tx_stats_pkts8192to10239octets_low, 0xa4, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_general_high
- * Ingress general
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_general_high, 0x8, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_general_low
- * Ingress general
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_general_low, 0xc, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_policy_engine_high
- * Ingress policy engine discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_policy_engine_high, 0x10, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_policy_engine_low
- * Ingress policy engine discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_policy_engine_low, 0x14, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_vlan_membership_high
- * Ingress VLAN membership filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_vlan_membership_high, 0x18, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_vlan_membership_low
- * Ingress VLAN membership filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_vlan_membership_low, 0x1c, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_tag_frame_type_high
- * Ingress VLAN tag allowance (tagged, untagged and prio-tagged) 
- * filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_tag_frame_type_high, 0x20, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_tag_frame_type_low
- * Ingress VLAN tag allowance (tagged, untagged and prio-tagged) 
- * filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_tag_frame_type_low, 0x24, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_vlan_membership_high
- * Egress VLAN membership filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_vlan_membership_high, 0x28, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_vlan_membership_low
- * Egress VLAN membership filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_vlan_membership_low, 0x2c, 0, 32);
 
 /* eth_discard_cntrs_grp_loopback_filter_high
- * Loop-back filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_loopback_filter_high, 0x30, 0, 32);
 
 /* eth_discard_cntrs_grp_loopback_filter_low
- * Loop-back filter discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_loopback_filter_low, 0x34, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_general_high
- * Egress general discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_general_high, 0x38, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_general_low
- * Egress general discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_general_low, 0x3c, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_hoq_high
- * Head-of-Queue time-out discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_hoq_high, 0x48, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_hoq_low
- * Head-of-Queue time-out discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_hoq_low, 0x4c, 0, 32);
 
 /* eth_discard_cntrs_grp_port_isolation_high
- * Port isolation filter discards
- * [IInternal] Not supported due to HW bug.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_port_isolation_high, 0x50, 0, 32);
 
 /* eth_discard_cntrs_grp_port_isolation_low
- * Port isolation filter discards
- * [IInternal] Not supported due to HW bug.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_port_isolation_low, 0x54, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_policy_engine_high
- * Egress policy engine discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_policy_engine_high, 0x58, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_policy_engine_low
- * Egress policy engine discards
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_policy_engine_low, 0x5c, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_tx_link_down_high
- * Per ingress port count dropped packets due to egress link down
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_tx_link_down_high, 0x60, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_tx_link_down_low
- * Per ingress port count dropped packets due to egress link down
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_tx_link_down_low, 0x64, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_stp_filter_high
- * Egress spanning tree filter
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_stp_filter_high, 0x68, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_stp_filter_low
- * Egress spanning tree filter
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_stp_filter_low, 0x6c, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_hoq_stall_high
- * Number of sequential packets dropped, due to Head-Of-Queue 
- * Lifetime Limit, that causes the port to enter the Stall state 
- * Reserved for Switches
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_hoq_stall_high, 0x70, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_hoq_stall_low
- * Number of sequential packets dropped, due to Head-Of-Queue 
- * Lifetime Limit, that causes the port to enter the Stall state 
- * Reserved for Switches
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_hoq_stall_low, 0x74, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_sll_high
- * Number of packets dropped, because the Switch Lifetime Limit 
- * was exceeded. 
- * Applies for switches only. Reserved for HCAs
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_sll_high, 0x78, 0, 32);
 
 /* eth_discard_cntrs_grp_egress_sll_low
- * Number of packets dropped, because the Switch Lifetime Limit 
- * was exceeded. 
- * Applies for switches only. Reserved for HCAs
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_egress_sll_low, 0x7c, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_discard_all_high
- * Number of packets dropped, because of any reason.
- *  Note: see description in the description area for limitations of 
- * this counter.
- * Applies for switches only. Reserved for HCAs
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_discard_all_high, 0x80, 0, 32);
 
 /* eth_discard_cntrs_grp_ingress_discard_all_low
- * Number of packets dropped, because of any reason.
- *  Note: see description in the description area for limitations of 
- * this counter.
- * Applies for switches only. Reserved for HCAs
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_discard_cntrs_grp_ingress_discard_all_low, 0x84, 0, 32);
 
-/* eth_per_prio_grp_data_layout_rx_octets_high
- * The total number of octets received, including framing characters.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_octets_high, 0x8, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_octets_low
- * The total number of octets received, including framing characters.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_octets_low, 0xc, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_uc_frames_high
- * The number of packets delivered which were not addressed to a multicast 
- * or broadcast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_uc_frames_high, 0x10, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_uc_frames_low
- * The number of packets delivered which were not addressed to a multicast 
- * or broadcast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_uc_frames_low, 0x14, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_mc_frames_high
- * The number of packets delivered which were addressed to a multicast 
- * address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_mc_frames_high, 0x18, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_mc_frames_low
- * The number of packets delivered which were addressed to a multicast 
- * address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_mc_frames_low, 0x1c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_bc_frames_high
- * The number of packets delivered which were addressed to a broadcast 
- * address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_bc_frames_high, 0x20, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_bc_frames_low
- * The number of packets delivered which were addressed to a broadcast 
- * address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_bc_frames_low, 0x24, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_frames_high
- * The total number of packets received for this priority (including control 
- * frames).
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_frames_high, 0x28, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_frames_low
- * The total number of packets received for this priority (including control 
- * frames).
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_frames_low, 0x2c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_octets_high
- * The total number of octets transmitted, including framing characters.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_octets_high, 0x30, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_octets_low
- * The total number of octets transmitted, including framing characters.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_octets_low, 0x34, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_uc_frames_high
- * The total number of packets transmitted which were not addressed to a 
- * multicast or broadcast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_uc_frames_high, 0x38, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_uc_frames_low
- * The total number of packets transmitted which were not addressed to a 
- * multicast or broadcast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_uc_frames_low, 0x3c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_mc_frames_high
- * The total number of packets transmitted which were addressed to a multi
- * cast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_mc_frames_high, 0x40, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_mc_frames_low
- * The total number of packets transmitted which were addressed to a multi
- * cast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_mc_frames_low, 0x44, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_bc_frames_high
- * The total number of packets transmitted which were addressed to a broad
- * cast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_bc_frames_high, 0x48, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_bc_frames_low
- * The total number of packets transmitted which were addressed to a broad
- * cast address.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_bc_frames_low, 0x4c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_frames_high
- * The total number of packets transmitted.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_frames_high, 0x50, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_frames_low
- * The total number of packets transmitted.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_frames_low, 0x54, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_pause_high
- * The total number of PAUSE frames received from the far-end port.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_high, 0x58, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_pause_low
- * The total number of PAUSE frames received from the far-end port.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_low, 0x5c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_pause_duration_high
- * The total time in microseconds that transmission of packets to the far-end 
- * port have been paused.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_duration_high, 0x60, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_pause_duration_low
- * The total time in microseconds that transmission of packets to the far-end 
- * port have been paused.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_duration_low, 0x64, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_pause_high
- * The total number of PAUSE
- *  or PFC frames sent to the far-end port.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_high, 0x68, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_pause_low
- * The total number of PAUSE
- *  or PFC frames sent to the far-end port.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_low, 0x6c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_pause_duration_high
- * The total time in microseconds that the far-end port have been requested 
- * to pause.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_duration_high, 0x70, 0, 32);
-
-/* eth_per_prio_grp_data_layout_tx_pause_duration_low
- * The total time in microseconds that the far-end port have been requested 
- * to pause.
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_duration_low, 0x74, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_pause_transition_high
- * Counts the number of transitions from Xoff to Xon.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_transition_high, 0x78, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_pause_transition_low
- * Counts the number of transitions from Xoff to Xon.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_transition_low, 0x7c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_discards_high
- * The number of inbound packets which were chosen to be discarded even 
- * though no errors had been detected to prevent their being deliverable to a 
- * higher-layer protocol.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_discards_high, 0x80, 0, 32);
-
-/* eth_per_prio_grp_data_layout_rx_discards_low
- * The number of inbound packets which were chosen to be discarded even 
- * though no errors had been detected to prevent their being deliverable to a 
- * higher-layer protocol.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_discards_low, 0x84, 0, 32);
-
-/* eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_high
- * The number of times the device detected a stalled state for a period longer 
- * than 
- * device_stall_minor_watermark
- * The counter is presented in priority 0, but is a sum of all events on all pri
- * orities (including global pause).
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_high, 0x88, 0, 32);
-
-/* eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_low
- * The number of times the device detected a stalled state for a period longer 
- * than 
- * device_stall_minor_watermark
- * The counter is presented in priority 0, but is a sum of all events on all pri
- * orities (including global pause).
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_low, 0x8c, 0, 32);
-
-/* eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_high
- * The number of times the device detected a stalled state for a period longer 
- * than 
- * device_stall_critical_watermark
- * The counter is presented in priority 0, but is a sum of all events on all pri
- * orities (including global pause).
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_high, 0x90, 0, 32);
-
-/* eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_low
- * The number of times the device detected a stalled state for a period longer 
- * than 
- * device_stall_critical_watermark
- * The counter is presented in priority 0, but is a sum of all events on all pri
- * orities (including global pause).
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_low, 0x94, 0, 32);
-
-/* eth_per_traffic_class_layout_transmit_queue_high
- * Contains the transmit queue depth in bytes on traffic class selected 
- * by 
- * traffic_class
- *  of the port selected by 
- * local_port
- * .
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_transmit_queue_high, 0x8, 0, 32);
-
-/* eth_per_traffic_class_layout_transmit_queue_low
- * Contains the transmit queue depth in bytes on traffic class selected 
- * by 
- * traffic_class
- *  of the port selected by 
- * local_port
- * .
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_transmit_queue_low, 0xc, 0, 32);
-
-/* eth_per_traffic_class_layout_no_buffer_discard_uc_high
- * The number of unicast packets dropped due to lack of shared buffer 
- * resources.
- * Valid only for Spectrum.
- * Valid for HCA when ppcnt_no_buffer_uc is set in PCAM.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_no_buffer_discard_uc_high, 0x10, 0, 32);
-
-/* eth_per_traffic_class_layout_no_buffer_discard_uc_low
- * The number of unicast packets dropped due to lack of shared buffer 
- * resources.
- * Valid only for Spectrum.
- * Valid for HCA when ppcnt_no_buffer_uc is set in PCAM.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_no_buffer_discard_uc_low, 0x14, 0, 32);
-
-/* eth_per_traffic_class_cong_layout_wred_discard_high
- * The number of packet that are dropped by the Weighted Random 
- * Early Detection (WRED) function.
- * For switches - valid only for Spectrum and on
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_wred_discard_high, 0x8, 0, 32);
-
-/* eth_per_traffic_class_cong_layout_wred_discard_low
- * The number of packet that are dropped by the Weighted Random 
- * Early Detection (WRED) function.
- * For switches - valid only for Spectrum and on
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_wred_discard_low, 0xc, 0, 32);
-
-/* eth_per_traffic_class_cong_layout_ecn_marked_tc_high
- * A count of packets marked as ECN or potentially marked as ECN.
- * ECN Counting enable/disable is configurable. 
- * For switches - valid only for Spectrum-3 and on
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_ecn_marked_tc_high, 0x10, 0, 32);
-
-/* eth_per_traffic_class_cong_layout_ecn_marked_tc_low
- * A count of packets marked as ECN or potentially marked as ECN.
- * ECN Counting enable/disable is configurable. 
- * For switches - valid only for Spectrum-3 and on
- * 
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_ecn_marked_tc_low, 0x14, 0, 32);
-
 /* link_level_retrans_cntr_grp_data_llr_rx_cells_high
- * The total number of cells received (including bad cells).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_rx_cells_high, 0x8, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_rx_cells_low
- * The total number of cells received (including bad cells).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_rx_cells_low, 0xc, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_rx_error_high
- * The total number of bad cells received (including CRC error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_rx_error_high, 0x10, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_rx_error_low
- * The total number of bad cells received (including CRC error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_rx_error_low, 0x14, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_rx_crc_error_high
- * The total number of cells received with CRC error.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_rx_crc_error_high, 0x18, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_rx_crc_error_low
- * The total number of cells received with CRC error.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_rx_crc_error_low, 0x1c, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_tx_cells_high
- * The total number of cells transmitted (including retransmitted cells).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_tx_cells_high, 0x20, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_tx_cells_low
- * The total number of cells transmitted (including retransmitted cells).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_tx_cells_low, 0x24, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_tx_ret_cells_high
- * The total number of cells retransmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_tx_ret_cells_high, 0x28, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_tx_ret_cells_low
- * The total number of cells retransmitted.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_tx_ret_cells_low, 0x2c, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_tx_ret_events_high
- * The total number of retransmission events.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_tx_ret_events_high, 0x30, 0, 32);
 
 /* link_level_retrans_cntr_grp_data_llr_tx_ret_events_low
- * The total number of retransmission events.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, link_level_retrans_cntr_grp_data_llr_tx_ret_events_low, 0x34, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_symbol_error_counter
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_octets_high
  * Access: RO
  */
-MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_symbol_error_counter, 0x8, 0, 16);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_octets_high, 0x8, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_link_error_recovery_counter
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_octets_low
  * Access: RO
  */
-MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_link_error_recovery_counter, 0xa, 0, 8);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_octets_low, 0xc, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_link_downed_counter
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_uc_frames_high
  * Access: RO
  */
-MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_link_downed_counter, 0xb, 0, 8);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_uc_frames_high, 0x10, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_rcv_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_uc_frames_low
  * Access: RO
  */
-MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_errors, 0xc, 0, 16);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_uc_frames_low, 0x14, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_mc_frames_high
  * Access: RO
  */
-MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors, 0xe, 0, 16);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_mc_frames_high, 0x18, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_mc_frames_low
  * Access: RO
  */
-MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors, 0x10, 0, 16);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_mc_frames_low, 0x1c, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_xmit_discards
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_bc_frames_high
  * Access: RO
  */
-MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_discards, 0x12, 0, 16);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_bc_frames_high, 0x20, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_xmit_constraint_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_bc_frames_low
  * Access: RO
  */
-MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_constraint_errors, 0x14, 0, 8);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_bc_frames_low, 0x24, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_rcv_constraint_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_frames_high
  * Access: RO
  */
-MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_constraint_errors, 0x15, 0, 8);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_frames_high, 0x28, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_local_link_integrity_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_rx_frames_low
  * Access: RO
  */
-MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_local_link_integrity_errors, 0x17, 4, 4);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_frames_low, 0x2c, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_octets_high
  * Access: RO
  */
-MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors, 0x17, 0, 4);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_octets_high, 0x30, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_vl_15_dropped
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_octets_low
  * Access: RO
  */
-MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_vl_15_dropped, 0x1a, 0, 16);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_octets_low, 0x34, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_xmit_data
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_uc_frames_high
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_data, 0x1c, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_uc_frames_high, 0x38, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_rcv_data
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_uc_frames_low
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_data, 0x20, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_uc_frames_low, 0x3c, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_xmit_pkts
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_mc_frames_high
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_pkts, 0x24, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_mc_frames_high, 0x40, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_rcv_pkts
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_mc_frames_low
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_pkts, 0x28, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_mc_frames_low, 0x44, 0, 32);
 
-/* IB_portcntrs_attribute_grp_data_port_xmit_wait
- * For counter description please refer to the InfiniBand specification
+/* eth_per_prio_grp_data_layout_tx_bc_frames_high
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_wait, 0x2c, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_bc_frames_high, 0x48, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_bc_frames_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_bc_frames_low, 0x4c, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_frames_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_frames_high, 0x50, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_frames_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_frames_low, 0x54, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_pause_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_high, 0x58, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_pause_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_low, 0x5c, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_pause_duration_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_duration_high, 0x60, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_pause_duration_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_duration_low, 0x64, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_pause_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_high, 0x68, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_pause_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_low, 0x6c, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_pause_duration_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_duration_high, 0x70, 0, 32);
+
+/* eth_per_prio_grp_data_layout_tx_pause_duration_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_tx_pause_duration_low, 0x74, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_pause_transition_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_transition_high, 0x78, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_pause_transition_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_pause_transition_low, 0x7c, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_discards_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_discards_high, 0x80, 0, 32);
+
+/* eth_per_prio_grp_data_layout_rx_discards_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_rx_discards_low, 0x84, 0, 32);
+
+/* eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_high, 0x88, 0, 32);
+
+/* eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_minor_watermark_cnt_low, 0x8c, 0, 32);
+
+/* eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_high, 0x90, 0, 32);
+
+/* eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_prio_grp_data_layout_device_stall_critical_watermark_cnt_low, 0x94, 0, 32);
+
+/* eth_per_traffic_class_layout_transmit_queue_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_transmit_queue_high, 0x8, 0, 32);
+
+/* eth_per_traffic_class_layout_transmit_queue_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_transmit_queue_low, 0xc, 0, 32);
+
+/* eth_per_traffic_class_layout_no_buffer_discard_uc_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_no_buffer_discard_uc_high, 0x10, 0, 32);
+
+/* eth_per_traffic_class_layout_no_buffer_discard_uc_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_layout_no_buffer_discard_uc_low, 0x14, 0, 32);
 
 /* phys_layer_cntrs_time_since_last_clear_high
- * The time passed since the last counters clear event in 
- * msec.
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_time_since_last_clear_high, 0x8, 0, 32);
 
 /* phys_layer_cntrs_time_since_last_clear_low
- * The time passed since the last counters clear event in 
- * msec.
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_time_since_last_clear_low, 0xc, 0, 32);
 
 /* phys_layer_cntrs_symbol_errors_high
- * Perf.PortCounters(SymbolErrorCounter) = Perf.Port
- * Counters(UnknownSymbol)
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_symbol_errors_high, 0x10, 0, 32);
 
 /* phys_layer_cntrs_symbol_errors_low
- * Perf.PortCounters(SymbolErrorCounter) = Perf.Port
- * Counters(UnknownSymbol)
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_symbol_errors_low, 0x14, 0, 32);
 
 /* phys_layer_cntrs_sync_headers_errors_high
- * Perf.PortExtendedSpeedsCounters(SynchHeader
- * ErrorCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_sync_headers_errors_high, 0x18, 0, 32);
 
 /* phys_layer_cntrs_sync_headers_errors_low
- * Perf.PortExtendedSpeedsCounters(SynchHeader
- * ErrorCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_sync_headers_errors_low, 0x1c, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane0_high
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane0Counter) / BIP error counter, lane 0
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 0
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane0_high, 0x20, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane0_low
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane0Counter) / BIP error counter, lane 0
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 0
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane0_low, 0x24, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane1_high
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane1Counter) / BIP error counter, lane 1
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 1
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane1_high, 0x28, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane1_low
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane1Counter) / BIP error counter, lane 1
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 1
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane1_low, 0x2c, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane2_high
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane2Counter) / BIP error counter, lane 2
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 2
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane2_high, 0x30, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane2_low
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane2Counter) / BIP error counter, lane 2
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 2
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane2_low, 0x34, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane3_high
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane3Counter) / BIP error counter, lane 3
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 3
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane3_high, 0x38, 0, 32);
 
 /* phys_layer_cntrs_edpl_bip_errors_lane3_low
- * Perf.PortExtendedSpeedsCounters(ErrorDetectionPer
- * Lane3Counter) / BIP error counter, lane 3
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 3
- * [Internal] supported in USR
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_edpl_bip_errors_lane3_low, 0x3c, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane0_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane0_high, 0x40, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane0_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane0_low, 0x44, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane1_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane1_high, 0x48, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane1_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane1_low, 0x4c, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane2_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane2_high, 0x50, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane2_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane2_low, 0x54, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane3_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane3_high, 0x58, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_corrected_blocks_lane3_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_corrected_blocks_lane3_low, 0x5c, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane0_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane0_high, 0x60, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane0_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane0_low, 0x64, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane1_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane1_high, 0x68, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane1_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane1_low, 0x6c, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane2_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane2_high, 0x70, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane2_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane2_low, 0x74, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane3_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane3_high, 0x78, 0, 32);
 
 /* phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane3_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_fc_fec_uncorrectable_blocks_lane3_low, 0x7c, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_blocks_high
- * Perf.PortExtendedSpeedsCounters(FECCorreca
- * bleBlockCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_blocks_high, 0x80, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_blocks_low
- * Perf.PortExtendedSpeedsCounters(FECCorreca
- * bleBlockCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_blocks_low, 0x84, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_uncorrectable_blocks_high
- * Perf.PortExtendedSpeedsCounters(FEUncorreca
- * bleBlockCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_uncorrectable_blocks_high, 0x88, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_uncorrectable_blocks_low
- * Perf.PortExtendedSpeedsCounters(FEUncorreca
- * bleBlockCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_uncorrectable_blocks_low, 0x8c, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_no_errors_blocks_high
- * The number of RS-FEC blocks received that had no 
- * errors.
- * Note: Total rs_fec blocks received = rs_fec_corrected_
- * blocks + rs_fec_uncorrectable_blocks + rs_fec_no_er
- * rors_blocks
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_no_errors_blocks_high, 0x90, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_no_errors_blocks_low
- * The number of RS-FEC blocks received that had no 
- * errors.
- * Note: Total rs_fec blocks received = rs_fec_corrected_
- * blocks + rs_fec_uncorrectable_blocks + rs_fec_no_er
- * rors_blocks
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_no_errors_blocks_low, 0x94, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_single_error_blocks_high
- * The number of corrected RS-FEC blocks received that 
- * had exactly 1 error symbol. 
- * Note: A FEC block that is counted by rs_fec_single_er
- * ror_blocks is counted also by rs_fec_corrected_blocks
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_single_error_blocks_high, 0x98, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_single_error_blocks_low
- * The number of corrected RS-FEC blocks received that 
- * had exactly 1 error symbol. 
- * Note: A FEC block that is counted by rs_fec_single_er
- * ror_blocks is counted also by rs_fec_corrected_blocks
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_single_error_blocks_low, 0x9c, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_total_high
- * Perf.PortExtendedSpeedCounters(PortFECCor
- * rectedSymbolCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_total_high, 0xa0, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_total_low
- * Perf.PortExtendedSpeedCounters(PortFECCor
- * rectedSymbolCounter)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_total_low, 0xa4, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane0_high
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane0)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane0_high, 0xa8, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane0_low
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane0)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane0_low, 0xac, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane1_high
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane1)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane1_high, 0xb0, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane1_low
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane1)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane1_low, 0xb4, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane2_high
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane2)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane2_high, 0xb8, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane2_low
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane2)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane2_low, 0xbc, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane3_high
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane3)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane3_high, 0xc0, 0, 32);
 
 /* phys_layer_cntrs_rs_fec_corrected_symbols_lane3_low
- * Perf.PortExtendedSpeedCounters(FECCorrectedSym
- * bolCounterLane3)
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_rs_fec_corrected_symbols_lane3_low, 0xc4, 0, 32);
 
 /* phys_layer_cntrs_link_down_events
- * Perf.PortCounters(LinkDownedCounter)
- * [Internal] supported in USR - ZL FEC
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_link_down_events, 0xc8, 0, 32);
 
 /* phys_layer_cntrs_successful_recovery_events
- * Perf.PortCounters(LinkErrorRecoveryCounter)
- * Note: This counter is valid only for IB.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_cntrs_successful_recovery_events, 0xcc, 0, 32);
 
-/* usr_xsr_physical_layer_time_since_last_clear_high
- * The time passed since the last counters clear event in 
- * msec.
- * [Internal] supported in USR
+/* eth_per_traffic_class_cong_layout_wred_discard_high
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_time_since_last_clear_high, 0x8, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_wred_discard_high, 0x8, 0, 32);
 
-/* usr_xsr_physical_layer_time_since_last_clear_low
- * The time passed since the last counters clear event in 
- * msec.
- * [Internal] supported in USR
+/* eth_per_traffic_class_cong_layout_wred_discard_low
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_time_since_last_clear_low, 0xc, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_wred_discard_low, 0xc, 0, 32);
 
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
+/* eth_per_traffic_class_cong_layout_ecn_marked_tc_high
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_high, 0x10, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_ecn_marked_tc_high, 0x10, 0, 32);
 
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
+/* eth_per_traffic_class_cong_layout_ecn_marked_tc_low
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_low, 0x14, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_traffic_class_cong_layout_ecn_marked_tc_low, 0x14, 0, 32);
 
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
+/* eth_per_receive_buffer_grp_rx_no_buffer_discard_uc_high
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_high, 0x18, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_receive_buffer_grp_rx_no_buffer_discard_uc_high, 0x8, 0, 32);
 
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
+/* eth_per_receive_buffer_grp_rx_no_buffer_discard_uc_low
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_low, 0x1c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_high, 0x20, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_low, 0x24, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_high, 0x28, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_low, 0x2c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane4)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_high, 0x30, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane4)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_low, 0x34, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane5)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_high, 0x38, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane5)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_low, 0x3c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane6)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_high, 0x40, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane6)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_low, 0x44, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane7)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_high, 0x48, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane7)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_low, 0x4c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_high, 0x50, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane0)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_low, 0x54, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_high, 0x58, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane1)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_low, 0x5c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_high, 0x60, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane2)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_low, 0x64, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_high, 0x68, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane3)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_low, 0x6c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane4)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_high, 0x70, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane4)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_low, 0x74, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane5)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_high, 0x78, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane5)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_low, 0x7c, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane6)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_high, 0x80, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane6)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_low, 0x84, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_high
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane7)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_high, 0x88, 0, 32);
-
-/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_low
- * Perf.PortExtendedSpeedsCounters(FECCorrect
- * ableBlockCounterLane7)
- * [Internal] supported in USR - ZL FEC
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_low, 0x8c, 0, 32);
-
-/* usr_xsr_physical_layer_link_down_events
- * Perf.PortCounters(LinkDownedCounter)
- * [Internal] supported in USR
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_link_down_events, 0x90, 0, 32);
+MLXSW_ITEM32(reg, ppcnt, eth_per_receive_buffer_grp_rx_no_buffer_discard_uc_low, 0xc, 0, 32);
 
 /* phys_layer_stat_cntrs_time_since_last_clear_high
- * The time passed since the last counters clear event in 
- * msec.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_time_since_last_clear_high, 0x8, 0, 32);
 
 /* phys_layer_stat_cntrs_time_since_last_clear_low
- * The time passed since the last counters clear event in 
- * msec.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_time_since_last_clear_low, 0xc, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_received_bits_high
- * This counter provides information on the total amount of 
- * traffic (bits) received.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_received_bits_high, 0x10, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_received_bits_low
- * This counter provides information on the total amount of 
- * traffic (bits) received.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_received_bits_low, 0x14, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_symbol_errors_high
- * This counter provides information on error bits that were 
- * not corrected by FEC correction algorithm or that FEC is 
- * not active.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_symbol_errors_high, 0x18, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_symbol_errors_low
- * This counter provides information on error bits that were 
- * not corrected by FEC correction algorithm or that FEC is 
- * not active.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_symbol_errors_low, 0x1c, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_corrected_bits_high
- * Corrected bits by FEC engine.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_corrected_bits_high, 0x20, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_corrected_bits_low
- * Corrected bits by FEC engine.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_corrected_bits_low, 0x24, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane0_high
- * This counter provides information on error bits that were 
- * identified on lane 0. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 0
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane0_high, 0x28, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane0_low
- * This counter provides information on error bits that were 
- * identified on lane 0. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 0
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane0_low, 0x2c, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane1_high
- * This counter provides information on error bits that were 
- * identified on lane 1. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 1
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane1_high, 0x30, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane1_low
- * This counter provides information on error bits that were 
- * identified on lane 1. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 1
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane1_low, 0x34, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane2_high
- * This counter provides information on error bits that were 
- * identified on lane 2. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 2
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane2_high, 0x38, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane2_low
- * This counter provides information on error bits that were 
- * identified on lane 2. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 2
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane2_low, 0x3c, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane3_high
- * This counter provides information on error bits that were 
- * identified on lane 3. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 3
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane3_high, 0x40, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane3_low
- * This counter provides information on error bits that were 
- * identified on lane 3. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 3
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane3_low, 0x44, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane4_high
- * This counter provides information on error bits that were 
- * identified on lane 4. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 4
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane4_high, 0x48, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane4_low
- * This counter provides information on error bits that were 
- * identified on lane 4. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 4
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane4_low, 0x4c, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane5_high
- * This counter provides information on error bits that were 
- * identified on lane 5. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 5
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane5_high, 0x50, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane5_low
- * This counter provides information on error bits that were 
- * identified on lane 5. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 5
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane5_low, 0x54, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane6_high
- * This counter provides information on error bits that were 
- * identified on lane 6. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 6
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane6_high, 0x58, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane6_low
- * This counter provides information on error bits that were 
- * identified on lane 6. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 6
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane6_low, 0x5c, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane7_high
- * This counter provides information on error bits that were 
- * identified on lane 7. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 7
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane7_high, 0x60, 0, 32);
 
 /* phys_layer_stat_cntrs_phy_raw_errors_lane7_low
- * This counter provides information on error bits that were 
- * identified on lane 7. 
- * When FEC is enabled this induction corresponds to cor
- * rected errors.
- * In PRBS test mode, indicates the number of PRBS errors
- * on lane 7
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, phys_layer_stat_cntrs_phy_raw_errors_lane7_low, 0x64, 0, 32);
 
 /* phys_layer_stat_cntrs_raw_ber_magnitude
- * Raw_BER = 
- * raw_ber_coef*
- * 10^(-
- * raw_ber_magnitude)
  * Access: RO
  */
 MLXSW_ITEM8(reg, ppcnt, phys_layer_stat_cntrs_raw_ber_magnitude, 0x6a, 0, 8);
 
 /* phys_layer_stat_cntrs_raw_ber_coef
- * Raw_BER = 
- * raw_ber_coef*
- * 10^(-
- * raw_ber_magnitude)
  * Access: RO
  */
 MLXSW_ITEM8(reg, ppcnt, phys_layer_stat_cntrs_raw_ber_coef, 0x6b, 0, 4);
 
 /* phys_layer_stat_cntrs_effective_ber_magnitude
- * Effective_BER = 
- * effective_ber_coef*
- * 10^(-
- * effective_ber_magnitude)
  * Access: RO
  */
 MLXSW_ITEM8(reg, ppcnt, phys_layer_stat_cntrs_effective_ber_magnitude, 0x6e, 0, 8);
 
 /* phys_layer_stat_cntrs_effective_ber_coef
- * Effective_BER = 
- * effective_ber_coef*
- * 10^(-
- * effective_ber_magnitude)
  * Access: RO
  */
 MLXSW_ITEM8(reg, ppcnt, phys_layer_stat_cntrs_effective_ber_coef, 0x6f, 0, 4);
 
-/* ppcnt_plr_counters_plr_rcv_codes_high
- * Number of received PLR codewords
+/* phys_layer_stat_cntrs_post_fec_ber_magnitude
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_codes_high, 0x8, 0, 32);
+MLXSW_ITEM8(reg, ppcnt, phys_layer_stat_cntrs_post_fec_ber_magnitude, 0x72, 0, 8);
 
-/* ppcnt_plr_counters_plr_rcv_codes_low
- * Number of received PLR codewords
+/* phys_layer_stat_cntrs_post_fec_ber_coef
  * Access: RO
  */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_codes_low, 0xc, 0, 32);
-
-/* ppcnt_plr_counters_plr_rcv_code_err_high
- * The total number of bad codewords received (including 
- * uncorrectable).
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_code_err_high, 0x10, 0, 32);
-
-/* ppcnt_plr_counters_plr_rcv_code_err_low
- * The total number of bad codewords received (including 
- * uncorrectable).
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_code_err_low, 0x14, 0, 32);
-
-/* ppcnt_plr_counters_plr_rcv_uncorrectable_code_high
- * The number of uncorrectable codewords received
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_uncorrectable_code_high, 0x18, 0, 32);
-
-/* ppcnt_plr_counters_plr_rcv_uncorrectable_code_low
- * The number of uncorrectable codewords received
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_uncorrectable_code_low, 0x1c, 0, 32);
-
-/* ppcnt_plr_counters_plr_xmit_codes_high
- * Number of transmitted PLR codewords
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_codes_high, 0x20, 0, 32);
-
-/* ppcnt_plr_counters_plr_xmit_codes_low
- * Number of transmitted PLR codewords
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_codes_low, 0x24, 0, 32);
-
-/* ppcnt_plr_counters_plr_xmit_retry_codes_high
- * The total number of codewords retransmitted.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_codes_high, 0x28, 0, 32);
-
-/* ppcnt_plr_counters_plr_xmit_retry_codes_low
- * The total number of codewords retransmitted.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_codes_low, 0x2c, 0, 32);
-
-/* ppcnt_plr_counters_plr_xmit_retry_events_high
- * The total number of retransmitted event.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_events_high, 0x30, 0, 32);
-
-/* ppcnt_plr_counters_plr_xmit_retry_events_low
- * The total number of retransmitted event.
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_events_low, 0x34, 0, 32);
-
-/* ppcnt_plr_counters_plr_sync_events_high
- * The number of sync events
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_sync_events_high, 0x38, 0, 32);
-
-/* ppcnt_plr_counters_plr_sync_events_low
- * The number of sync events
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_sync_events_low, 0x3c, 0, 32);
-
-/* ppcnt_plr_counters_hi_retransmission_rate_high
- * High retransmission rate
- * The number of the retransmission rate has crossed the 
- * retransmission rate threshold
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_hi_retransmission_rate_high, 0x40, 0, 32);
-
-/* ppcnt_plr_counters_hi_retransmission_rate_low
- * High retransmission rate
- * The number of the retransmission rate has crossed the 
- * retransmission rate threshold
- * Access: RO
- */
-MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_hi_retransmission_rate_low, 0x44, 0, 32);
-
-/* ppcnt_rs_fec_histograms_counters_hi
- * 
- * Access: 
- */
-MLXSW_ITEM32_INDEXED(reg, ppcnt, ppcnt_rs_fec_histograms_counters_hi, MLXSW_PPCNT_HIST_BASE_LEN, 0, 32, MLXSW_PPCNT_HIST_REC_LEN, 0, false);
-
-/* ppcnt_rs_fec_histograms_counters_lo
- * 
- * Access: 
- */
-MLXSW_ITEM32_INDEXED(reg, ppcnt, ppcnt_rs_fec_histograms_counters_lo, MLXSW_PPCNT_HIST_BASE_LEN, 0, 32, MLXSW_PPCNT_HIST_REC_LEN, 4, false);
+MLXSW_ITEM8(reg, ppcnt, phys_layer_stat_cntrs_post_fec_ber_coef, 0x73, 0, 4);
 
 /* eth_oob_port_cntrs_if_in_ucast_pkts_high
- * The number of packets successfully received, which were not addressed 
- * to a multicast or broadcast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_ucast_pkts_high, 0x8, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_ucast_pkts_low
- * The number of packets successfully received, which were not addressed 
- * to a multicast or broadcast MAC address.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_ucast_pkts_low, 0xc, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_octets_high
- * The total number of octets received, including framing characters. Includ
- * ing MAC control frames.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_octets_high, 0x10, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_octets_low
- * The total number of octets received, including framing characters. Includ
- * ing MAC control frames.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_octets_low, 0x14, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_discards_high
- * The number of inbound packets which were chosen to be discarded even 
- * though no errors had been detected to prevent their being deliverable to a 
- * higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_discards_high, 0x18, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_discards_low
- * The number of inbound packets which were chosen to be discarded even 
- * though no errors had been detected to prevent their being deliverable to a 
- * higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_discards_low, 0x1c, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_errors_high
- * The number of inbound packets that contained errors preventing them 
- * from being deliverable to a higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_errors_high, 0x20, 0, 32);
 
 /* eth_oob_port_cntrs_if_in_errors_low
- * The number of inbound packets that contained errors preventing them 
- * from being deliverable to a higher-layer protocol.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_in_errors_low, 0x24, 0, 32);
 
 /* eth_oob_port_cntrs_ether_stats_crc_align_errors_high
- * e total number of packets received that had a length (excluding framing 
- * bits, but including FCS octets) of between 64 and MTU octets, inclusive, 
- * but had either a bad frame check sequence (FCS) with an integral number 
- * of octets (FCS error) or a bad FCS with a non-integral number of octets 
- * (alignment error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_ether_stats_crc_align_errors_high, 0x28, 0, 32);
 
 /* eth_oob_port_cntrs_ether_stats_crc_align_errors_low
- * e total number of packets received that had a length (excluding framing 
- * bits, but including FCS octets) of between 64 and MTU octets, inclusive, 
- * but had either a bad frame check sequence (FCS) with an integral number 
- * of octets (FCS error) or a bad FCS with a non-integral number of octets 
- * (alignment error).
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_ether_stats_crc_align_errors_low, 0x2c, 0, 32);
 
 /* eth_oob_port_cntrs_ether_stats_undersize_pkts_high
- * The total number of packets received that were less than 64 octets long 
- * (excluding framing bits, but including FCS octets) and were otherwise 
- * well formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_ether_stats_undersize_pkts_high, 0x30, 0, 32);
 
 /* eth_oob_port_cntrs_ether_stats_undersize_pkts_low
- * The total number of packets received that were less than 64 octets long 
- * (excluding framing bits, but including FCS octets) and were otherwise 
- * well formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_ether_stats_undersize_pkts_low, 0x34, 0, 32);
 
 /* eth_oob_port_cntrs_ether_stats_oversize_pkts_high
- * The total number of packets received that were longer than MTU octets 
- * (excluding framing bits, but including FCS octets) but were otherwise 
- * well formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_ether_stats_oversize_pkts_high, 0x38, 0, 32);
 
 /* eth_oob_port_cntrs_ether_stats_oversize_pkts_low
- * The total number of packets received that were longer than MTU octets 
- * (excluding framing bits, but including FCS octets) but were otherwise 
- * well formed.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_ether_stats_oversize_pkts_low, 0x3c, 0, 32);
 
 /* eth_oob_port_cntrs_dot3stats_symbol_errors_high
- * he number of times the receiving media is non-idle (a carrier event) for a 
- * period of time equal to or greater than minFrameSize, and during which 
- * there was at least one occurrence of an event that causes the PHY to indi
- * cate "Receive Error".
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3stats_symbol_errors_high, 0x40, 0, 32);
 
 /* eth_oob_port_cntrs_dot3stats_symbol_errors_low
- * he number of times the receiving media is non-idle (a carrier event) for a 
- * period of time equal to or greater than minFrameSize, and during which 
- * there was at least one occurrence of an event that causes the PHY to indi
- * cate "Receive Error".
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3stats_symbol_errors_low, 0x44, 0, 32);
 
 /* eth_oob_port_cntrs_dot3in_pause_frames_high
- * A count of MAC Control frames received with an opcode indicating the 
- * PAUSE operation.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3in_pause_frames_high, 0x48, 0, 32);
 
 /* eth_oob_port_cntrs_dot3in_pause_frames_low
- * A count of MAC Control frames received with an opcode indicating the 
- * PAUSE operation.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3in_pause_frames_low, 0x4c, 0, 32);
 
 /* eth_oob_port_cntrs_dot3control_in_unknown_opcodes_high
- * A count of MAC Control frames received that contain an opcode that is 
- * not supported.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3control_in_unknown_opcodes_high, 0x50, 0, 32);
 
 /* eth_oob_port_cntrs_dot3control_in_unknown_opcodes_low
- * A count of MAC Control frames received that contain an opcode that is 
- * not supported.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3control_in_unknown_opcodes_low, 0x54, 0, 32);
 
 /* eth_oob_port_cntrs_if_out_ucast_pkts_high
- * The total number of packets that higher-level protocols requested be 
- * transmitted and were not addressed to a multicast or broadcast MAC 
- * address, including those that were discarded or not sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_out_ucast_pkts_high, 0x58, 0, 32);
 
 /* eth_oob_port_cntrs_if_out_ucast_pkts_low
- * The total number of packets that higher-level protocols requested be 
- * transmitted and were not addressed to a multicast or broadcast MAC 
- * address, including those that were discarded or not sent.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_out_ucast_pkts_low, 0x5c, 0, 32);
 
 /* eth_oob_port_cntrs_if_out_octets_high
- * The total number of octets transmitted out of the interface, including 
- * framing characters.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_out_octets_high, 0x60, 0, 32);
 
 /* eth_oob_port_cntrs_if_out_octets_low
- * The total number of octets transmitted out of the interface, including 
- * framing characters.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_out_octets_low, 0x64, 0, 32);
 
 /* eth_oob_port_cntrs_dot3out_pause_frames_high
- * A count of MAC Control frames transmitted with an opcode indicating 
- * the PAUSE operation.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3out_pause_frames_high, 0x68, 0, 32);
 
 /* eth_oob_port_cntrs_dot3out_pause_frames_low
- * A count of MAC Control frames transmitted with an opcode indicating 
- * the PAUSE operation.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_dot3out_pause_frames_low, 0x6c, 0, 32);
 
 /* eth_oob_port_cntrs_if_out_errors_high
- * The number of outbound packets that could not be transmitted because of 
- * errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_out_errors_high, 0x70, 0, 32);
 
 /* eth_oob_port_cntrs_if_out_errors_low
- * The number of outbound packets that could not be transmitted because of 
- * errors.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_if_out_errors_low, 0x74, 0, 32);
 
 /* eth_oob_port_cntrs_phy_time_since_last_clear_high
- * The time passed since the last 
- * phy
- *  counters clear event in msec.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_phy_time_since_last_clear_high, 0x78, 0, 32);
 
 /* eth_oob_port_cntrs_phy_time_since_last_clear_low
- * The time passed since the last 
- * phy
- *  counters clear event in msec.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_phy_time_since_last_clear_low, 0x7c, 0, 32);
 
 /* eth_oob_port_cntrs_phy_received_bits_high
- * This counter provides information on the total amount of traffic (bits) 
- * received.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_phy_received_bits_high, 0x80, 0, 32);
 
 /* eth_oob_port_cntrs_phy_received_bits_low
- * This counter provides information on the total amount of traffic (bits) 
- * received.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_phy_received_bits_low, 0x84, 0, 32);
 
 /* eth_oob_port_cntrs_phy_symbol_errors_high
- * This counter provides information on error bits.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_phy_symbol_errors_high, 0x88, 0, 32);
 
 /* eth_oob_port_cntrs_phy_symbol_errors_low
- * This counter provides information on error bits.
  * Access: RO
  */
 MLXSW_ITEM32(reg, ppcnt, eth_oob_port_cntrs_phy_symbol_errors_low, 0x8c, 0, 32);
+
+/* IB_portcntrs_attribute_grp_data_symbol_error_counter
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_symbol_error_counter, 0x8, 0, 16);
+
+/* IB_portcntrs_attribute_grp_data_link_error_recovery_counter
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_link_error_recovery_counter, 0xa, 0, 8);
+
+/* IB_portcntrs_attribute_grp_data_link_downed_counter
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_link_downed_counter, 0xb, 0, 8);
+
+/* IB_portcntrs_attribute_grp_data_port_rcv_errors
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_errors, 0xc, 0, 16);
+
+/* IB_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors, 0xe, 0, 16);
+
+/* IB_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors, 0x10, 0, 16);
+
+/* IB_portcntrs_attribute_grp_data_port_xmit_discards
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_discards, 0x12, 0, 16);
+
+/* IB_portcntrs_attribute_grp_data_port_xmit_constraint_errors
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_constraint_errors, 0x14, 0, 8);
+
+/* IB_portcntrs_attribute_grp_data_port_rcv_constraint_errors
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_constraint_errors, 0x15, 0, 8);
+
+/* IB_portcntrs_attribute_grp_data_local_link_integrity_errors
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_local_link_integrity_errors, 0x17, 4, 4);
+
+/* IB_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, IB_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors, 0x17, 0, 4);
+
+/* IB_portcntrs_attribute_grp_data_vl_15_dropped
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, ppcnt, IB_portcntrs_attribute_grp_data_vl_15_dropped, 0x1a, 0, 16);
+
+/* IB_portcntrs_attribute_grp_data_port_xmit_data
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_data, 0x1c, 0, 32);
+
+/* IB_portcntrs_attribute_grp_data_port_rcv_data
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_data, 0x20, 0, 32);
+
+/* IB_portcntrs_attribute_grp_data_port_xmit_pkts
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_pkts, 0x24, 0, 32);
+
+/* IB_portcntrs_attribute_grp_data_port_rcv_pkts
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_rcv_pkts, 0x28, 0, 32);
+
+/* IB_portcntrs_attribute_grp_data_port_xmit_wait
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_portcntrs_attribute_grp_data_port_xmit_wait, 0x2c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_symbol_error_counter_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_symbol_error_counter_high, 0x8, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_symbol_error_counter_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_symbol_error_counter_low, 0xc, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_link_error_recovery_counter_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_link_error_recovery_counter_high, 0x10, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_link_error_recovery_counter_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_link_error_recovery_counter_low, 0x14, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_link_downed_counter_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_link_downed_counter_high, 0x18, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_link_downed_counter_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_link_downed_counter_low, 0x1c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_errors_high, 0x20, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_errors_low, 0x24, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_high, 0x28, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_remote_physical_errors_low, 0x2c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_high, 0x30, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_switch_relay_errors_low, 0x34, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_discards_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_discards_high, 0x38, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_discards_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_discards_low, 0x3c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_constraint_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_constraint_errors_high, 0x40, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_constraint_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_constraint_errors_low, 0x44, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_constraint_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_constraint_errors_high, 0x48, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_constraint_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_constraint_errors_low, 0x4c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_local_link_integrity_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_local_link_integrity_errors_high, 0x50, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_local_link_integrity_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_local_link_integrity_errors_low, 0x54, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_high, 0x58, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_excessive_buffer_overrun_errors_low, 0x5c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_vl_15_dropped_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_vl_15_dropped_high, 0x60, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_vl_15_dropped_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_vl_15_dropped_low, 0x64, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_data_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_data_high, 0x68, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_data_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_data_low, 0x6c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_data_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_data_high, 0x70, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_data_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_data_low, 0x74, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_pkts_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_pkts_high, 0x78, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_pkts_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_pkts_low, 0x7c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_pkts_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_pkts_high, 0x80, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_rcv_pkts_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_rcv_pkts_low, 0x84, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_wait_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_wait_high, 0x88, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_xmit_wait_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_xmit_wait_low, 0x8c, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_effective_rcv_pkts_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_effective_rcv_pkts_high, 0x90, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_effective_rcv_pkts_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_effective_rcv_pkts_low, 0x94, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_effective_rcv_data_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_effective_rcv_data_high, 0x98, 0, 32);
+
+/* IB_long_portcntrs_attribute_grp_data_port_effective_rcv_data_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, IB_long_portcntrs_attribute_grp_data_port_effective_rcv_data_low, 0x9c, 0, 32);
+
+/* ppcnt_plr_counters_plr_rcv_codes_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_codes_high, 0x8, 0, 32);
+
+/* ppcnt_plr_counters_plr_rcv_codes_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_codes_low, 0xc, 0, 32);
+
+/* ppcnt_plr_counters_plr_rcv_code_err_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_code_err_high, 0x10, 0, 32);
+
+/* ppcnt_plr_counters_plr_rcv_code_err_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_code_err_low, 0x14, 0, 32);
+
+/* ppcnt_plr_counters_plr_rcv_uncorrectable_code_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_uncorrectable_code_high, 0x18, 0, 32);
+
+/* ppcnt_plr_counters_plr_rcv_uncorrectable_code_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_rcv_uncorrectable_code_low, 0x1c, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_codes_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_codes_high, 0x20, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_codes_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_codes_low, 0x24, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_retry_codes_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_codes_high, 0x28, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_retry_codes_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_codes_low, 0x2c, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_retry_events_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_events_high, 0x30, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_retry_events_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_events_low, 0x34, 0, 32);
+
+/* ppcnt_plr_counters_plr_sync_events_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_sync_events_high, 0x38, 0, 32);
+
+/* ppcnt_plr_counters_plr_sync_events_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_sync_events_low, 0x3c, 0, 32);
+
+/* ppcnt_plr_counters_hi_retransmission_rate_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_hi_retransmission_rate_high, 0x40, 0, 32);
+
+/* ppcnt_plr_counters_hi_retransmission_rate_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_hi_retransmission_rate_low, 0x44, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_retry_codes_within_t_sec_max_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_codes_within_t_sec_max_high, 0x48, 0, 32);
+
+/* ppcnt_plr_counters_plr_xmit_retry_codes_within_t_sec_max_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, ppcnt_plr_counters_plr_xmit_retry_codes_within_t_sec_max_low, 0x4c, 0, 32);
+
+/* ppcnt_plr_counters_pre_plr_ber_magnitude
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, ppcnt_plr_counters_pre_plr_ber_magnitude, 0x52, 0, 8);
+
+/* ppcnt_plr_counters_pre_plr_ber_coef
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, ppcnt, ppcnt_plr_counters_pre_plr_ber_coef, 0x53, 0, 4);
+
+/* ppcnt_rs_fec_histograms_counters_hi
+ * Access: 
+ */
+MLXSW_ITEM32_INDEXED(reg, ppcnt, ppcnt_rs_fec_histograms_counters_hi, MLXSW_PPCNT_HIST_BASE_LEN, 0, 32, MLXSW_PPCNT_HIST_REC_LEN, 0, false);
+
+/* ppcnt_rs_fec_histograms_counters_lo
+ * Access: 
+ */
+MLXSW_ITEM32_INDEXED(reg, ppcnt, ppcnt_rs_fec_histograms_counters_lo, MLXSW_PPCNT_HIST_BASE_LEN, 0, 32, MLXSW_PPCNT_HIST_REC_LEN, 4, false);
+
+/* usr_xsr_physical_layer_time_since_last_clear_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_time_since_last_clear_high, 0x8, 0, 32);
+
+/* usr_xsr_physical_layer_time_since_last_clear_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_time_since_last_clear_low, 0xc, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_high, 0x10, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane0_low, 0x14, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_high, 0x18, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane1_low, 0x1c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_high, 0x20, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane2_low, 0x24, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_high, 0x28, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane3_low, 0x2c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_high, 0x30, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane4_low, 0x34, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_high, 0x38, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane5_low, 0x3c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_high, 0x40, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane6_low, 0x44, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_high, 0x48, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_corrected_blocks_lane7_low, 0x4c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_high, 0x50, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane0_low, 0x54, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_high, 0x58, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane1_low, 0x5c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_high, 0x60, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane2_low, 0x64, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_high, 0x68, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane3_low, 0x6c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_high, 0x70, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane4_low, 0x74, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_high, 0x78, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane5_low, 0x7c, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_high, 0x80, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane6_low, 0x84, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_high
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_high, 0x88, 0, 32);
+
+/* usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_low
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_fc_fec_uncorrectable_blocks_lane7_low, 0x8c, 0, 32);
+
+/* usr_xsr_physical_layer_link_down_events
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, ppcnt, usr_xsr_physical_layer_link_down_events, 0x90, 0, 32);
 
 /* tidem
  * -----
  *
  */
 /* underlay_ecn
- * ECN field of the IP header in the underlay network
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tidem, underlay_ecn, 0x4, 0, 2);
 
 /* overlay_ecn
- * ECN field of the IP header in the overlay network
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tidem, overlay_ecn, 0x5, 0, 2);
 
 /* eip_ecn
- * Egress IP ECN
- * ECN field of the IP header of the packet which goes out from 
- * the decapsulation
  * Access: RW
  */
 MLXSW_ITEM8(reg, tidem, eip_ecn, 0x6, 0, 2);
 
 /* trap_en
- * Trap enable:
- * 0: no trap due to decap ecn
- * 1: trap enable with 
- * trap_id
- * .
- *  
- * HPKT can control the trap action. 
- * See 
- * Section 2.15.3, "HPKT - Host PacKet Trap," on page 396
  * Access: RW
  */
 MLXSW_ITEM8(reg, tidem, trap_en, 0x8, 4, 4);
 
 /* trap_id
- * Trap ID
- * Trap-ID is DECAP_ECN0 or DECAP_ECN1
- * Reserved when 
- * trap_en
- *  is '0'
  * Access: RW
  */
 MLXSW_ITEM16(reg, tidem, trap_id, 0xa, 0, 9);
@@ -6024,99 +3671,56 @@ MLXSW_ITEM16(reg, tidem, trap_id, 0xa, 0, 9);
  *
  */
 /* clear
- * Clear counters
  * Access: OP
  */
 MLXSW_ITEM8(reg, pecner, clear, 0x0, 7, 1);
 
 /* erp_initial_high
- * ERP or C-TCAM is initial active after erpt_vector (phase 1)
- * Note: if n (erps + ctcam) are enabled then the counter may 
- * increase by 0..n for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_initial_high, 0x10, 0, 32);
 
 /* erp_initial_low
- * ERP or C-TCAM is initial active after erpt_vector (phase 1)
- * Note: if n (erps + ctcam) are enabled then the counter may 
- * increase by 0..n for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_initial_low, 0x14, 0, 32);
 
 /* erp_post_bf_high
- * ERP active after bloom filter (phase 2)
- * Doesn't increment as C-TCAM
- * Note: if n erps are enabled then the counter may increase by 0..n 
- * for a given region lookup
- * Note: when PERCR.
- * bf_bypass
- * =1 then this counter does not 
- * count.
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_post_bf_high, 0x18, 0, 32);
 
 /* erp_post_bf_low
- * ERP active after bloom filter (phase 2)
- * Doesn't increment as C-TCAM
- * Note: if n erps are enabled then the counter may increase by 0..n 
- * for a given region lookup
- * Note: when PERCR.
- * bf_bypass
- * =1 then this counter does not 
- * count.
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_post_bf_low, 0x1c, 0, 32);
 
 /* erp_lookup_high
- * ERP or CTCAM had a lookup - active after bloom filter and 
- * pruning (phase 3)
- * Note: if n erps + ctcam are enabled then the counter may 
- * increase by 0..n for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_lookup_high, 0x20, 0, 32);
 
 /* erp_lookup_low
- * ERP or CTCAM had a lookup - active after bloom filter and 
- * pruning (phase 3)
- * Note: if n erps + ctcam are enabled then the counter may 
- * increase by 0..n for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_lookup_low, 0x24, 0, 32);
 
 /* erp_any_match_high
- * ERP or CTCAM had a match (not yet a final match - later prior
- * ity will choose the final)
- * Note: if n erps + ctcam are enabled then the counter may 
- * increase by 0..n for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_any_match_high, 0x28, 0, 32);
 
 /* erp_any_match_low
- * ERP or CTCAM had a match (not yet a final match - later prior
- * ity will choose the final)
- * Note: if n erps + ctcam are enabled then the counter may 
- * increase by 0..n for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_any_match_low, 0x2c, 0, 32);
 
 /* erp_final_match_high
- * ERP or CTCAM had a final match
- * Note: the counter may increase by 0..1 for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_final_match_high, 0x30, 0, 32);
 
 /* erp_final_match_low
- * ERP or CTCAM had a final match
- * Note: the counter may increase by 0..1 for a given region lookup
  * Access: RO
  */
 MLXSW_ITEM32(reg, pecner, erp_final_match_low, 0x34, 0, 32);
@@ -6126,83 +3730,31 @@ MLXSW_ITEM32(reg, pecner, erp_final_match_low, 0x34, 0, 32);
  *
  */
 /* kvh_mark_clear
- * KVH mark and clear
- * 0: Nop 
- * 1: Mark all KVH entries (e.g. before FW-ISSU)
- * 2: Clear (delete) all marked KVH entries (e.g. after FW-ISSU)
- * Spectrum-1: mark/delete only KVH hash entries
- * Spectrum-2: mark/delete KVH hash and KVH linear entries
- * Note: dump sessions must not be ongoing between mark and 
- * clear. e.g. SFN, SFDD, RAUHTD, PEFAAD, MPNHLFED, 
- * TNIPSN
  * Access: OP
  */
 MLXSW_ITEM8(reg, iicr, kvh_mark_clear, 0xb, 0, 4);
 
 /* clear_pe_regions_value
- * clear (deallocate) policy engine TCAM regions if: 
- * (1) region[bit] = 
- * clear_pe_regions_value
- * [bit] 
- * (2) and 
- * clear_pe_regions_mask
- * [bit]=1
- * Note: a used TCAM region must not be cleared (if traffic is pass
- * ing through this region). An ACL may point to this unused 
- * TCAM region.
- * If mask=0 then this is a Nop
  * Access: OP
  */
 MLXSW_ITEM16(reg, iicr, clear_pe_regions_value, 0x12, 0, 16);
 
 /* clear_pe_regions_mask
- * clear (deallocate) policy engine TCAM regions if: 
- * (1) region[bit] = 
- * clear_pe_regions_value
- * [bit] 
- * (2) and 
- * clear_pe_regions_mask
- * [bit]=1
- * Note: a used TCAM region must not be cleared (if traffic is pass
- * ing through this region). An ACL may point to this unused 
- * TCAM region.
- * If mask=0 then this is a Nop
  * Access: OP
  */
 MLXSW_ITEM16(reg, iicr, clear_pe_regions_mask, 0x16, 0, 16);
 
 /* clear_rifs_value
- * clear (deallocate) router interface (RIF) if: 
- * (1) rif[bit] = 
- * clear_rifs_value
- * [bit] 
- * (2) and 
- * clear_rifs_mask
- * [bit]=1
- * Note: a used RIF must not be cleared (if traffic is passing 
- * through this RIF).
- * If mask=0 then this is a Nop
  * Access: OP
  */
 MLXSW_ITEM16(reg, iicr, clear_rifs_value, 0x1a, 0, 16);
 
 /* clear_rifs_mask
- * clear (deallocate) router interface (RIF) if: 
- * (1) rif[bit] = 
- * clear_rifs_value
- * [bit] 
- * (2) and 
- * clear_rifs_mask
- * [bit]=1
- * Note: a used RIF must not be cleared (if traffic is passing 
- * through this RIF).
- * If mask=0 then this is a Nop
  * Access: OP
  */
 MLXSW_ITEM16(reg, iicr, clear_rifs_mask, 0x1e, 0, 16);
 
 /* traps_2_default
- * Set all trap_id's actions to default as after reset.
  * Access: OP
  */
 MLXSW_ITEM8(reg, iicr, traps_2_default, 0x23, 0, 1);
@@ -6212,168 +3764,76 @@ MLXSW_ITEM8(reg, iicr, traps_2_default, 0x23, 0, 1);
  *
  */
 /* region_id
- * Region identifier
- * Range 0 .. 
- * cap_max_regions
- * -1
- * Note: the register updates all duplicated regions
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, peapbm, region_id, 0x2, 0, 16);
 
 /* c_s
- * Clear or set:
- * 0: prune clear
- * 1: prune set
  * Access: WO
  */
 MLXSW_ITEM8(reg, peapbm, c_s, 0x10, 7, 1);
 
 /* pruning_ctcam_cs
- * Pruning C-TCAM clear or set. Clear or set defined by 
- * c_s
- * 0: don't modify prune_ctcam bit
- * 1: modify the prune_ctcam bit
  * Access: WO
  */
 MLXSW_ITEM8(reg, peapbm, pruning_ctcam_cs, 0x10, 4, 1);
 
 /* erp_id_mask
- * erp id mask, per bit:
- * 0: for both values of 
- * erp_id
- *  bit
- * 1: for value according to 
- * erp_id
- *  bit
- * Example: mask 1111 - update only 
- * erp_id
- * , mask 0000 - update all 
- * erps
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, peapbm, erp_id_mask, 0x12, 0, 4);
 
 /* erp_id
- * erp id
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, peapbm, erp_id, 0x13, 0, 4);
 
 /* pruning_vector_cs
- * Pruning vector clear or set. Modify option defined by 
- * c_s
- * Per bit:
- * 0: don't modify pruning_vector bit
- * 1: modify the pruning_vector bit
  * Access: WO
  */
 MLXSW_ITEM16(reg, peapbm, pruning_vector_cs, 0x16, 0, 16);
 
 /* priority_start
- * Update will be from 
- * priority_start
- *  (inclusive) to 
- * priority_end
- *  
- * (inclusive).
- * For Spectrum-2 range is 1.. 
- * cap_kvd_size
- * -1
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, peapbm, priority_start, 0x18, 0, 24);
 
 /* priority_end
- * Update will be from 
- * priority_start
- *  (inclusive) to 
- * priority_end
- *  
- * (inclusive).
- * For Spectrum-2 range is 1.. 
- * cap_kvd_size
- * -1
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, peapbm, priority_end, 0x1c, 0, 24);
 
 /* key
- * ACL Key as described in 
- * Section 10.6.2, "Flex2 ACL Key Blocks 
- * Layout," on page 1428
- * Note: for regions which have 12 Key Blocks the 6 lsb Key Blocks 
- * are valid and the 6 msb Key Blocks are not used for this function
  * Access: INDEX
  */
 MLXSW_ITEM32_INDEXED(reg, peapbm, key, 0x20, 0, 32, 4, 0, false);
 
 /* key_mask
- * Mask
- * Mask entries which match the key with this mask. Per bit:
- * 0: ignore bit 
- * key
- *  (always match)
- * 1: compare bit in 
- * key
- * Note: for regions which have 12 Key Blocks the 6 lsb Key Blocks 
- * are valid and the 6 msb Key Blocks are not used for this function
  * Access: INDEX
  */
 MLXSW_ITEM32_INDEXED(reg, peapbm, key_mask, 0x80, 0, 32, 4, 0, false);
 
 /* large_entry_key_id
- * Large entry key ID
- * A key for 12 Key block rules
- * Reserved when the region has 2, 4 or 6 key blocks
- * Range 0 .. 
- * cap_max_pe_large_key_id
- * - 1
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, peapbm, large_entry_key_id, 0xe0, 0, 24);
 
 /* large_entry_key_id_mask
- * Large entry key ID mask
- * 0: ignore bit 
- * large_entry_key_id
- *  (always match)
- * 1: compare bit in 
- * large_entry_key_id
- * Reserved when the region has 2, 4 or 6 key blocks
- * Range 0 .. 
- * cap_max_pe_large_key_id
- * - 1
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, peapbm, large_entry_key_id_mask, 0xe4, 0, 24);
 
 /* delta_start
- * Start point of delta value and mask
- * Units of bits
- * Reserved when 
- * delta_mask
- *  = 0
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, peapbm, delta_start, 0xf2, 0, 10);
 
 /* delta_mask
- * Delta mask
- * Per bit:
- * 0: ignore relevant bit from offset 
- * delta_start
- * 1: compare relevant bit from offset 
- * delta_start
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, peapbm, delta_mask, 0xf5, 0, 8);
 
 /* delta_value
- * Delta value
- * Relevant only for large keys when delta_start >= 27*8bits
- * For all other cases the delta_value is given in the 
- * key
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, peapbm, delta_value, 0xf7, 0, 8);
@@ -6383,17 +3843,11 @@ MLXSW_ITEM8(reg, peapbm, delta_value, 0xf7, 0, 8);
  *
  */
 /* overlay_ecn
- * ECN of the IP header in the overlay network
- * Note: if overlay packet did not have ECN then the overlay ECN 
- * of the packet is considered as 0x0
- * For Spectrum familiy only, MPLS packets use overlay_ecn of 00
- * For Spectrum-2, MPLS packets use the packet overlay_ecn
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tneem, overlay_ecn, 0x4, 0, 2);
 
 /* underlay_ecn
- * ECN of the IP header in the underlay network
  * Access: RW
  */
 MLXSW_ITEM8(reg, tneem, underlay_ecn, 0x5, 0, 2);
@@ -6403,27 +3857,16 @@ MLXSW_ITEM8(reg, tneem, underlay_ecn, 0x5, 0, 2);
  *
  */
 /* profile_id
- * Profile ID
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sffp, profile_id, 0x1, 0, 2);
 
 /* type
- * 0: BROADCAST
- * 1: UNKNOWN_UNICAST
- * 2: UNREGISTERED_MULTICAST_IPV4
- * 3: UNREGISTERED_MULTICAST_IPV6
- * 4: RESERVED
- * 5: UNREGISTERED_MULTICAST_NON_IP
- * 6: IPV4_LINK_LOCAL - (Addresses 224.0.0.X)
- * 7: IPV6_ALL_HOSTS - (Address FF02::1)
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sffp, type, 0x3, 0, 4);
 
 /* flood_offset
- * Flood offset
- * Default 0
  * Access: RW
  */
 MLXSW_ITEM8(reg, sffp, flood_offset, 0x7, 0, 3);
@@ -6433,9 +3876,6 @@ MLXSW_ITEM8(reg, sffp, flood_offset, 0x7, 0, 3);
  *
  */
 /* attr_id_en
- * Attribute ID enable:
- * bit0: 0x0019: LinearForwardingTable
- * bit1: 0x001B: MulticastForwardingTable
  * Access: RW
  */
 MLXSW_ITEM32(reg, ibfmrc, attr_id_en, 0x0, 0, 32);
@@ -6445,34 +3885,16 @@ MLXSW_ITEM32(reg, ibfmrc, attr_id_en, 0x0, 0, 32);
  *
  */
 /* tunnel_port
- * Tunnel port:
- * 0: NVE
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tnifr, tunnel_port, 0x3, 0, 4);
 
 /* port_filter
- * Port filter bitmask
- * 0: Do not filter (default value for all 
- * local_port
- * )
- * 1: Filter - Packets coming from 
- * port_filter<i>
- *  will not be trans
- * mitted to port NVE
- * All LAG ports must share the same configuration.
  * Access: RW
  */
 MLXSW_ITEM32_INDEXED(reg, tnifr, port_filter, 0x20, 0, 32, 4, 0, false);
 
 /* port_filter_update_en
- * Port filter update enable bitmask
- * 0: Mask disable - do not modify relevant 
- * port_filter
- *  bit
- * 1: Mask enable - modify relevant 
- * port_filter
- *  bit
  * Access: OP
  */
 MLXSW_ITEM32_INDEXED(reg, tnifr, port_filter_update_en, 0x40, 0, 32, 4, 0, false);
@@ -6482,81 +3904,41 @@ MLXSW_ITEM32_INDEXED(reg, tnifr, port_filter_update_en, 0x40, 0, 32, 4, 0, false
  *
  */
 /* busy
- * Busy:
- * 0: READY - can accept a new priority shift command
- * 1: BUSY - cannot accept a new priority shift command
- * Regardless of region
  * Access: RO
  */
 MLXSW_ITEM8(reg, peaps, busy, 0x0, 7, 1);
 
 /* ovf
- * Overflow:
- * 0: previous session ended okay
- * 1: previous session had an overflow 
- * Overflow example: value of 90 was shifted by -100 to -10
- * This field is cleared at every read or write access
- * Regardless of region
  * Access: RO
  */
 MLXSW_ITEM8(reg, peaps, ovf, 0x0, 6, 1);
 
 /* ct_offset
- * Offset within the C-TCAM region to start the priority shift
- * Reserved when 
- * ct_size
- *  = 0
  * Access: WO
  */
 MLXSW_ITEM16(reg, peaps, ct_offset, 0xa, 0, 16);
 
 /* ct_size
- * The number of rules in the C-TCAM to do the priority shift, starting 
- * from 
- * ct_offset
  * Access: WO
  */
 MLXSW_ITEM16(reg, peaps, ct_size, 0xe, 0, 16);
 
 /* tcam_region_info
- * Opaque object that represents the TCAM region
- * See 
- * Section 10.10.10, "PTAR - Policy-Engine TCAM Allocation 
- * Register," on page 1621
- * .
- * This is the base region. All duplicated region_id's will be shifted as 
- * well. See 
- * Section 10.10.14, "PERD - Policy-Engine Region Dupli
- * cation Register," on page 1632
- * See 
- * Section 1724, "tcam_re
- * gion_info Layout," on page 1737
  * Access: WO
  */
 MLXSW_ITEM_BUF(reg, peaps, tcam_region_info, 0x10, 16);
 
 /* priority_start
- * Initial start priority
- * For Spectrum-2 range is 1.. 
- * cap_kvd_size
- * -1
  * Access: WO
  */
 MLXSW_ITEM32(reg, peaps, priority_start, 0x20, 0, 24);
 
 /* priority_end
- * Initial end priority
- * Must be equal or greater than 
- * priority_start
- * For Spectrum-2 range is 1.. 
- * cap_kvd_size
- * -1
  * Access: WO
  */
 MLXSW_ITEM32(reg, peaps, priority_end, 0x24, 0, 24);
 
 /* priority_inc
- * 2's complement value for priority increase or decrease
  * Access: WO
  */
 MLXSW_ITEM32(reg, peaps, priority_inc, 0x30, 0, 24);
@@ -6566,22 +3948,11 @@ MLXSW_ITEM32(reg, peaps, priority_inc, 0x30, 0, 24);
  *
  */
 /* entry_type
- * Entry type
- * For Spectrum-2 hash entries see 
- * Appendix A.5.1.1, "KVD Central 
- * Database Hash-based" (page 2188)
- * For Spectrum-2 linear entries see 
- * Appendix A.5.1.2, "KVD Cen
- * tral Database Linear Entries" (page 2190)
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, iddd, entry_type, 0x3, 0, 8);
 
 /* duplication
- * Duplication
- * Valid values:
- * 1, 2, 4, 8, 16
- * Default is 1
  * Access: RW
  */
 MLXSW_ITEM8(reg, iddd, duplication, 0x7, 0, 5);
@@ -6591,46 +3962,26 @@ MLXSW_ITEM8(reg, iddd, duplication, 0x7, 0, 5);
  *
  */
 /* bg
- * Background delete:
- * 0: immediate delete operation (a.k.a. sync)
- * 1: background delete operation (a.k.a. async). SW must poll for 
- * IEDS.
- * ed_status
- * =0 before attempting new deletes
  * Access: OP
  */
 MLXSW_ITEM8(reg, iedr, bg, 0x0, 0, 1);
 
 /* num_rec
- * Number of records
- * Range 1..64
- * When 
- * bg
- * =1 the 
- * num_rec
- *  =1 and this field is reserved
  * Access: OP
  */
 MLXSW_ITEM8(reg, iedr, num_rec, 0x3, 0, 8);
 
 /* type
- * Resource type
- * For Spectrum-2, see 
- * Section A.5.1.2, "KVD Central Database Lin
- * ear Entries," on page 2190
  * Access: OP
  */
 MLXSW_ITEM8_INDEXED(reg, iedr, type, MLXSW_IEDR_RECORD_BASE_LEN, 0, 8, MLXSW_IEDR_RECORD_REC_LEN, 0, false);
 
 /* size
- * Size of entries do be deleted
- * The unit is 1 entry, regardless of entry type
  * Access: OP
  */
 MLXSW_ITEM16_INDEXED(reg, iedr, size, MLXSW_IEDR_RECORD_BASE_LEN + 2, 0, 11, MLXSW_IEDR_RECORD_REC_LEN, 0, false);
 
 /* index_start
- * Resource index start
  * Access: OP
  */
 MLXSW_ITEM32_INDEXED(reg, iedr, index_start, MLXSW_IEDR_RECORD_BASE_LEN, 0, 24, MLXSW_IEDR_RECORD_REC_LEN, 4, false);
@@ -6640,19 +3991,11 @@ MLXSW_ITEM32_INDEXED(reg, iedr, index_start, MLXSW_IEDR_RECORD_BASE_LEN, 0, 24, 
  *
  */
 /* edpr
- * Entry Delete Priority
- * When set FW will give higher priority for the current ongoing 
- * entry delete process. Can be set also while entry delete process is 
- * ongoing. Affects only current process. By default all process 
- * start as low prio
  * Access: OP
  */
 MLXSW_ITEM8(reg, ieds, edpr, 0x3, 0, 1);
 
 /* ed_status
- * Entry delete status:
- * 0: No entry delete process is ongoing
- * 1: Entry delete process is ongoing
  * Access: RO
  */
 MLXSW_ITEM8(reg, ieds, ed_status, 0x7, 0, 4);
@@ -6662,26 +4005,21 @@ MLXSW_ITEM8(reg, ieds, ed_status, 0x7, 0, 4);
  *
  */
 /* local_port
- * Local port number (receive port)
- * Supported for CPU port
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, tnqdr, local_port, 0x1, 0, 8);
 
 /* color
- * For encapsulation, the default values of packet Color
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqdr, color, 0x4, 0, 2);
 
 /* switch_prio
- * For encapsulation, the default values of Switch Priority
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqdr, switch_prio, 0x5, 0, 4);
 
 /* dscp
- * For encapsulation, the default DSCP
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqdr, dscp, 0x7, 0, 6);
@@ -6691,61 +4029,21 @@ MLXSW_ITEM8(reg, tnqdr, dscp, 0x7, 0, 6);
  *
  */
 /* single_base_mac
- * 0 - base_mac, 
- * local_port 
- * should be 0 and mac[
- * 6
- * :0]
- * and mac 
- * [5:0]
- *  
- * are 
- * reserved
- *  in Spectrum-2 and Spectrum-1 accor
- * dantly
- * .HW will set incremental 
- * 1 - single_mac - mac of the 
- * local_port
- * Reserved for 
- * SwitchX/-2.
  * Access: OP
  */
 MLXSW_ITEM8(reg, ppad, single_base_mac, 0x0, 4, 1);
 
 /* pnat
- * Port number access type. determines the way 
- * local_port
- *  
- * is 
- * interpreted:
- * 0: Local_port_number
- * 1: Label_port_number
- * 3: Out_of_band_or_PCI
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppad, pnat, 0x0, 2, 2);
 
 /* local_port
- * Port number
- * Reserved when 
- * single_base_mac
- *  = 0
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, ppad, local_port, 0x1, 0, 8);
 
 /* mac
- * If 
- * single_base_mac
- *  = 0 - base MAC address, 
- * For Spectrum 
- * mac[
- * 5
- * :0] is reserved.
- * For Spectrum-2 mac[6:0] is reserved.
- * If 
- * single_base_mac
- *  = 1 - the per port MAC address
  * Access: RW
  */
 MLXSW_ITEM_BUF(reg, ppad, mac, 0x2, 6);
@@ -6755,36 +4053,26 @@ MLXSW_ITEM_BUF(reg, ppad, mac, 0x2, 6);
  *
  */
 /* bank_id
- * Bank ID
  * Access: RO
  */
 MLXSW_ITEM8(reg, mafti, bank_id, 0x1, 0, 3);
 
 /* num_rec
- * Number of records
- * Range 1..64
  * Access: RO
  */
 MLXSW_ITEM8(reg, mafti, num_rec, 0x3, 0, 8);
 
 /* counter_index
- * Counter Index for flow counters.
- * For Spectrum-2 see 
- * Section 4.2, "Flow Counters," on page 603
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, mafti, counter_index, MLXSW_MAFTI_RECORD_BASE_LEN, 0, 24, MLXSW_MAFTI_RECORD_REC_LEN, 0, false);
 
 /* bytes_inc
- * Bytes to increment to bytes counter
- * Unit of 512B
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, mafti, bytes_inc, MLXSW_MAFTI_RECORD_BASE_LEN, 0, 32, MLXSW_MAFTI_RECORD_REC_LEN, 4, false);
 
 /* packets_inc
- * Packets to increment to packets counter
- * Unit is 4 packets
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, mafti, packets_inc, MLXSW_MAFTI_RECORD_BASE_LEN, 0, 32, MLXSW_MAFTI_RECORD_REC_LEN, 8, false);
@@ -6794,125 +4082,46 @@ MLXSW_ITEM32_INDEXED(reg, mafti, packets_inc, MLXSW_MAFTI_RECORD_BASE_LEN, 0, 32
  *
  */
 /* enc_set_dscp
- * For encapsulation: how to set DSCP field:
- * 0: Copy the DSCP from the overlay (inner) IP header to the 
- * underlay (outer) IP header. If there is no IP header, use 
- * TNQDR.
- * dscp
- * 1: Set the DSCP field as the TNQDR.
- * dscp
- * The 
- * dscp
- *  field is configured in TNQDR register. See 
- * Section 15.12.8, "
- * TNQDR - Tunneling NVE QoS Default Regis
- * ter
- * ," on page 2073
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, enc_set_dscp, 0x4, 4, 1);
 
 /* enc_set_sp
- * For encapsulation: how to set Switch Priority and packet Color:
- * 0: Preserve Switch Priority and packet Color
- * 1: Set new Switch Priority and packet Color as configured by 
- * TNQDR.
- * See 
- * Section 15.12.8, "
- * TNQDR - Tunneling NVE QoS Default 
- * Register
- * ," on page 2073
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, enc_set_sp, 0x4, 0, 1);
 
 /* enc_dscp_rw
- * For encapsulation: how to handle the 
- * dscp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * dscp_rewrite_en
- * 2: Clear the 
- * dscp_rewrite_en
- * 3: Set the 
- * dscp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, enc_dscp_rw, 0x7, 2, 2);
 
 /* enc_pcp_rw
- * For encapsulation: how to handle the 
- * pcp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * pcp_rewrite_en
- * 2: Clear the 
- * pcp_rewrite_en
- * 3: Set the 
- * pcp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, enc_pcp_rw, 0x7, 0, 2);
 
 /* dec_set_dscp
- * For decapsulation: how to set the overlay DSCP field, if exists, 
- * while stripping off the underlay headers:
- * 0: Preserve inner DSCP
- * 1: Copy the DSCP from the underlay IP header
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, dec_set_dscp, 0x8, 4, 1);
 
 /* dec_set_sp
- * For decapsulation: how to set Switch Priority and packet Color:
- * 0: Preserve Switch Priority
- * 1: Set a new Switch Priority from overlay DSCP as configured 
- * by RDPM (of the overlay packet, even if not routed).
- * See 
- * Section 13.13.20, "
- * RDPM - Router DSCP to Priority Map
- * ping Register
- * ," on page 1920
- * .
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, dec_set_sp, 0x8, 0, 1);
 
 /* dec_set_pcp
- * For decapsulation: how to set the overlay PCP,DEI fields:
- * 0: Preserve/Set inner PCP,DEI when push. When untagged push 
- * value of 0 for PCP,DEI 
- * 1: Copy the PCP,DEI from the underlay L2 header (default)
- * Note: Spc-1 supports only '1' Copy
- * Reserved when Spectrum-1
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, dec_set_pcp, 0x9, 4, 1);
 
 /* dec_dscp_rw
- * For decapsulation: how to handle the 
- * dscp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * dscp_rewrite_en
- * 2: Clear the 
- * dscp_rewrite_en
- * 3: Set the 
- * dscp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, dec_dscp_rw, 0xb, 2, 2);
 
 /* dec_pcp_rw
- * For decapsulation: how to handle the 
- * pcp_rewrite_en
- * :
- * 0: Preserve the value of the 
- * pcp_rewrite_en
- * 2: Clear the 
- * pcp_rewrite_en
- * 3: Set the 
- * pcp_rewrite_en
  * Access: RW
  */
 MLXSW_ITEM8(reg, tnqcr, dec_pcp_rw, 0xb, 0, 2);
@@ -6922,56 +4131,31 @@ MLXSW_ITEM8(reg, tnqcr, dec_pcp_rw, 0xb, 0, 2);
  *
  */
 /* swid
- * Switch Partition ID
- * Reserved when 
- * mngr_type
- *  = LNM
- * Reserved when Ethernet switches
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mpagr, swid, 0x0, 0, 8);
 
 /* mngr_type
- * Manager Type
- * 0: HYPERVISOR - config all ports
- * 1: LNM - local network manager - config all ports of the SWID
- * Reserved when Ethernet switches
  * Access: OP
  */
 MLXSW_ITEM8(reg, mpagr, mngr_type, 0x2, 0, 4);
 
 /* trigger
- * Mirror trigger 
- * See 
- * Table 497, "Mirror triggers," on page 611
- * Reserved when the mirror binding is not Global
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mpagr, trigger, 0x3, 0, 4);
 
 /* enable
- * Enable mirroring 
- * By default, port mirroring is disabled for all ports.
- * Reserved when Quantum and Spectrum-2.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mpagr, enable, 0x4, 7, 1);
 
 /* pa_id
- * Port analyzer ID
  * Access: RW
  */
 MLXSW_ITEM8(reg, mpagr, pa_id, 0x7, 0, 4);
 
 /* probability_rate
- * Sampling rate = 1 out of 
- * rate
- *  packets 
- * Valid values are: 1 to 3.5*10^9
- * Value of 1 means "sample all"
- * Default 1
- * Note: high values are round by HW to: 10^9 * {4.3, 2.15, 1.43, 
- * 1.08, 0.86, 0.72, 0.61, 0.54}.
  * Access: RW
  */
 MLXSW_ITEM32(reg, mpagr, probability_rate, 0x8, 0, 32);
@@ -6981,164 +4165,56 @@ MLXSW_ITEM32(reg, mpagr, probability_rate, 0x8, 0, 32);
  *
  */
 /* clr
- * Clear:
- * 0: Read the data in the histogram agent
- * 1: Read and clear the data in the histogram agent
  * Access: OP
  */
 MLXSW_ITEM8(reg, sbhrr_v2, clr, 0x0, 7, 1);
 
 /* local_port
- * Local port number.
- * For Ingress: excludes CPU port
- * For Egress: includes CPU port
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sbhrr_v2, local_port, 0x1, 0, 8);
 
 /* pg_buff
- * PG buffer - Port PG (
- * dir
- * =ingress) / traffic class (
- * dir
- * =egress)
- * For PG buffer: range is 0..
- * cap_max_pg_buffers
- *  - 1
- * For traffic class: range is 0..
- * cap_max_tclass
- *  - 1
- * For traffic class to CPU port: range is 0..
- * cap_max_cpu_ingress_t
- * class
- * - 1
- * See 
- * Section 11.5, "Ethernet Switch Packet Priority and TClass 
- * Mapping," on page 1701
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sbhrr_v2, pg_buff, 0x2, 0, 6);
 
 /* dir
- * Direction
- * 0: Ingress port quota
- * 1: Egress port quota
- * Reserved when 
- * hist_type
- *  = Queue_Latency and this field is 
- * treated as '1' Egress port quota
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sbhrr_v2, dir, 0x3, 0, 2);
 
 /* hist_type
- * 0x1000: Queue_Depth_Traffic_Class
- * 0x1002: Queue_Latency
- * See 
- * Table 1132, "SBHBR - Histograms Hist-type for queue histo
- * grams," on page 1268
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, sbhrr_v2, hist_type, 0xa, 0, 16);
 
 /* min_sampled_high
- * min_sampled
- * Cleared when 
- * clr
- *  = 1, cleared to 0xffff_ffff_ffff_ffff
- * Units according to the units of the 
- * hist_type
- *  which is used for the 
- * hist_id
- * Reserved when 
- * hist_type
- *  = Queue_Depth_Traffic_Class
  * Access: RO
  */
 MLXSW_ITEM32(reg, sbhrr_v2, min_sampled_high, 0x10, 0, 32);
 
 /* min_sampled_low
- * min_sampled
- * Cleared when 
- * clr
- *  = 1, cleared to 0xffff_ffff_ffff_ffff
- * Units according to the units of the 
- * hist_type
- *  which is used for the 
- * hist_id
- * Reserved when 
- * hist_type
- *  = Queue_Depth_Traffic_Class
  * Access: RO
  */
 MLXSW_ITEM32(reg, sbhrr_v2, min_sampled_low, 0x14, 0, 32);
 
 /* max_sampled_high
- * max_sampled
- * Cleared when 
- * clr
- *  = 1, cleared to 0
- * Units according to the units of the 
- * hist_type
- *  which is used for the 
- * hist_id
- * Reserved when 
- * hist_type
- *  = Queue_Depth_Traffic_Class
  * Access: RO
  */
 MLXSW_ITEM32(reg, sbhrr_v2, max_sampled_high, 0x18, 0, 32);
 
 /* max_sampled_low
- * max_sampled
- * Cleared when 
- * clr
- *  = 1, cleared to 0
- * Units according to the units of the 
- * hist_type
- *  which is used for the 
- * hist_id
- * Reserved when 
- * hist_type
- *  = Queue_Depth_Traffic_Class
  * Access: RO
  */
 MLXSW_ITEM32(reg, sbhrr_v2, max_sampled_low, 0x1c, 0, 32);
 
-/* avg_sampled_high
- * Average sample
- * Average from last clear
- * When 
- * hist_type
- *  = Queue_Latency then units are 1nSec
- * Reserved when 
- * hist_type
- *  = Queue_Depth_Traffic_Class
- * Access: RO
- */
-MLXSW_ITEM32(reg, sbhrr_v2, avg_sampled_high, 0x20, 0, 32);
-
-/* avg_sampled_low
- * Average sample
- * Average from last clear
- * When 
- * hist_type
- *  = Queue_Latency then units are 1nSec
- * Reserved when 
- * hist_type
- *  = Queue_Depth_Traffic_Class
- * Access: RO
- */
-MLXSW_ITEM32(reg, sbhrr_v2, avg_sampled_low, 0x24, 0, 32);
-
 /* hi
- * 
  * Access: 
  */
 MLXSW_ITEM32_INDEXED(reg, sbhrr_v2, hi, MLXSW_SBHRR_V2_BIN_BASE_LEN, 0, 32, MLXSW_SBHRR_V2_BIN_REC_LEN, 0, false);
 
 /* lo
- * 
  * Access: 
  */
 MLXSW_ITEM32_INDEXED(reg, sbhrr_v2, lo, MLXSW_SBHRR_V2_BIN_BASE_LEN, 0, 32, MLXSW_SBHRR_V2_BIN_REC_LEN, 4, false);
@@ -7148,39 +4224,31 @@ MLXSW_ITEM32_INDEXED(reg, sbhrr_v2, lo, MLXSW_SBHRR_V2_BIN_BASE_LEN, 0, 32, MLXS
  *
  */
 /* local_port
- * Local port number.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pbsr, local_port, 0x1, 0, 8);
 
 /* buffer_type
- * Valid only for 8x port setting (see PMLP): 
- * 0x1 - Master buffer
- * 0x2 - Slave buffer
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pbsr, buffer_type, 0x3, 0, 2);
 
 /* clear_wm
- * Clear watermarks for all PGs
  * Access: OP
  */
 MLXSW_ITEM8(reg, pbsr, clear_wm, 0x8, 7, 1);
 
 /* used_shared_headroom_buffer
- * Number of currently used shared headroom buffer lines.
  * Access: RO
  */
 MLXSW_ITEM16(reg, pbsr, used_shared_headroom_buffer, 0xa, 0, 16);
 
 /* watermark
- * Watermark (max buffer usage since last clear)
  * Access: RO
  */
 MLXSW_ITEM16_INDEXED(reg, pbsr, watermark, MLXSW_PBSR_STAT_BUFFER_BASE_LEN + 2, 0, 16, MLXSW_PBSR_STAT_BUFFER_REC_LEN, 0, false);
 
 /* used_buffer
- * Number of used buffer lines.
  * Access: RO
  */
 MLXSW_ITEM16_INDEXED(reg, pbsr, used_buffer, MLXSW_PBSR_STAT_BUFFER_BASE_LEN + 2, 0, 16, MLXSW_PBSR_STAT_BUFFER_REC_LEN, 4, false);
@@ -7190,78 +4258,41 @@ MLXSW_ITEM16_INDEXED(reg, pbsr, used_buffer, MLXSW_PBSR_STAT_BUFFER_BASE_LEN + 2
  *
  */
 /* clr
- * Clear counters
  * Access: OP
  */
 MLXSW_ITEM8(reg, hmon, clr, 0x0, 7, 1);
 
 /* cprdq
- * Per RDQ:
- * 0: CLEAR_ALL: clear all counters of all RDQs
- * 1: CLEAR_PER_RDQ: clear counter of RQD 
- * crdq
- * Reserved when 
- * clr
- *  = 0
- * Reserved when Spectrum-1
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, hmon, cprdq, 0x0, 6, 1);
 
 /* crdq
- * Clear RDQ
- * Range 0.. 
- * cap_max_num_rdq
- *  - 1
- * Reserved when 
- * clr
- *  = 0
- * Reserved when 
- * cprdq
- *  = 0
- * Reserved when Spectrum-1
- * Note: all counters are read regardless of 
- * cprdq
- *  and 
- * crdq
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, hmon, crdq, 0x3, 0, 6);
 
 /* wqe_of_wrap
- * WQE overflow wrap around. The 
- * wqe_overflow
- *  had a wrap 
- * around
- * Reserved when Spectrum-2
  * Access: RO
  */
 MLXSW_ITEM8(reg, hmon, wqe_of_wrap, 0x4, 7, 1);
 
 /* wqe_overflow_high
- * WQE overflow for sum of all RDQs
- * Spectrum-1: 8bit rolling counter
- * Reserved when Spectrum-2
  * Access: RO
  */
 MLXSW_ITEM32(reg, hmon, wqe_overflow_high, 0x10, 0, 32);
 
 /* wqe_overflow_low
- * WQE overflow for sum of all RDQs
- * Spectrum-1: 8bit rolling counter
- * Reserved when Spectrum-2
  * Access: RO
  */
 MLXSW_ITEM32(reg, hmon, wqe_overflow_low, 0x14, 0, 32);
 
 /* hi
- * 
  * Access: 
  */
 MLXSW_ITEM32_INDEXED(reg, hmon, hi, MLXSW_HMON_WQE_OVERFLOW_RDQ_BASE_LEN, 0, 32, MLXSW_HMON_WQE_OVERFLOW_RDQ_REC_LEN, 0, false);
 
 /* lo
- * 
  * Access: 
  */
 MLXSW_ITEM32_INDEXED(reg, hmon, lo, MLXSW_HMON_WQE_OVERFLOW_RDQ_BASE_LEN, 0, 32, MLXSW_HMON_WQE_OVERFLOW_RDQ_REC_LEN, 4, false);
@@ -7271,34 +4302,21 @@ MLXSW_ITEM32_INDEXED(reg, hmon, lo, MLXSW_HMON_WQE_OVERFLOW_RDQ_BASE_LEN, 0, 32,
  *
  */
 /* device_type
- * Device type.
- * 0: No devices on system of that type.
- * 1: Vega gearbox dice
- * 2: Tiles
- * 3: AGBM
- * 4: XM
  * Access: RO
  */
 MLXSW_ITEM8(reg, mgpir, device_type, 0x0, 0, 4);
 
 /* devices_per_flash
- * Number of devices of 
- * device_type
- *  per flash.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mgpir, devices_per_flash, 0x1, 0, 8);
 
 /* num_of_devices
- * Number of devices of 
- * device_type
- * .
  * Access: RO
  */
 MLXSW_ITEM8(reg, mgpir, num_of_devices, 0x3, 0, 8);
 
 /* num_of_modules
- * Number of modules.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mgpir, num_of_modules, 0x7, 0, 8);
@@ -7308,51 +4326,31 @@ MLXSW_ITEM8(reg, mgpir, num_of_modules, 0x7, 0, 8);
  *
  */
 /* region_id
- * Region identifier
- * Range 0 .. 
- * cap_max_regions
- * -1
- * Note: the register updates all duplicated regions
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, peapbl, region_id, 0x2, 0, 16);
 
 /* c_s
- * Clear or set:
- * 0: prune clear
- * 1: prune set
  * Access: WO
  */
 MLXSW_ITEM8(reg, peapbl, c_s, 0x10, 7, 1);
 
 /* pruning_ctcam_cs
- * Pruning C-TCAM clear or set. Clear or set defined by 
- * c_s
- * 0: don't modify prune_ctcam bit
- * 1: modify the prune_ctcam bit
  * Access: WO
  */
 MLXSW_ITEM8(reg, peapbl, pruning_ctcam_cs, 0x10, 4, 1);
 
 /* num_rec
- * Number of records to be updated
- * Range is 1..36
  * Access: WO
  */
 MLXSW_ITEM8(reg, peapbl, num_rec, 0x11, 0, 8);
 
 /* erp_id
- * erp id
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, peapbl, erp_id, 0x13, 0, 4);
 
 /* pruning_vector_cs
- * Pruning vector clear or set. Modify option defined by 
- * c_s
- * Per bit:
- * 0: don't modify pruning_vector bit
- * 1: modify the pruning_vector bit
  * Access: WO
  */
 MLXSW_ITEM16(reg, peapbl, pruning_vector_cs, 0x16, 0, 16);
@@ -7362,68 +4360,31 @@ MLXSW_ITEM16(reg, peapbl, pruning_vector_cs, 0x16, 0, 16);
  *
  */
 /* filter_fields
- * Filter Fields:
- * if a bit is '0' then the relevant field is ignored and dump is done 
- * regardless of the field value
- * Bit0: filter by activity: 
- * entry_a
- * Bit1: filter by action set user value: 
- * as_user_val 
- * when
- *  ddd_en
- * =0
- * All set filters are relevant (there is AND between the filters)
- * Reserved when 
- * op
- *  is Clear activity
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pefaad, filter_fields, 0x3, 0, 8);
 
 /* op
- * Operation
- * 0: Dump entries
- * 1: Dump entries and force end of session (clear activity will clear 
- * this session while next dump will be a new session)
- * 2: Clear activity for all entries which were dumped in the current 
- * session
  * Access: OP
  */
 MLXSW_ITEM8(reg, pefaad, op, 0x4, 0, 2);
 
 /* num_rec
- * At request: number of records requested
- * At response: number of records dumped
- * Range for request is 1..256
- * Range for response is 0..256
  * Access: OP
  */
 MLXSW_ITEM16(reg, pefaad, num_rec, 0x6, 0, 9);
 
 /* entry_a
- * Dump only if activity has value of 
- * entry_a
- * Reserved when 
- * filter_fields
- *  bit0 is '0'
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pefaad, entry_a, 0x9, 0, 1);
 
 /* as_user_val
- * Action set user value
- * Reserved when 
- * ddd_en
- *  = 1
- * Reserved when 
- * filter_fields
- *  bit1 is '0'
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, pefaad, as_user_val, 0x12, 0, 10);
 
 /* index_dump
- * 
  * Access: 
  */
 MLXSW_ITEM32_INDEXED(reg, pefaad, index_dump, 0x20, 0, 24, 0x4, 0x0, false);
@@ -7433,51 +4394,26 @@ MLXSW_ITEM32_INDEXED(reg, pefaad, index_dump, 0x20, 0, 24, 0x4, 0x0, false);
  *
  */
 /* operation
- * Operation:
- * 0: SET_TIME_AT_NEXT_SEC - the 
- * utc_sec
- *  will be sampled at 
- * the next PPS (of either 
- * virtual_pin
- *  or hw_utc_nsec wrap around)
- * 1: SET_TIME_IMMEDIATE - reserved when Spectrum-1
- * 2: ADJUST_TIME
- * 3: ADJUST_FREQ
  * Access: OP
  */
 MLXSW_ITEM8(reg, mtutc, operation, 0x3, 0, 4);
 
 /* freq_adjustment
- * Frequency adjustment: Every PPS the HW frequency will be 
- * adjusted by this value. Units of HW clock, where HW counts 
- * 10^9 HW clocks for 1 HW second.
- * Updated when operation is ADJUST_FREQ
  * Access: RW
  */
 MLXSW_ITEM32(reg, mtutc, freq_adjustment, 0x4, 0, 32);
 
 /* utc_sec
- * UTC seconds
- * Updated when operation is SET_TIME_IMMEDIATE or at next 
- * PPS when operation is SET_TIME_AT_NEXT_SEC
  * Access: WO
  */
 MLXSW_ITEM32(reg, mtutc, utc_sec, 0x10, 0, 32);
 
 /* utc_nsec
- * UTC nSecs
- * Range 0..(10^9-1)
- * Updated when operation is SET_TIME_IMMEDIATE
- * Reserved when Spectrum-1
  * Access: WO
  */
 MLXSW_ITEM32(reg, mtutc, utc_nsec, 0x14, 0, 30);
 
 /* time_adjustment
- * Time adjustment
- * Units of nSec
- * Range is from -32768 to +32767
- * Reserved when Spectrum-1
  * Access: WO
  */
 MLXSW_ITEM32(reg, mtutc, time_adjustment, 0x18, 0, 32);
@@ -7487,84 +4423,31 @@ MLXSW_ITEM32(reg, mtutc, time_adjustment, 0x18, 0, 32);
  *
  */
 /* swid
- * Switch Partition ID
- * Reserved when 
- * mngr_type
- *  = LNM
- * Reserved when Ethernet switches
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, momte, swid, 0x0, 0, 8);
 
 /* local_port
- * If (
- * mngr_type
- *  == "Hypervisor")
- * Unique port identifier for the final destination of the packet
- * If (
- * mngr_type
- *  == "Local Network Manager") and the port from 
- * which the command came from is InfiniBand: 
- * ib port number
- * If (
- * mngr_type
- *  == "Local Network Manager") and the port from 
- * which the command came from is Ethernet: 
- * Local Port
- * For Quantum:
- * - Supported to/from Aggregation Node
- * - Not supported to/from IB Router port
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, momte, local_port, 0x1, 0, 8);
 
 /* mngr_type
- * Manager Type
- * 0: HYPERVISOR
- * 1: LNM - local network manager
- * Reserved when Spectrum/-2
  * Access: OP
  */
 MLXSW_ITEM8(reg, momte, mngr_type, 0x2, 0, 4);
 
 /* type
- * Type:
- * 0x20: WRED, egress, no CPU port
- * 0x31: SHARED_BUFFER_TClass, egress
- * 0x33: 
- * SHARED_BUFFER_Egress_Port, egress
- * 0x40: ING_CONG, ingress
- * 0x50: EGR_CONG, egress
- * 0x60: ECN, egress, no CPU port
- * 0x70: HIGH_LATENCY, egress, no CPU port
- * See 
- * Section 497, "Mirror triggers," on page 611
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, momte, type, 0x7, 0, 8);
 
 /* tclass_en_high
- * TClass/PG mirror enable (for IB switches this is VL enable)
- * Each bit represents corresponding tclass
- * 0: disable (default)
- * 1: enable
- * When type = 0x33: only bit0 is used, representing the port
- * Valid bits for Ethernet devices: 0.. 
- * cap_max_tclass_data
- *  - 1
  * Access: RW
  */
 MLXSW_ITEM32(reg, momte, tclass_en_high, 0x8, 0, 32);
 
 /* tclass_en_low
- * TClass/PG mirror enable (for IB switches this is VL enable)
- * Each bit represents corresponding tclass
- * 0: disable (default)
- * 1: enable
- * When type = 0x33: only bit0 is used, representing the port
- * Valid bits for Ethernet devices: 0.. 
- * cap_max_tclass_data
- *  - 1
  * Access: RW
  */
 MLXSW_ITEM32(reg, momte, tclass_en_low, 0xc, 0, 32);
@@ -7574,24 +4457,16 @@ MLXSW_ITEM32(reg, momte, tclass_en_low, 0xc, 0, 32);
  *
  */
 /* erif
- * egress RIF
- * Range is 0.. 
- * cap_max_router_interfaces
- * -1
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, reiv, erif, 0x6, 0, 16);
 
 /* update
- * Update enable (when write):
- * 0: do not update the entry
- * 1: update the entry
  * Access: OP
  */
 MLXSW_ITEM8_INDEXED(reg, reiv, update, MLXSW_REIV_ELPORT_RECORD_BASE_LEN, 7, 1, MLXSW_REIV_ELPORT_RECORD_REC_LEN, 0, false);
 
 /* evid
- * egress vid, range 0..4095
  * Access: RW
  */
 MLXSW_ITEM16_INDEXED(reg, reiv, evid, MLXSW_REIV_ELPORT_RECORD_BASE_LEN + 2, 0, 12, MLXSW_REIV_ELPORT_RECORD_REC_LEN, 0, false);
@@ -7601,26 +4476,16 @@ MLXSW_ITEM16_INDEXED(reg, reiv, evid, MLXSW_REIV_ELPORT_RECORD_BASE_LEN + 2, 0, 
  *
  */
 /* local_port
- * Local port number
- * CPU port is not supported
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, chltm, local_port, 0x1, 0, 8);
 
 /* traffic_class
- * Traffic Class
- * Range is 0..
- * cap_max_tclass_data
- * -1
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, chltm, traffic_class, 0x7, 0, 8);
 
 /* hlt_table_pointer
- * High Latency Table pointer for unicast packets
- * Range 0 .. 
- * cap_max_high_latency_table
- *  - 1
  * Access: RW
  */
 MLXSW_ITEM8(reg, chltm, hlt_table_pointer, 0x13, 0, 8);
@@ -7630,136 +4495,61 @@ MLXSW_ITEM8(reg, chltm, hlt_table_pointer, 0x13, 0, 8);
  *
  */
 /* swid
- * Switch partition ID
- * Reserved when Spectrum/-2
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, svfa, swid, 0x0, 0, 8);
 
 /* local_port
- * Local port number
- * Reserved when 
- * mapping_table
- *  = '0' (VLAN mapping)
- * Reserved when 
- * mapping_table
- *  = '2' (VNI mapping)
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, svfa, local_port, 0x1, 0, 8);
 
 /* mapping_table
- * Mapping table:
- * 0: VLAN_mapping_table - VID to FID mapping
- * 1: Port_VLAN_mapping_table - {Port,VID} to FID mapping
- * 2: VNI_mapping_table - VNI to FID mapping. Reserved when 
- * ubridge 
- * = 0
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, svfa, mapping_table, 0x2, 0, 3);
 
 /* v
- * Valid
- * Indicates the VID to FID mapping entry is valid. 
- * Reserved when SwitchX/-2, where entries are always valid and 
- * can not be invalidated regardless of the 
- * v
- *  bit value.
  * Access: RW
  */
 MLXSW_ITEM8(reg, svfa, v, 0x3, 0, 1);
 
 /* fid
- * Filtering ID
- * Cannot be modified for a valid (
- * v
- * =1) mapping
- * Reserved when 
- * trap_action
- *  is TRAP or DISCARD_ERROR
  * Access: RW
  */
 MLXSW_ITEM16(reg, svfa, fid, 0x4, 0, 16);
 
 /* vid
- * VLAN ID
- * Reserved when 
- * mapping_table
- *  = '2' (VNI mapping)
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, svfa, vid, 0x6, 0, 12);
 
 /* counter_set_type
- * Counter Set Type for flow counters.
- * For Spectrum/-2: See 
- * Section 4.2.2, "Counter Set Type," on 
- * page 604
- * Spectrum-2: Note that for router-sub-port at the FID after routing 
- * there is no counting. If need counter then use fid-rif. 
- * Also when iACL set fis then no fid counting. 
- * Reserved when SwitchX/-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, svfa, counter_set_type, 0x8, 0, 8);
 
 /* counter_index
- * Counter Index for flow counters.
- * For Spectrum/-2: see 
- * Section 4.2, "Flow Counters," on page 603
- * Reserved when SwitchX/-2
  * Access: RW
  */
 MLXSW_ITEM32(reg, svfa, counter_index, 0x8, 0, 24);
 
 /* trap_action
- * Trap Action
- * 0x0: NOP
- * 0x1: TRAP
- * 0x2: MIRROR_TO_CPU
- * 0x3: MIRROR
- * 0x4: DISCARD_ERROR
- * For TRAP and MIRROR_TO_CPU the trap-ID is FID_TRAP
- * Reserved when SwitchX/-2
- * Spectrum-2 - note that for router-sub-port, at the FID after routing 
- * there is no trap (behavior is NOP). If need trap then use fid-rif
  * Access: RW
  */
 MLXSW_ITEM8(reg, svfa, trap_action, 0xc, 4, 4);
 
 /* vni
- * vni
- * Reserved when 
- * mapping_table
- *  != '2' (VNI mapping table)
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, svfa, vni, 0x10, 0, 24);
 
 /* irif_v
- * Ingress RIF valid:
- * 0: irif is not valid, no irif assigned
- * 1: irif valid
- * Must not be set for a non enabled RIF
- * Reserved when 
- * ubridge 
- * = 0
  * Access: RW
  */
 MLXSW_ITEM8(reg, svfa, irif_v, 0x14, 0, 1);
 
 /* irif
- * Ingress RIF (Router Interface)
- * Range is 0.. 
- * cap_max_router_interfaces
- * -1
- * Reserved when 
- * ubridge 
- * = 0
- * Reserved when 
- * irif_v 
- * = 0
  * Access: RW
  */
 MLXSW_ITEM16(reg, svfa, irif, 0x16, 0, 16);
@@ -7769,27 +4559,16 @@ MLXSW_ITEM16(reg, svfa, irif, 0x16, 0, 16);
  *
  */
 /* local_port
- * Local port number
- * CPU port is not supported
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, smpe, local_port, 0x1, 0, 8);
 
 /* smpe_index
- * Switch multicast port to egress VID
- * Range is 0.. 
- * cap_max_rmpe
- *  - 1
- * Note: when 
- * ubridge
- * =1 the rmpe and smpe use the same range, see 
- * RMPE register
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, smpe, smpe_index, 0x6, 0, 16);
 
 /* evid
- * Egress VID
  * Access: RW
  */
 MLXSW_ITEM16(reg, smpe, evid, 0xa, 0, 12);
@@ -7799,43 +4578,21 @@ MLXSW_ITEM16(reg, smpe, evid, 0xa, 0, 12);
  *
  */
 /* num_rec
- * Number of records to read
- * Range 1..128
  * Access: OP
  */
 MLXSW_ITEM8(reg, mafri, num_rec, 0x3, 0, 8);
 
 /* counter_index_base
- * Counter Index base
- * Counters will be read starting at 
- * counter_index_base
- * Must have a value of 32*N 
- * Range: 
- * cap_start_accuflow
- *  .. 
- * cap_max_accuflow
- *  - 1
- * Note: 
- * counter_index_base
- *  + 
- * num_rec
- *  must be equal or lower 
- * than 
- * cap_max_accuflow
  * Access: OP
  */
 MLXSW_ITEM32(reg, mafri, counter_index_base, 0x4, 0, 24);
 
 /* bytes_inc
- * Bytes to increment to bytes counter
- * Unit of 512B
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, mafri, bytes_inc, MLXSW_MAFRI_RECORD_BASE_LEN, 0, 32, MLXSW_MAFRI_RECORD_REC_LEN, 0, false);
 
 /* packets_inc
- * Packets to increment to packets counter
- * Unit is 4packets
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, mafri, packets_inc, MLXSW_MAFRI_RECORD_BASE_LEN, 0, 32, MLXSW_MAFRI_RECORD_REC_LEN, 4, false);
@@ -7845,16 +4602,11 @@ MLXSW_ITEM32_INDEXED(reg, mafri, packets_inc, MLXSW_MAFRI_RECORD_BASE_LEN, 0, 32
  *
  */
 /* switch_prio
- * Switch Priority
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, chlmm, switch_prio, 0x2, 0, 4);
 
 /* hlt_table_pointer
- * High Latency Table pointer for multicast packets
- * Range 0 .. 
- * cap_max_high_latency_table
- *  - 1
  * Access: RW
  */
 MLXSW_ITEM8(reg, chlmm, hlt_table_pointer, 0x13, 0, 8);
@@ -7864,67 +4616,46 @@ MLXSW_ITEM8(reg, chlmm, hlt_table_pointer, 0x13, 0, 8);
  *
  */
 /* clear_counters
- * Clear counters
  * Access: OP
  */
 MLXSW_ITEM8(reg, tncr, clear_counters, 0x0, 7, 1);
 
 /* count_encap_high
- * Count number of packets which did encapsulation to NVE tun
- * neling
- * Note that MC packets which are encapsulated multiple times are 
- * counted multiple times
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_encap_high, 0x10, 0, 32);
 
 /* count_encap_low
- * Count number of packets which did encapsulation to NVE tun
- * neling
- * Note that MC packets which are encapsulated multiple times are 
- * counted multiple times
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_encap_low, 0x14, 0, 32);
 
 /* count_decap_high
- * Count number of packets which did decapsulation from NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_decap_high, 0x18, 0, 32);
 
 /* count_decap_low
- * Count number of packets which did decapsulation from NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_decap_low, 0x1c, 0, 32);
 
 /* count_decap_errors_high
- * Count number of packets had decapsulation errors of NVE tun
- * neling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_decap_errors_high, 0x20, 0, 32);
 
 /* count_decap_errors_low
- * Count number of packets had decapsulation errors of NVE tun
- * neling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_decap_errors_low, 0x24, 0, 32);
 
 /* count_decap_discards_high
- * Count number of packets had decapsulation discards of NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_decap_discards_high, 0x28, 0, 32);
 
 /* count_decap_discards_low
- * Count number of packets had decapsulation discards of NVE 
- * tunneling
  * Access: RO
  */
 MLXSW_ITEM32(reg, tncr, count_decap_discards_low, 0x2c, 0, 32);
@@ -7934,143 +4665,61 @@ MLXSW_ITEM32(reg, tncr, count_decap_discards_low, 0x2c, 0, 32);
  *
  */
 /* time_elapsed_since_last_cmd
- * The number of seconds elapsed since the update_handle 
- * owner last issued a command. The time saturates at 0xFFF.
  * Access: RO
  */
 MLXSW_ITEM16(reg, mcc, time_elapsed_since_last_cmd, 0x0, 0, 12);
 
 /* instruction
- * Command to be executed by the FSM
- * 0x1: LOCK_UPDATE_HANDLE
- * 0x2: RELEASE_UPDATE_HANDLE 
- * 0x3: UPDATE_COMPONENT
- * 0x4: VERIFY_COMPONENT
- * 0x5: ACTIVATE_COMPONENET 
- * 0x6: ACTIVATE
- * 0x7: READ_COMPONENT
- * 0x8: CANCEL
- * 0x9: CHECK_UPDATE_HANDLE
- * 0xA: FORCE_HANDLE_RELEASE
- * 0xB: READ_PENDING_COMPONENT
- * Other values are reserved. Applicable for write operation 
- * only.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcc, instruction, 0x3, 0, 8);
 
 /* component_index
- * Index of the accessed component. Valid for 
- * UPDATE_COMPONENT, ACTIVATE_COMPONENET, 
- * READ_COMPONENT and READ_PENDING_COMPO
- * NENT instructions. Otherwise, this field is reserved.
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, mcc, component_index, 0x6, 0, 16);
 
 /* update_handle
- * Token representing the current flow executed by the FSM.
  * Access: RW
  */
 MLXSW_ITEM32(reg, mcc, update_handle, 0x8, 0, 24);
 
 /* handle_owner_type
- * Type of entity holding the update handle:
- * 0x0: unspecified
- * 0x1: Chassis BMC
- * 0x2: MAD
- * 0x3: BMC
- * 0x4: command interface
- * 0x5: ICMD 
- * Other values are reserved.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcc, handle_owner_type, 0xc, 4, 4);
 
 /* handle_owner_host_id
- * For 
- * handle_owner_type
- *  BMC, command-interface and 
- * ICMD, indicates the identifier of the host of the handle 
- * owner.
- * Otherwise reserved
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcc, handle_owner_host_id, 0xc, 0, 4);
 
 /* control_progress
- * Indicates the estimated progress status of the current opera
- * tion executed by the FSM. Valid values are 0..100.
- * 101 indicates that progress reporting is not supported for 
- * this update state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcc, control_progress, 0xd, 0, 7);
 
 /* error_code
- * Indicates the successful completion of the 
- * instruction
- * , or 
- * the reason it failed. 
- * 0x0: OK
- * 0x1: ERROR
- * 0x2: REJECTED_DIGEST_ERR
- * 0x3: REJECTED_NOT_APPLICABLE
- * 0x4: REJECTED_UNKNOWN_KEY
- * 0x5: REJECTED_AUTH_FAILED
- * 0x6: REJECTED_UNSIGNED
- * 0x7: REJECTED_KEY_NOT_APPLICABLE
- * 0x8: REJECTED_BAD_FORMAT
- * 0x9: BLOCKED_PENDING_RESET
- * 0xA: REJECTED_NOT_A_SECURED_FW
- * 0xB: REJECTED_MFG_BASE_MAC_NOT_LISTED
- * 0xC: REJECTED_NO_DEBUG_TOKEN
- * 0xD: REJECTED_VERSION_NUM_MISMATCH
- * 0xE: REJECTED_USER_TIMESTAMP_MISMATCH
- * 0xF: REJECTED_FORBIDDEN_VERSION
- * 0x10: FLASH_ERASE_ERROR
- * 0x11: REJECTED_REBURN_RUNNING_AND_RETRY
- * Other values should be treated as an unknown error.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcc, error_code, 0xe, 0, 8);
 
 /* control_state
- * Current Update FSM state
- * 0x0: IDLE
- * 0x1: LOCKED
- * 0x2: INITIALIZE
- * 0x3: DOWNLOAD
- * 0x4: VERIFY
- * 0x5: APPLY
- * 0x6: ACTIVATE
- * 0x7: UPLOAD
- * 0x8: UPLOAD_PENDING
- * Other values are reserved
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcc, control_state, 0xf, 0, 4);
 
 /* component_size
- * Component size in bytes. 
- * Valid for UPDATE_COMPONENT instruction. Specifying 
- * the size may shorten the update time.
- * Value 0x0 means that size is unspecified.
  * Access: WO
  */
 MLXSW_ITEM32(reg, mcc, component_size, 0x10, 0, 32);
 
 /* device_index
- * Device number.
- * For gearboxes, the index represents the gearbox die.
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, mcc, device_index, 0x14, 0, 12);
 
 /* device_type
- * Peripheral device type:
- * 0: Switch / NIC
- * 1: Gearbox
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mcc, device_type, 0x17, 0, 8);
@@ -8080,127 +4729,36 @@ MLXSW_ITEM8(reg, mcc, device_type, 0x17, 0, 8);
  *
  */
 /* update_type
- * Update type:
- * 0: Update Multicast_Tunnel_FDB_record.
- * underlay_mc_ptr 
- * and 
- * ecmp_size
- * 1: Update Multicast_FDB_record.
- * mid
- *  and Update Multicast
- * _Tunnel_FDB_record.
- * mid
- * 2: Update Unicast_Tunnel_FDB_record.
- * uip_lsb
- *  (the pointer to 
- * the generic L2 encapsulation entry) and 
- * ecmp_size
- * See 
- * Section 6.2.17, "FDB Records," on page 780
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sfdb, update_type, 0xb, 0, 4);
 
 /* gfid
- * Global fid.
- * Update for all fids, ignore the entry_fid field,
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sfdb, gfid, 0xc, 7, 1);
 
 /* entry_fid
- * Update only if FID has value of 
- * entry_fid
- * Range 1..
- * cap_fid
- * -1
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, sfdb, entry_fid, 0xe, 0, 16);
 
 /* parameter
- * For 
- * update_type
- *  = 0:
- * - Multicast_Tunnel_FDB_record.
- * underlay_mc_ptr
- *  (24bits)
- * For 
- * update_type
- *  = 1:
- * - Multicast_FDB_record.
- * mid
- *  (16bits)
- * - Multicast_Tunnel_FDB_record.
- * mid
- *  (16bits)
- * For 
- * update_type
- *  = 2:
- * Update Unicast_Tunnel_FDB_record.
- * uip_lsb 
- * (24bits)
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, sfdb, parameter, 0x20, 0, 32);
 
 /* parameter1
- * For 
- * update_type
- *  = 0:
- * - Multicast_Tunnel_FDB_record.
- * ecmp_size 
- * (13bits)
- * For 
- * update_type
- *  = 2:
- * - Unicast_Tunnel_FDB_record.
- * ecmp_size 
- * (13bits)
  * Access: INDEX
  */
 MLXSW_ITEM32(reg, sfdb, parameter1, 0x24, 0, 32);
 
 /* new_parameter
- * New parameter
- * For 
- * update_type
- *  = 0:
- * - Multicast_Tunnel_FDB_record.
- * underlay_mc_ptr
- *  (13bits)
- * For 
- * update_type
- *  = 1:
- * - Multicast_FDB_record.
- * mid
- *  (16bits)
- * - Multicast_Tunnel_FDB_record.
- * mid
- *  (16bit)s
- * For 
- * update_type
- *  = 2:
- * Update Unicast_Tunnel_FDB_record.
- * uip_lsb 
- * (24bits)
  * Access: WO
  */
 MLXSW_ITEM32(reg, sfdb, new_parameter, 0x40, 0, 32);
 
 /* new_parameter1
- * For 
- * update_type
- *  = 0:
- * - Multicast_Tunnel_FDB_record.
- * ecmp_size 
- * (13bits)
- * For 
- * update_type
- *  = 2:
- * - Unicast_Tunnel_FDB_record.
- * ecmp_size 
- * (13bits)
  * Access: WO
  */
 MLXSW_ITEM32(reg, sfdb, new_parameter1, 0x44, 0, 32);
@@ -8210,32 +4768,21 @@ MLXSW_ITEM32(reg, sfdb, new_parameter1, 0x44, 0, 32);
  *
  */
 /* update_handle
- * Update handle registered when the FSM was activated.
  * Access: RW
  */
 MLXSW_ITEM32(reg, mcda, update_handle, 0x0, 0, 24);
 
 /* offset
- * Offset of accessed address relative to component start. 
- * Accesses must be in accordance to 
- * log_mcda_word_size
- *  in 
- * Table 459, "
- * MCQI CAPABILITIES Info Layout
- * ," on 
- * page 578
  * Access: RW
  */
 MLXSW_ITEM32(reg, mcda, offset, 0x4, 0, 32);
 
 /* size
- * Size of the data accessed, given in bytes
  * Access: RW
  */
 MLXSW_ITEM16(reg, mcda, size, 0xa, 0, 16);
 
 /* data
- * Data block accessed
  * Access: RW
  */
 MLXSW_ITEM32_INDEXED(reg, mcda, data, 0x10, 0, 32, 4, 0, false);
@@ -8245,49 +4792,26 @@ MLXSW_ITEM32_INDEXED(reg, mcda, data, 0x10, 0, 32, 4, 0, false);
  *
  */
 /* op
- * 0: Read activity
- * 1: Read and clear activity
  * Access: OP
  */
 MLXSW_ITEM8(reg, rmftad, op, 0x0, 6, 2);
 
 /* type
- * Entry Type:
- * 0: Multicast IPv4
- * 1: Multicast IPv6
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, rmftad, type, 0x1, 4, 2);
 
 /* offset
- * Offset within the multicast forwarding table
- * Must be N*32
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, rmftad, offset, 0x2, 0, 16);
 
 /* num_rec
- * Number of records to read
- * Range 1..4096
  * Access: OP
  */
 MLXSW_ITEM16(reg, rmftad, num_rec, 0x6, 0, 13);
 
 /* activity_vector
- * Activity per offset
- * Line 20h bit 31 is for entry 
- * offset+
- * 4095
- * Line 21C bit 0 is for entry 
- * offset+
- * 0
- * Bits higher than 
- * num_rec 
- * are reserved
- * Bits higher than region_size
- *  
- * are reserved
- * For non-valid offsets the activity is reserved
  * Access: RO
  */
 MLXSW_ITEM32_INDEXED(reg, rmftad, activity_vector, 0x20, 0, 32, 4, 0, false);
@@ -8297,37 +4821,26 @@ MLXSW_ITEM32_INDEXED(reg, rmftad, activity_vector, 0x20, 0, 32, 4, 0, false);
  *
  */
 /* swid
- * Switch partition ID
- * Reserved when Spectrum/-2
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, smpu, swid, 0x0, 0, 8);
 
 /* local_port
- * Local port to send the packet
- * CPU port is supported, trap_id is FDB
- * Router port is supported
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, smpu, local_port, 0x1, 0, 8);
 
 /* op
- * Operation
- * 0: Set bit
- * 1: Clear bit
  * Access: WO
  */
 MLXSW_ITEM8(reg, smpu, op, 0x4, 6, 2);
 
 /* size
- * Number of valid MIDs to be updated.
- * Range is 1 to 256
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, smpu, size, 0x4, 0, 9);
 
 /* mid
- * 
  * Access: 
  */
 MLXSW_ITEM16_INDEXED(reg, smpu, mid, 0x12, 0, 16, 0x4, 0x0, false);
@@ -8337,119 +4850,36 @@ MLXSW_ITEM16_INDEXED(reg, smpu, mid, 0x12, 0, 16, 0x4, 0x0, false);
  *
  */
 /* type
- * 0: BROADCAST
- * 1: UNKNOWN_UNICAST
- * 2: UNREGISTERED_MULTICAST_IPV4
- * 3: UNREGISTERED_MULTICAST_IPV6
- * 4: RESERVED
- * 5: UNREGISTERED_MULTICAST_NON_IP
- * 6: IPV4_LINK_LOCAL - (Addresses 224.0.0.X), not supported by 
- * SwitchX/-2
- * 7: IPV6_ALL_HOSTS - (Address FF02::1), not supported by 
- * SwitchX/-2
- * Other - reserved
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sfgc, type, 0x3, 0, 4);
 
 /* bridge_type
- * Bridge Type (see 
- * Section 6.4.2.1, "FID Classification," on 
- * page 810
- * ):
- * 0: type0 - when 
- * ubridge
- * =0: 802.1Q. FID
- * 1: type1 - when 
- * ubridge
- * =0: vFID. Reserved when SwitchX/-2
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sfgc, bridge_type, 0x4, 0, 3);
 
 /* table_type
- * Table type to use:
- * 0: any_type - should only be used if only one type of table is con
- * figured in the profile. Reserved when Spectrum/-2
- * 1: per_VID_tables - reserved when 
- * ubridge
- * =1
- * 2: single_entry_tables - reserved when 
- * ubridge
- * =1
- * 3: FID_Offset - reserved when SwitchX/-2
- * 4: FID - (when 
- * ubridge
- * =0 used for vFIDs only, not for the first 4K 
- * FIDs). Reserved when SwitchX/-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfgc, table_type, 0x5, 0, 3);
 
 /* flood_table
- * Flooding table index to associate with the specific type on the spe
- * cific switch partition.
- * If 
- * table_type
- *  == single entry:
- * Indexed from 0 to 
- * max_flood_tables
- * -1
- * If 
- * table_type
- *  == VID:
- * Indexed from 0 to 
- * max_vid_flood_tables
- * -1
- * If 
- * table_type
- *  == FID_Offset (when 
- * ubridge
- * =0 supports VIDs):
- * Indexed from 0 to 
- * max_fid_offset_flood_tables
- * -1
- * If 
- * table_type
- *  == FID (when 
- * ubridge
- * =0 supports and used only 
- * vFIDs):
- * Indexed from 0 to 
- * max_fid_flood_tables
- * -1
- * Reserved when 
- * ubridge
- * =1
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfgc, flood_table, 0x7, 0, 6);
 
 /* counter_set_type
- * Counter Set Type for flow counters.
- * For Spectrum/-2: See 
- * Section 4.2.2, "Counter Set Type," on 
- * page 604
- * Not supported by SwitchX/-2
  * Access: RW
  */
 MLXSW_ITEM8(reg, sfgc, counter_set_type, 0xc, 0, 8);
 
 /* counter_index
- * Counter Index for flow counters.
- * For Spectrum/-2: See 
- * Section 4.1, "Performance and Monitoring 
- * Counters," on page 602
- * Not supported by SwitchX/-2
  * Access: RW
  */
 MLXSW_ITEM32(reg, sfgc, counter_index, 0xc, 0, 24);
 
 /* mid_base
- * MID Base
- * Reserved when 
- * ubridge
- * =0
  * Access: RW
  */
 MLXSW_ITEM16(reg, sfgc, mid_base, 0x12, 0, 16);
@@ -8459,133 +4889,46 @@ MLXSW_ITEM16(reg, sfgc, mid_base, 0x12, 0, 16);
  *
  */
 /* local_port
- * Local port number.
- * For Ingress: excludes CPU port and Router port
- * For Egress: excludes IP Router
- * For Egress hist_type of Queue_Latency: exludes also CPU port
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sbhbr_v2, local_port, 0x1, 0, 8);
 
 /* pg_buff
- * PG buffer - Port PG (
- * dir
- * =ingress) / traffic class (
- * dir
- * =egress)
- * For PG buffer: range is 0..
- * cap_max_pg_buffers
- *  - 1
- * For traffic class, hist_type of Queue_Depth_Traffic_Class: range 
- * is 0..
- * cap_max_tclass
- *  - 1
- * For traffic class, hist_type of Queue_Latency: range is 0..
- * cap_
- * max_tclass_data
- *  - 1
- * For traffic class to CPU port: range is 0..
- * cap_max_cpu_in
- * gress_tclass
- * - 1
- * For Spectrum: no admission on Tx.Tclass, so when traffic class is 
- * in MC aware mode then the traffic classes which are MC aware 
- * must not be configured, but can be read. Spectrum-2 has admis
- * sion on Tx.Tclass so all traffic classes can be configured also for 
- * MC aware mode. 
- * see 
- * Section 11.5, "Ethernet Switch Packet Priority and TClass 
- * Mapping," on page 1701
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sbhbr_v2, pg_buff, 0x2, 0, 6);
 
 /* dir
- * Direction
- * 0: Ingress port quota
- * 1: Egress port quota
- * Reserved when 
- * hist_type
- *  = Queue_Latency and this field is 
- * treated as '1' Egress port quota
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, sbhbr_v2, dir, 0x3, 0, 2);
 
 /* en
- * Enable the histogram
  * Access: RW
  */
 MLXSW_ITEM8(reg, sbhbr_v2, en, 0x7, 0, 1);
 
 /* mode
- * mode
- * 0: Linear histogram
- * 1: Exponential histogram
  * Access: RW
  */
 MLXSW_ITEM8(reg, sbhbr_v2, mode, 0x8, 4, 3);
 
 /* hist_type
- * 0x1000: Queue_Depth_Traffic_Class
- * 0x1002: Queue_Latency
- * See 
- * Table 1132, "SBHBR - Histograms Hist-type for queue histo
- * grams," on page 1268
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, sbhbr_v2, hist_type, 0xa, 0, 16);
 
 /* hist_min_value
- * Min value for histogram main range
- * Units according to the units of the 
- * hist_type
  * Access: RW
  */
 MLXSW_ITEM32(reg, sbhbr_v2, hist_min_value, 0x10, 0, 32);
 
 /* hist_max_value
- * Max value for histogram main range
- * When 
- * mode
- * =0 (linear), then
- *  
- * this rule must be meet:
- * hist_max_value
- *  = 
- * hist_min_value
- *  + 2^n, n >= 3
- * When 
- * mode
- * =1 (exponential), then this rule must be meet:
- * hist_max_value
- *  = 
- * hist_min_value
- *  + 255*2^n, n >= 0
- * Units according to the units of the 
- * hist_type
  * Access: RW
  */
 MLXSW_ITEM32(reg, sbhbr_v2, hist_max_value, 0x14, 0, 32);
 
 /* sample_time
- * Sample time interval. 
- * Allowed range:
- * time = 2^
- * sample_time
- *  * 128nSec
- * sample_time
- *  range is 0..
- * cap_max_sample_time
- * -1
- * For Spectrum-1 the 
- * sample_time
- *  is global for all ports and all 
- * tclass 
- * For Spectrum-2 the sample_time is per port.tclass. 
- * Reserved when 
- * hist_type
- *  = Queue_Latency
  * Access: RW
  */
 MLXSW_ITEM8(reg, sbhbr_v2, sample_time, 0x1b, 0, 6);
@@ -8595,270 +4938,181 @@ MLXSW_ITEM8(reg, sbhbr_v2, sample_time, 0x1b, 0, 6);
  *
  */
 /* read_pending_component
- * When set, the register will return information about the 
- * pending component (if available)
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mcqi, read_pending_component, 0x0, 7, 1);
 
 /* device_index
- * Device number.
- * For gearboxes, the index represents the gearbox die.
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, mcqi, device_index, 0x0, 0, 12);
 
 /* component_index
- * Component index gathered by 
- * "
- * MCQS - Management 
- * Component Query Status
- * "
  * Access: INDEX
  */
 MLXSW_ITEM16(reg, mcqi, component_index, 0x2, 0, 16);
 
 /* device_type
- * Peripheral device type:
- * 0: Switch / NIC
- * 1: Gearbox
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, mcqi, device_type, 0x7, 0, 8);
 
 /* info_type
- * Component properties set.
- * 0x0: CAPABILITIES
- * 0x1: VERSION
- * 0x5: ACTIVATION_METHOD
- * Other values are reserved
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, info_type, 0xb, 0, 5);
 
 /* info_size
- * Properties set structure size, given in bytes.
  * Access: RO
  */
 MLXSW_ITEM32(reg, mcqi, info_size, 0xc, 0, 32);
 
 /* offset
- * The requested/returned data offset from the section start, 
- * given in bytes.
- * Must be DWORD aligned.
  * Access: RW
  */
 MLXSW_ITEM32(reg, mcqi, offset, 0x10, 0, 32);
 
 /* data_size
- * The requested/returned data size, given in bytes.
- * If 
- * data_size
- *  is not DWORD aligned, the last bytes are zero 
- * padded.
  * Access: RW
  */
 MLXSW_ITEM16(reg, mcqi, data_size, 0x16, 0, 16);
 
 /* mcqi_cap_supported_info_bitmask
- * Bitmask indicating which info_type(s) are supported for 
- * this component. Set bit indicates the property set is sup
- * ported
- * bit 1: VERSION
- * bit 5: ACTIVATION_METHOD
- * Other bits are reserved. CAPABILITIES set is always sup
- * ported.
  * Access: RO
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_cap_supported_info_bitmask, 0x18, 0, 32);
 
 /* mcqi_cap_component_size
- * The size of the component given in bytes. Value 0x0 indi
- * cates that the size in unknown.
- * For some components, size may only be available in the 
- * READ_COMPONENT state.
  * Access: RO
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_cap_component_size, 0x1c, 0, 32);
 
 /* mcqi_cap_max_component_size
- * Maximum size for this component, given in bytes.
  * Access: RO
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_cap_max_component_size, 0x20, 0, 32);
 
 /* mcqi_cap_log_mcda_word_size
- * Log 2 of the access word size in bytes.
- * Read and write access must be aligned to the word size. 
- * Write access must be done for an integer number of words.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_log_mcda_word_size, 0x24, 4, 4);
 
 /* mcqi_cap_mcda_max_write_size
- * Maximal write size for MCDA
  * Access: RO
  */
 MLXSW_ITEM16(reg, mcqi, mcqi_cap_mcda_max_write_size, 0x26, 0, 16);
 
 /* mcqi_cap_rd_en
- * When set, this components may be read
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_rd_en, 0x28, 7, 1);
 
 /* mcqi_cap_signed_updates_only
- * Only signed components are accepted.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_signed_updates_only, 0x28, 6, 1);
 
 /* mcqi_cap_match_chip_id
- * Chip ID (
- * device_hw_revision
- * ) is validated for this compo
- * nent update.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_match_chip_id, 0x28, 5, 1);
 
 /* mcqi_cap_match_psid
- * PSID is validated for this component update.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_match_psid, 0x28, 4, 1);
 
 /* mcqi_cap_check_user_timestamp
- * A user defined timestamp (MVTS) is active for this compo
- * nent.
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_check_user_timestamp, 0x28, 3, 1);
 
 /* mcqi_cap_match_base_guid_mac
- * The device only accepts updates for this component that 
- * explicitly lists its base MAC and/or base GUID
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_cap_match_base_guid_mac, 0x28, 2, 1);
 
 /* mcqi_version_build_time_valid
- * When set, the component has a valid creation time-stamp in 
- * build_time
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_version_build_time_valid, 0x18, 5, 1);
 
 /* mcqi_version_user_defined_time_valid
- * When set, the component has a valid user-defined version 
- * time-stamp in 
- * user_defined_time
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_version_user_defined_time_valid, 0x18, 4, 1);
 
 /* mcqi_version_version_string_length
- * 
  * Access: RW
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_version_version_string_length, 0x1b, 0, 8);
 
 /* mcqi_version_version
- * Version number
  * Access: RW
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_version_version, 0x1c, 0, 32);
 
 /* mcqi_version_build_time_hi
- * 
  * Access: 
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_version_build_time_hi, 0x20, 0, 32);
 
 /* mcqi_version_build_time_lo
- * 
  * Access: 
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_version_build_time_lo, 0x24, 0, 32);
 
 /* mcqi_version_user_defined_time_hi
- * 
  * Access: 
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_version_user_defined_time_hi, 0x28, 0, 32);
 
 /* mcqi_version_user_defined_time_lo
- * 
  * Access: 
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_version_user_defined_time_lo, 0x2c, 0, 32);
 
 /* mcqi_version_build_tool_version
- * Build tool version number.
- * Valid only when not equal to 0
  * Access: RW
  */
 MLXSW_ITEM32(reg, mcqi, mcqi_version_build_tool_version, 0x30, 0, 32);
 
 /* mcqi_version_version_string
- * NULL terminated string representing the version.
  * Access: RW
  */
 MLXSW_ITEM_BUF(reg, mcqi, mcqi_version_version_string, 0x38, 92);
 
 /* mcqi_activation_method_pending_server_ac_power_cycle
- * This component goes to ACTIVE_PENDING_RESET state 
- * after activation.
- * AC power cycle (power cycle for both PCI power rails and 
- * AUX power), will move it ACTIVE state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_pending_server_ac_power_cycle, 0x18, 7, 1);
 
 /* mcqi_activation_method_pending_server_dc_power_cycle
- * This component goes to ACTIVE_PENDING_RESET state 
- * after activation.
- * DC power cycle (power cycle of PCI power rails), will 
- * move it ACTIVE state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_pending_server_dc_power_cycle, 0x18, 6, 1);
 
 /* mcqi_activation_method_pending_server_reboot
- * This component goes to ACTIVE_PENDING_RESET state 
- * after activation.
- * A server reset (PCIe PERST#), will move it ACTIVE state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_pending_server_reboot, 0x18, 5, 1);
 
 /* mcqi_activation_method_pending_fw_reset
- * This component goes to ACTIVE_PENDING_RESET after 
- * activation.
- * A FW reset will move it to ACTIVE state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_pending_fw_reset, 0x18, 4, 1);
 
 /* mcqi_activation_method_auto_activate
- * This component will be ACTIVE or ACTIVE_PEND
- * ING_RESET after the APPLY state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_auto_activate, 0x18, 3, 1);
 
 /* mcqi_activation_method_all_hosts_sync
- * When set, the operation needed to move the component 
- * form ACTIVE_PENDING_RESET to ACTIVE should 
- * happen simultaneously on all hosts.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_all_hosts_sync, 0x18, 2, 1);
 
 /* mcqi_activation_method_device_hw_reset
- * This component goes to ACTIVE_PENDING_RESET after 
- * activation.
- * A HW reset will move it to ACTIVE state.
  * Access: RO
  */
 MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_device_hw_reset, 0x18, 1, 1);
@@ -8868,22 +5122,11 @@ MLXSW_ITEM8(reg, mcqi, mcqi_activation_method_device_hw_reset, 0x18, 1, 1);
  *
  */
 /* hlt_table_index
- * High Latency Table index
- * Range 0 .. 
- * cap_max_high_latency_table
- *  - 1
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, chltr, hlt_table_index, 0x3, 0, 8);
 
 /* high_latency_thr
- * High latency threshold
- * Units of 1uSec
- * Note: HW has latency measurement error of 
- *   
- * 250nSec
- * Note: packets with a latency larger than 4Sec latency may not be 
- * latency-mirrored. Thus it is recommended to set SLL to 4Sec
  * Access: RW
  */
 MLXSW_ITEM32(reg, chltr, high_latency_thr, 0x8, 0, 20);
@@ -8893,64 +5136,21 @@ MLXSW_ITEM32(reg, chltr, high_latency_thr, 0x8, 0, 20);
  *
  */
 /* module
- * Module number.
  * Access: INDEX
  */
 MLXSW_ITEM8(reg, pmtps, module, 0x1, 0, 8);
 
 /* module_type_admin
- * Module type enabled (bitmask):
- * Bit 0 - SMF (Single Mode Fiber) Module up to 500m
- * Bit 1 - SMF (Single Mode Fiber) Module between 500m and 2km
- * Bit 2 - SMF (Single Mode Fiber) Module above 2km
- * Bit 3 - MMF (Multi Mode Fiber) Module up to 100m
- * Bit 4 - MMF (Multi Mode Fiber) Module above 100m
- * Bit 5 - AOC / ACC up to 30m 
- * Bit 6 - AOC / ACC above 30m 
- * Bit 7 - Passive Copper
- * Bit 8 - Twisted Pair
- * Bit 9 - Backplane 
- * Set a value of 0xFFFF enables all PMDs type (including of unknowns 
- * types)
  * Access: RW
  */
 MLXSW_ITEM16(reg, pmtps, module_type_admin, 0xa, 0, 16);
 
 /* module_type_connected
- * Connected and operational PMD type:
- * 0x0 - Unknown / Not Connected
- * 0x1 - SMF (Single Mode Fiber) Module up to 500m
- * 0x2 - SMF (Single Mode Fiber) Module up to 2km
- * 0x4 - SMF (Single Mode Fiber) Module above 2km
- * 0x8 - MMF (Multi Mode Fiber) Module up to 100m
- * 0x10 - MMF (Multi Mode Fiber) Module above 100m
- * 0x20 - AOC / ACC up to 30m
- * 0x40 - AOC / ACC up to 30m
- * 0x80 - Passive copper 
- * 0x100 - Twisted Pair
- * 0x200 - Backplane
  * Access: RO
  */
 MLXSW_ITEM16(reg, pmtps, module_type_connected, 0xe, 0, 16);
 
 /* eth_module_c2m
- * Supported Module electrical interfaces: 
- * Bit 0 - SGMII_100M
- * Bit 1 - 1000BASE-X / SGMII
- * Bit 3 - 5GBASE-R
- * Bit 4 - XFI / SFI // 10G
- * Bit 5 - XLAUI-4/XLPPI-4 // 40G 
- * Bit 6 - 25GAUI-1/ 25GBASE-CR / KR 
- * Bit 7 - 50GAUI-2 / LAUI-2/ 50GBASE-CR2/KR2 
- * Bit 8 - 50GAUI-1 / LAUI-1/ 50GBASE-CR / KR
- * Bit 9 - CAUI-4 / 100GBASE-CR4 / KR4
- * Bit 10 - 100GAUI-2 / 100GBASE-CR2 / KR2 
- * Bit 11 - Reserved 
- * Bit 12 - 200GAUI-4 / 200GBASE-CR4/KR4
- * Bit 13 - Reserved 
- * Bit 14 - Reserved
- * Bit 15 - 400GAUI-8
- * Other - Reserved
  * Access: RO
  */
 MLXSW_ITEM32(reg, pmtps, eth_module_c2m, 0x10, 0, 32);

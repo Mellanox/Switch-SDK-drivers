@@ -814,6 +814,29 @@ typedef enum sxd_ppcnt_pnat {
     SXD_PPCNT_PNAT_OOB_PORT_NUMBER_E = 0x3
 } sxd_ppcnt_pnat_t;
 
+
+typedef enum sxd_ppcnt_grp {
+    SXD_PPCNT_GRP_IEEE_802_3_COUNTERS_E = 0x0,
+    SXD_PPCNT_GRP_RFC_2863_COUNTERS_E = 0x1,
+    SXD_PPCNT_GRP_RFC_2819_COUNTERS_E = 0x2,
+    SXD_PPCNT_GRP_RFC_3635_COUNTERS_E = 0x3,
+    SXD_PPCNT_GRP_ETHERNET_EXTENDED_COUNTERS_E = 0x5,
+    SXD_PPCNT_GRP_ETHERNET_DISCARD_COUNTERS_E = 0x6,
+    SXD_PPCNT_GRP_LINK_LEVEL_RETRANSMISSION_COUNTERS_E = 0x8,
+    SXD_PPCNT_GRP_PER_PRIORITY_COUNTERS_E = 0x10,
+    SXD_PPCNT_GRP_PER_TRAFFIC_CLASS_COUNTERS_E = 0x11,
+    SXD_PPCNT_GRP_PHYSICAL_LAYER_COUNTERS_E = 0x12,
+    SXD_PPCNT_GRP_PER_TRAFFIC_CLASS_CONGESTION_COUNTERS_E = 0x13,
+    SXD_PPCNT_GRP_PER_RECEIVE_BUFFER_COUNTERS_E = 0x15,
+    SXD_PPCNT_GRP_PHYSICAL_LAYER_STATISTICAL_COUNTERS_E = 0x16,
+    SXD_PPCNT_GRP_OUT_OF_BAND_PORT_COUNTERS_E = 0x19,
+    SXD_PPCNT_GRP_INFINIBAND_PORT_COUNTERS_E = 0x20,
+    SXD_PPCNT_GRP_INFINIBAND_EXTENDED_PORT_COUNTERS_E = 0x21,
+    SXD_PPCNT_GRP_PLR_COUNTERS_GROUP_E = 0x22,
+    SXD_PPCNT_GRP_RS_FEC_HISTOGRAM_GROUP_E = 0x23,
+    SXD_PPCNT_GRP_USR_XSR_PHYSICAL_LAYER_COUNTERS_GROUP_E = 0x24
+} sxd_ppcnt_grp_t;
+
 typedef struct sxd_ppcnt_eth_802_3_cntrs_grp_data_layout {
     uint32_t a_frames_transmitted_ok_high;
     uint32_t a_frames_transmitted_ok_low;
@@ -1036,6 +1059,21 @@ typedef struct sxd_ppcnt_eth_discard_cntrs_grp {
     uint32_t ingress_discard_all_low;
 } sxd_ppcnt_eth_discard_cntrs_grp_t;
 
+typedef struct sxd_ppcnt_link_level_retrans_cntr_grp_data {
+    uint32_t llr_rx_cells_high;
+    uint32_t llr_rx_cells_low;
+    uint32_t llr_rx_error_high;
+    uint32_t llr_rx_error_low;
+    uint32_t llr_rx_crc_error_high;
+    uint32_t llr_rx_crc_error_low;
+    uint32_t llr_tx_cells_high;
+    uint32_t llr_tx_cells_low;
+    uint32_t llr_tx_ret_cells_high;
+    uint32_t llr_tx_ret_cells_low;
+    uint32_t llr_tx_ret_events_high;
+    uint32_t llr_tx_ret_events_low;
+} sxd_ppcnt_link_level_retrans_cntr_grp_data_t;
+
 typedef struct sxd_ppcnt_eth_per_prio_grp_data_layout {
     uint32_t rx_octets_high;
     uint32_t rx_octets_low;
@@ -1081,48 +1119,6 @@ typedef struct sxd_ppcnt_eth_per_traffic_class_layout {
     uint32_t no_buffer_discard_uc_high;
     uint32_t no_buffer_discard_uc_low;
 } sxd_ppcnt_eth_per_traffic_class_layout_t;
-
-typedef struct sxd_ppcnt_eth_per_traffic_class_cong_layout {
-    uint32_t wred_discard_high;
-    uint32_t wred_discard_low;
-    uint32_t ecn_marked_tc_high;
-    uint32_t ecn_marked_tc_low;
-} sxd_ppcnt_eth_per_traffic_class_cong_layout_t;
-
-typedef struct sxd_ppcnt_link_level_retrans_cntr_grp_data {
-    uint32_t llr_rx_cells_high;
-    uint32_t llr_rx_cells_low;
-    uint32_t llr_rx_error_high;
-    uint32_t llr_rx_error_low;
-    uint32_t llr_rx_crc_error_high;
-    uint32_t llr_rx_crc_error_low;
-    uint32_t llr_tx_cells_high;
-    uint32_t llr_tx_cells_low;
-    uint32_t llr_tx_ret_cells_high;
-    uint32_t llr_tx_ret_cells_low;
-    uint32_t llr_tx_ret_events_high;
-    uint32_t llr_tx_ret_events_low;
-} sxd_ppcnt_link_level_retrans_cntr_grp_data_t;
-
-typedef struct sxd_ppcnt_IB_portcntrs_attribute_grp_data {
-    uint16_t symbol_error_counter;
-    uint8_t link_error_recovery_counter;
-    uint8_t link_downed_counter;
-    uint16_t port_rcv_errors;
-    uint16_t port_rcv_remote_physical_errors;
-    uint16_t port_rcv_switch_relay_errors;
-    uint16_t port_xmit_discards;
-    uint8_t port_xmit_constraint_errors;
-    uint8_t port_rcv_constraint_errors;
-    uint8_t local_link_integrity_errors;
-    uint8_t excessive_buffer_overrun_errors;
-    uint16_t vl_15_dropped;
-    uint32_t port_xmit_data;
-    uint32_t port_rcv_data;
-    uint32_t port_xmit_pkts;
-    uint32_t port_rcv_pkts;
-    uint32_t port_xmit_wait;
-} sxd_ppcnt_IB_portcntrs_attribute_grp_data_t;
 
 typedef struct sxd_ppcnt_phys_layer_cntrs {
     uint32_t time_since_last_clear_high;
@@ -1177,43 +1173,17 @@ typedef struct sxd_ppcnt_phys_layer_cntrs {
     uint32_t successful_recovery_events;
 } sxd_ppcnt_phys_layer_cntrs_t;
 
-typedef struct sxd_ppcnt_usr_xsr_physical_layer {
-    uint32_t time_since_last_clear_high;
-    uint32_t time_since_last_clear_low;
-    uint32_t fc_fec_corrected_blocks_lane0_high;
-    uint32_t fc_fec_corrected_blocks_lane0_low;
-    uint32_t fc_fec_corrected_blocks_lane1_high;
-    uint32_t fc_fec_corrected_blocks_lane1_low;
-    uint32_t fc_fec_corrected_blocks_lane2_high;
-    uint32_t fc_fec_corrected_blocks_lane2_low;
-    uint32_t fc_fec_corrected_blocks_lane3_high;
-    uint32_t fc_fec_corrected_blocks_lane3_low;
-    uint32_t fc_fec_corrected_blocks_lane4_high;
-    uint32_t fc_fec_corrected_blocks_lane4_low;
-    uint32_t fc_fec_corrected_blocks_lane5_high;
-    uint32_t fc_fec_corrected_blocks_lane5_low;
-    uint32_t fc_fec_corrected_blocks_lane6_high;
-    uint32_t fc_fec_corrected_blocks_lane6_low;
-    uint32_t fc_fec_corrected_blocks_lane7_high;
-    uint32_t fc_fec_corrected_blocks_lane7_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane0_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane0_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane1_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane1_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane2_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane2_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane3_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane3_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane4_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane4_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane5_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane5_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane6_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane6_low;
-    uint32_t fc_fec_uncorrectable_blocks_lane7_high;
-    uint32_t fc_fec_uncorrectable_blocks_lane7_low;
-    uint32_t link_down_events;
-} sxd_ppcnt_usr_xsr_physical_layer_t;
+typedef struct sxd_ppcnt_eth_per_traffic_class_cong_layout {
+    uint32_t wred_discard_high;
+    uint32_t wred_discard_low;
+    uint32_t ecn_marked_tc_high;
+    uint32_t ecn_marked_tc_low;
+} sxd_ppcnt_eth_per_traffic_class_cong_layout_t;
+
+typedef struct sxd_ppcnt_eth_per_receive_buffer_grp {
+    uint32_t rx_no_buffer_discard_uc_high;
+    uint32_t rx_no_buffer_discard_uc_low;
+} sxd_ppcnt_eth_per_receive_buffer_grp_t;
 
 typedef struct sxd_ppcnt_phys_layer_stat_cntrs {
     uint32_t time_since_last_clear_high;
@@ -1244,35 +1214,9 @@ typedef struct sxd_ppcnt_phys_layer_stat_cntrs {
     uint8_t raw_ber_coef;
     uint8_t effective_ber_magnitude;
     uint8_t effective_ber_coef;
+    uint8_t post_fec_ber_magnitude;
+    uint8_t post_fec_ber_coef;
 } sxd_ppcnt_phys_layer_stat_cntrs_t;
-
-typedef struct sxd_ppcnt_ppcnt_plr_counters {
-    uint32_t plr_rcv_codes_high;
-    uint32_t plr_rcv_codes_low;
-    uint32_t plr_rcv_code_err_high;
-    uint32_t plr_rcv_code_err_low;
-    uint32_t plr_rcv_uncorrectable_code_high;
-    uint32_t plr_rcv_uncorrectable_code_low;
-    uint32_t plr_xmit_codes_high;
-    uint32_t plr_xmit_codes_low;
-    uint32_t plr_xmit_retry_codes_high;
-    uint32_t plr_xmit_retry_codes_low;
-    uint32_t plr_xmit_retry_events_high;
-    uint32_t plr_xmit_retry_events_low;
-    uint32_t plr_sync_events_high;
-    uint32_t plr_sync_events_low;
-    uint32_t hi_retransmission_rate_high;
-    uint32_t hi_retransmission_rate_low;
-} sxd_ppcnt_ppcnt_plr_counters_t;
-
-typedef struct sxd_ppcnt_hist {
-    uint32_t hi;
-    uint32_t lo;
-} sxd_ppcnt_hist_t;
-
-typedef struct sxd_ppcnt_ppcnt_rs_fec_histograms_counters {
-    sxd_ppcnt_hist_t hist[SXD_PPCNT_HIST_NUM];
-} sxd_ppcnt_ppcnt_rs_fec_histograms_counters_t;
 
 typedef struct sxd_ppcnt_eth_oob_port_cntrs {
     uint32_t if_in_ucast_pkts_high;
@@ -1311,6 +1255,137 @@ typedef struct sxd_ppcnt_eth_oob_port_cntrs {
     uint32_t phy_symbol_errors_low;
 } sxd_ppcnt_eth_oob_port_cntrs_t;
 
+typedef struct sxd_ppcnt_IB_portcntrs_attribute_grp_data {
+    uint16_t symbol_error_counter;
+    uint8_t link_error_recovery_counter;
+    uint8_t link_downed_counter;
+    uint16_t port_rcv_errors;
+    uint16_t port_rcv_remote_physical_errors;
+    uint16_t port_rcv_switch_relay_errors;
+    uint16_t port_xmit_discards;
+    uint8_t port_xmit_constraint_errors;
+    uint8_t port_rcv_constraint_errors;
+    uint8_t local_link_integrity_errors;
+    uint8_t excessive_buffer_overrun_errors;
+    uint16_t vl_15_dropped;
+    uint32_t port_xmit_data;
+    uint32_t port_rcv_data;
+    uint32_t port_xmit_pkts;
+    uint32_t port_rcv_pkts;
+    uint32_t port_xmit_wait;
+} sxd_ppcnt_IB_portcntrs_attribute_grp_data_t;
+
+typedef struct sxd_ppcnt_IB_long_portcntrs_attribute_grp_data {
+    uint32_t symbol_error_counter_high;
+    uint32_t symbol_error_counter_low;
+    uint32_t link_error_recovery_counter_high;
+    uint32_t link_error_recovery_counter_low;
+    uint32_t link_downed_counter_high;
+    uint32_t link_downed_counter_low;
+    uint32_t port_rcv_errors_high;
+    uint32_t port_rcv_errors_low;
+    uint32_t port_rcv_remote_physical_errors_high;
+    uint32_t port_rcv_remote_physical_errors_low;
+    uint32_t port_rcv_switch_relay_errors_high;
+    uint32_t port_rcv_switch_relay_errors_low;
+    uint32_t port_xmit_discards_high;
+    uint32_t port_xmit_discards_low;
+    uint32_t port_xmit_constraint_errors_high;
+    uint32_t port_xmit_constraint_errors_low;
+    uint32_t port_rcv_constraint_errors_high;
+    uint32_t port_rcv_constraint_errors_low;
+    uint32_t local_link_integrity_errors_high;
+    uint32_t local_link_integrity_errors_low;
+    uint32_t excessive_buffer_overrun_errors_high;
+    uint32_t excessive_buffer_overrun_errors_low;
+    uint32_t vl_15_dropped_high;
+    uint32_t vl_15_dropped_low;
+    uint32_t port_xmit_data_high;
+    uint32_t port_xmit_data_low;
+    uint32_t port_rcv_data_high;
+    uint32_t port_rcv_data_low;
+    uint32_t port_xmit_pkts_high;
+    uint32_t port_xmit_pkts_low;
+    uint32_t port_rcv_pkts_high;
+    uint32_t port_rcv_pkts_low;
+    uint32_t port_xmit_wait_high;
+    uint32_t port_xmit_wait_low;
+    uint32_t port_effective_rcv_pkts_high;
+    uint32_t port_effective_rcv_pkts_low;
+    uint32_t port_effective_rcv_data_high;
+    uint32_t port_effective_rcv_data_low;
+} sxd_ppcnt_IB_long_portcntrs_attribute_grp_data_t;
+
+typedef struct sxd_ppcnt_ppcnt_plr_counters {
+    uint32_t plr_rcv_codes_high;
+    uint32_t plr_rcv_codes_low;
+    uint32_t plr_rcv_code_err_high;
+    uint32_t plr_rcv_code_err_low;
+    uint32_t plr_rcv_uncorrectable_code_high;
+    uint32_t plr_rcv_uncorrectable_code_low;
+    uint32_t plr_xmit_codes_high;
+    uint32_t plr_xmit_codes_low;
+    uint32_t plr_xmit_retry_codes_high;
+    uint32_t plr_xmit_retry_codes_low;
+    uint32_t plr_xmit_retry_events_high;
+    uint32_t plr_xmit_retry_events_low;
+    uint32_t plr_sync_events_high;
+    uint32_t plr_sync_events_low;
+    uint32_t hi_retransmission_rate_high;
+    uint32_t hi_retransmission_rate_low;
+    uint32_t plr_xmit_retry_codes_within_t_sec_max_high;
+    uint32_t plr_xmit_retry_codes_within_t_sec_max_low;
+    uint8_t pre_plr_ber_magnitude;
+    uint8_t pre_plr_ber_coef;
+} sxd_ppcnt_ppcnt_plr_counters_t;
+
+typedef struct sxd_ppcnt_hist {
+    uint32_t hi;
+    uint32_t lo;
+} sxd_ppcnt_hist_t;
+
+typedef struct sxd_ppcnt_ppcnt_rs_fec_histograms_counters {
+    sxd_ppcnt_hist_t hist[SXD_PPCNT_HIST_NUM];
+} sxd_ppcnt_ppcnt_rs_fec_histograms_counters_t;
+
+typedef struct sxd_ppcnt_usr_xsr_physical_layer {
+    uint32_t time_since_last_clear_high;
+    uint32_t time_since_last_clear_low;
+    uint32_t fc_fec_corrected_blocks_lane0_high;
+    uint32_t fc_fec_corrected_blocks_lane0_low;
+    uint32_t fc_fec_corrected_blocks_lane1_high;
+    uint32_t fc_fec_corrected_blocks_lane1_low;
+    uint32_t fc_fec_corrected_blocks_lane2_high;
+    uint32_t fc_fec_corrected_blocks_lane2_low;
+    uint32_t fc_fec_corrected_blocks_lane3_high;
+    uint32_t fc_fec_corrected_blocks_lane3_low;
+    uint32_t fc_fec_corrected_blocks_lane4_high;
+    uint32_t fc_fec_corrected_blocks_lane4_low;
+    uint32_t fc_fec_corrected_blocks_lane5_high;
+    uint32_t fc_fec_corrected_blocks_lane5_low;
+    uint32_t fc_fec_corrected_blocks_lane6_high;
+    uint32_t fc_fec_corrected_blocks_lane6_low;
+    uint32_t fc_fec_corrected_blocks_lane7_high;
+    uint32_t fc_fec_corrected_blocks_lane7_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane0_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane0_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane1_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane1_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane2_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane2_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane3_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane3_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane4_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane4_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane5_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane5_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane6_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane6_low;
+    uint32_t fc_fec_uncorrectable_blocks_lane7_high;
+    uint32_t fc_fec_uncorrectable_blocks_lane7_low;
+    uint32_t link_down_events;
+} sxd_ppcnt_usr_xsr_physical_layer_t;
+
 union ppcnt_counter_set {
     sxd_ppcnt_eth_802_3_cntrs_grp_data_layout_t eth_802_3_cntrs_grp_data_layout;
     sxd_ppcnt_eth_2863_cntrs_grp_data_layout_t eth_2863_cntrs_grp_data_layout;
@@ -1318,17 +1393,19 @@ union ppcnt_counter_set {
     sxd_ppcnt_eth_3635_cntrs_grp_data_layout_t eth_3635_cntrs_grp_data_layout;
     sxd_ppcnt_eth_extended_cntrs_grp_data_layout_t eth_extended_cntrs_grp_data_layout;
     sxd_ppcnt_eth_discard_cntrs_grp_t eth_discard_cntrs_grp;
+    sxd_ppcnt_link_level_retrans_cntr_grp_data_t link_level_retrans_cntr_grp_data;
     sxd_ppcnt_eth_per_prio_grp_data_layout_t eth_per_prio_grp_data_layout;
     sxd_ppcnt_eth_per_traffic_class_layout_t eth_per_traffic_class_layout;
-    sxd_ppcnt_eth_per_traffic_class_cong_layout_t eth_per_traffic_class_cong_layout;
-    sxd_ppcnt_link_level_retrans_cntr_grp_data_t link_level_retrans_cntr_grp_data;
-    sxd_ppcnt_IB_portcntrs_attribute_grp_data_t IB_portcntrs_attribute_grp_data;
     sxd_ppcnt_phys_layer_cntrs_t phys_layer_cntrs;
-    sxd_ppcnt_usr_xsr_physical_layer_t usr_xsr_physical_layer;
+    sxd_ppcnt_eth_per_traffic_class_cong_layout_t eth_per_traffic_class_cong_layout;
+    sxd_ppcnt_eth_per_receive_buffer_grp_t eth_per_receive_buffer_grp;
     sxd_ppcnt_phys_layer_stat_cntrs_t phys_layer_stat_cntrs;
+    sxd_ppcnt_eth_oob_port_cntrs_t eth_oob_port_cntrs;
+    sxd_ppcnt_IB_portcntrs_attribute_grp_data_t IB_portcntrs_attribute_grp_data;
+    sxd_ppcnt_IB_long_portcntrs_attribute_grp_data_t IB_long_portcntrs_attribute_grp_data;
     sxd_ppcnt_ppcnt_plr_counters_t ppcnt_plr_counters;
     sxd_ppcnt_ppcnt_rs_fec_histograms_counters_t ppcnt_rs_fec_histograms_counters;
-    sxd_ppcnt_eth_oob_port_cntrs_t eth_oob_port_cntrs;
+    sxd_ppcnt_usr_xsr_physical_layer_t usr_xsr_physical_layer;
 };
 
 /**
@@ -1338,7 +1415,8 @@ struct ku_ppcnt_reg {
     uint8_t swid;
     uint8_t local_port;
     sxd_ppcnt_pnat_t pnat;
-    uint8_t grp;
+    uint8_t port_type;
+    sxd_ppcnt_grp_t grp;
     uint8_t clr;
     uint8_t prio_tc;
     union ppcnt_counter_set counter_set;
