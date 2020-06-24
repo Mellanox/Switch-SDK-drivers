@@ -610,6 +610,23 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
 
         skb = dq->sge[idx].skb;
 
+        if (!skb) {
+            /* if we get here, most probably that some other RX flow is handling this RDQ and is in the middle
+             * of preparing a new skb (post_skb() or sx_core_post_recv()). If that happens, just skip.
+             */
+            if (printk_ratelimit()) {
+                printk(KERN_NOTICE "WJH: skipping NULL RDQ entry, maybe RDQ is also handled elsewhere "
+                       "[rdq=%u, idx=%u, mon_rx_start=%u, mon_rx_count=%u]\n",
+                       dq->dqn,
+                       idx,
+                       mon_rx_start,
+                       mon_rx_count);
+            }
+
+            i++;
+            continue;
+        }
+
         /* Check if the packet is marked to be dropped, skip it */
         if (skb->mark == SKB_MARK_DROP) {
             i++;
@@ -1727,6 +1744,7 @@ long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsi
     unsigned long                             flags;
     int                                       err = 0;
     struct bpf_prog                          *bpf_prog_p = NULL;
+    int                                       i = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1791,6 +1809,15 @@ long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsi
         }
         bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq]);
         sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq] = NULL;
+        /* Unlike the normal RDQ, the skb buffer for monitor RDQ is reused.
+         * When we detach a filter from an RDQ, we need to check if there is any associated skb buffer which has the mark set to drop.
+         * If so, we need to set the skb mark back to default value 0 in case it affects the future packet which reuses the skb buffer.
+         */
+        for (i = 0; i < dq->wqe_cnt; i++) {
+            if (dq->sge[i].skb->mark == SKB_MARK_DROP) {
+                dq->sge[i].skb->mark = 0;
+            }
+        }
     }
 
     spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);

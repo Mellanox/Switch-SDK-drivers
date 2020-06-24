@@ -2137,6 +2137,13 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
             }
             idx = i % rdq->wqe_cnt;
             skb = rdq->sge[idx].skb;
+            /* Unlike the normal RDQ, the skb buffer for monitor RDQ is reused.
+             * We need to set the skb mark back to default value 0 if it is already
+             * set to drop for the previous packet which used this skb buffer.
+             */
+            if (skb->mark == SKB_MARK_DROP) {
+                skb->mark = 0;
+            }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
             should_drop = 0;
