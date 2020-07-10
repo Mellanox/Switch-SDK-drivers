@@ -415,15 +415,19 @@ struct sx_wqe {
 };
 struct sx_pkt {
     struct sk_buff  *skb;
-    struct list_head list;
+    struct list_head list_send_to_sdq;
     u8               set_lp;
     enum ku_pkt_type type;
+    struct list_head list_wait_for_completion;
+    unsigned long    since;
+    u16              idx;
 };
 enum dq_state {
     DQ_STATE_FREE,
     DQ_STATE_RESET,
     DQ_STATE_RTS,
     DQ_STATE_ERROR,
+    DQ_STATE_STUCK,
 };
 struct sx_dq {
     void                    (*event)(struct sx_dq *, enum sx_event);
@@ -441,7 +445,13 @@ struct sx_dq {
     wait_queue_head_t       tx_full_wait; /* Not sure we need it */
     __be32                 *db;
     int                     is_flushing;
-    struct sx_pkt           pkts_list;
+    struct sx_pkt           pkts_list; /* Send only */
+    struct sx_pkt           pkts_comp_list; /* Send only */
+    atomic64_t              pkts_sent_to_sdq; /* Send only */
+    atomic64_t              pkts_removed_from_sdq; /* Send only */
+    atomic64_t              pkts_recv_completion; /* Send only */
+    atomic64_t              pkts_no_rev_completion; /* Send only */
+    atomic64_t              pkts_late_completion; /* Send only */
     enum dq_state           state;
     atomic_t                refcount;
     struct completion       free;
@@ -499,8 +509,10 @@ struct sx_fw {
     u8             doorbell_page_bar;
     u64            frc_offset;
     u8             frc_bar;
-    u64            utc_offset;
-    u8             utc_bar;
+    u64            utc_sec_offset;
+    u8             utc_sec_bar;
+    u64            utc_nsec_offset;
+    u8             utc_nsec_bar;
     u16            core_clock;
     struct sx_icm *fw_icm;
     u16            fw_pages;
@@ -662,11 +674,16 @@ struct sx_priv {
     void __iomem              *clr_base;
     union swid_data            swid_data[NUMBER_OF_SWIDS];
     struct ku_l2_tunnel_params l2_tunnel_params;
+    struct delayed_work        sdq_completion_gc_dwork;
+    int                        pause_cqn;
+    u8                         pause_cqn_completed;
+    struct completion          pause_cqn_completion;
 
     /* PTP clock */
     struct sx_tstamp tstamp;
     void __iomem    *hw_clock_frc_base;
-    void __iomem    *hw_clock_utc_base;
+    void __iomem    *hw_clock_utc_sec;
+    void __iomem    *hw_clock_utc_nsec;
     int              ptp_cqn;
 
     /* IB only */
@@ -719,7 +736,8 @@ struct sx_priv {
     struct tasklet_struct intr_tasklet;
     u32                   monitor_rdqs_arr[MAX_MONITOR_RDQ_NUM];
     u32                   monitor_rdqs_count;
-    struct sx_bitmap      active_monitor_cq_bitmap;      /* WJH CQs that hold CQEs to handle */
+    struct sx_bitmap      monitor_cq_bitmap;        /* WJH CQs */
+    struct sx_bitmap      active_monitor_cq_bitmap; /* WJH CQs that hold CQEs to handle */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     struct bpf_prog* filter_ebpf_progs[NUMBER_OF_RDQS];
 #endif

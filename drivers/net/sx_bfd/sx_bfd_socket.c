@@ -363,7 +363,7 @@ int sk_thread_sockets_scheduler(void *data)
     struct sx_bfd_rx_socket_user_info *user_info = NULL;
 
     scheduler.scheduler_thread_active = 1;
-    
+
     while (scheduler.scheduler_thread_active) {
         /* Lock scheduler DS from other manipulation on this DS */
         spin_lock_bh(&scheduler.scheduler_lock);
@@ -667,7 +667,9 @@ int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
     if (t_sock->ops->bind(t_sock,
                           local_addr,
                           addr_size) < 0) {
-        printk(KERN_DEBUG "Failed to bind BFD socket, continue without socket bind. \n");
+        printk(KERN_ERR "Failed to bind BFD socket, non exist IP address.\n");
+        err = -EIO;
+        goto bail;
     }
 
     /* set TTL */

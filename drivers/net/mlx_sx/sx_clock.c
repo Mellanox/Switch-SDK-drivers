@@ -65,14 +65,29 @@ static int __sx_clock_init(struct sx_priv *priv)
         goto out;
     }
 
-    /* This is a WA for SPC3, the UTC offset is not initialized in QUERY_FW
-     * Once FW fixes this, this code must be removed!!! */
-    if (priv->fw.utc_offset == 0) {
-        priv->fw.utc_offset = 0xf1fb0;
+    priv->hw_clock_frc_base = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.frc_bar) +
+                                      priv->fw.frc_offset, 8);
+    if (!priv->hw_clock_frc_base) {
+        printk(KERN_ERR "could not remap FRC register\n");
+        err = -ENOMEM;
+        goto out;
     }
 
-    priv->hw_clock_frc_base = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.frc_bar) + priv->fw.frc_offset, 8);
-    priv->hw_clock_utc_base = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.utc_bar) + priv->fw.utc_offset, 8);
+    priv->hw_clock_utc_sec = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.utc_sec_bar) +
+                                     priv->fw.utc_sec_offset, 4);
+    if (!priv->hw_clock_utc_sec) {
+        printk(KERN_ERR "could not remap UTC-sec register\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    priv->hw_clock_utc_nsec = ioremap(pci_resource_start(priv->dev.pdev, priv->fw.utc_nsec_bar) +
+                                      priv->fw.utc_nsec_offset, 4);
+    if (!priv->hw_clock_utc_nsec) {
+        printk(KERN_ERR "could not remap UTC-nsec register\n");
+        err = -ENOMEM;
+        goto out;
+    }
 
     sx_clock_log_init(&__log_settime);
     sx_clock_log_init(&__log_adjfreq);
@@ -97,9 +112,14 @@ out:
             priv->hw_clock_frc_base = NULL;
         }
 
-        if (priv->hw_clock_utc_base) {
-            iounmap(priv->hw_clock_utc_base);
-            priv->hw_clock_utc_base = NULL;
+        if (priv->hw_clock_utc_sec) {
+            iounmap(priv->hw_clock_utc_sec);
+            priv->hw_clock_utc_sec = NULL;
+        }
+
+        if (priv->hw_clock_utc_nsec) {
+            iounmap(priv->hw_clock_utc_nsec);
+            priv->hw_clock_utc_nsec = NULL;
         }
     }
 
@@ -123,7 +143,8 @@ static int __sx_clock_deinit(struct sx_priv *priv)
 
     destroy_workqueue(__clock_wq);
     iounmap(priv->hw_clock_frc_base);
-    iounmap(priv->hw_clock_utc_base);
+    iounmap(priv->hw_clock_utc_sec);
+    iounmap(priv->hw_clock_utc_nsec);
     return 0;
 }
 

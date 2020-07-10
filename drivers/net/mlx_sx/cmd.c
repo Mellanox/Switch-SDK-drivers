@@ -53,7 +53,8 @@
  *  Definitions
  ***********************************************/
 
-#define CMD_POLL_TOKEN 0xffff
+#define CMD_POLL_TOKEN               0xffff
+#define DEV_STUCK_DURATION_TOLERANCE (5 * 60) /* 5 minutes */
 
 /************************************************
  *  Globals
@@ -414,6 +415,14 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
 
     mutex_lock(&cmd->hcr_mutex);
 
+    if (dev->dev_stuck && time_after(jiffies, (dev->dev_stuck_time + DEV_STUCK_DURATION_TOLERANCE * HZ))) {
+        if (printk_ratelimit()) {
+            printk(KERN_ERR "Device %d is considered FATAL from previous command!\n", dev->device_id);
+        }
+
+        goto out;
+    }
+
     err = wait_for_cmd_pending(dev, dev->device_id, DPT_PATH_PCI_E, op, (event ? GO_BIT_TIMEOUT_MSECS : 0));
     if (-ETIMEDOUT == err) {
         if (!dev->dev_stuck) {
@@ -421,6 +430,7 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
                    dev->device_id, cmd_str(op));
 
             dev->dev_stuck = 1;
+            dev->dev_stuck_time = jiffies;
         }
 
         goto out;
@@ -431,6 +441,7 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
                dev->device_id);
 
         dev->dev_stuck = 0;
+        dev->dev_stuck_time = 0;
     }
 
     /*

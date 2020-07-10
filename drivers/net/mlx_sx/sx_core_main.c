@@ -295,9 +295,13 @@ char chip_info_psid[16] = "";
 module_param_string(chip_info_psid, chip_info_psid, 16, 0444);
 MODULE_PARM_DESC(chip_info_psid, "chip_info: psid");
 
-int enable_cpu_port_loopback = 0;
+int enable_cpu_port_loopback = 0; /* ONLY FOR DEBUG */
 module_param_named(enable_cpu_port_loopback, enable_cpu_port_loopback, int, 0644);
 MODULE_PARM_DESC(enable_cpu_port_loopback, " Enable / Disable loopback on cpu port");
+
+int enable_keep_packet_crc = 0; /* ONLY FOR DEBUG */
+module_param_named(enable_keep_packet_crc, enable_keep_packet_crc, int, 0644);
+MODULE_PARM_DESC(enable_keep_packet_crc, "Enable/Disable receiving RX packet including the CRC field");
 
 int mon_cq_thread_delay_time_usec = 20;
 module_param_named(mon_cq_thread_delay_time_usec, mon_cq_thread_delay_time_usec, int, 0644);
@@ -3104,7 +3108,7 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
     .is_eqn_cmd_ifc_only_cb = NULL,
-    .sx_clock_init = sx_clock_init_spc3,
+    .sx_clock_init = sx_clock_init_spc2,
     .sx_clock_cleanup = sx_clock_cleanup_spc2,
     .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
     .sx_clock_dump = sx_clock_dump_spc2
@@ -3972,10 +3976,10 @@ static int sx_core_init_cb(struct sx_dev *dev, uint16_t device_id, uint16_t devi
 
 static int sx_init_board(struct sx_dev *dev)
 {
-    struct sx_board           board;
-    int                       err;
-    struct ku_access_mgir_reg reg_data;
-    int                       retry_num = 0;
+    int                        err;
+    struct ku_query_board_info board;
+    struct ku_access_mgir_reg  reg_data;
+    int                        retry_num = 0;
 
     /*
      *   This is a workaround to race condition happens when FW
@@ -4067,6 +4071,9 @@ static int sx_init_board(struct sx_dev *dev)
         goto err_stop_fw;
     }
 
+    dev->xm_exists = board.xm_exists;
+    dev->xm_num_local_ports = board.xm_num_local_ports;
+    memcpy(dev->xm_local_ports, board.xm_local_ports, sizeof(dev->xm_local_ports));
     sx_priv(dev)->eq_table.inta_pin = board.inta_pin;
     memcpy(dev->board_id, board.board_id, sizeof(dev->board_id));
     dev->vsd_vendor_id = board.vsd_vendor_id;
@@ -4406,6 +4413,7 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
 
     dev->global_flushing = 0;
     dev->dev_stuck = 0;
+    dev->dev_stuck_time = 0;
     sx_core_start_catas_poll(dev);
 
     if (__oob_pci) {
@@ -4545,6 +4553,7 @@ int sx_core_init_one(struct sx_priv **sx_priv)
     atomic_set(&priv->cq_backup_polling_refcnt, 0);
     atomic_set(&priv->dev_specific_cb_refcnt, 0);
     init_waitqueue_head(&priv->dev_specific_cb_not_in_use);
+    priv->pause_cqn = -1;
 
     err = sx_core_catas_init(dev);
     if (err) {

@@ -118,6 +118,7 @@ extern int               cpu_traffic_priority_disrupt_low_prio_upon_stress_delay
 extern int               mon_cq_thread_delay_time_usec;
 extern int               enable_monitor_rdq_trace_points;
 extern int               enable_cpu_port_loopback;
+extern int               enable_keep_packet_crc;
 unsigned int             credit_thread_vals[1001] = {0};
 unsigned int             arr_count = 0;
 atomic_t                 cq_backup_polling_enabled = ATOMIC_INIT(1);
@@ -829,6 +830,7 @@ int rx_skb(void                         *context,
     u8                      dqn = 0, cqn = 0;
     u16                     truncate_size = 0;
     u8                      crc_present = 0;
+    u8                      remove_crc = 0;
     struct sx_dev         * sx_device = (struct sx_dev *)context;
     u8                      swid = 0;
     u8                      is_from_rp = IS_RP_DONT_CARE_E;
@@ -864,6 +866,8 @@ int rx_skb(void                         *context,
                                                      &crc_present);
 
     __sx_core_dev_specific_cb_release_reference(sx_device);
+
+    remove_crc = (crc_present && !enable_keep_packet_crc);
 
     /* TODO: WA because LP packets return with hw_synd = 0 */
     if (!hw_synd) {
@@ -1024,7 +1028,7 @@ int rx_skb(void                         *context,
                 skb->len = truncate_size;
             }
 
-            if (crc_present) {
+            if (remove_crc) {
                 ci->original_packet_size -= ETH_CRC_LENGTH;
 
                 if (!truncate_size) {
@@ -1078,10 +1082,10 @@ int rx_skb(void                         *context,
             ci->vid = get_vid_from_db((struct sx_dev *)context,
                                       ci->is_lag, ci->sysport);
         }
-        if (crc_present) {
+        if (remove_crc) {
             ci->original_packet_size -= ETH_CRC_LENGTH;
         }
-        if (crc_present && !truncate_size) {
+        if (remove_crc && !truncate_size) {
             skb->len -= ETH_CRC_LENGTH;
         }
 
@@ -1137,7 +1141,7 @@ int rx_skb(void                         *context,
 
         /* Extract the IB port from the sysport */
         ci->sysport = (ci->sysport >> 4) & 0x7f;
-        if (crc_present && !truncate_size) {
+        if (remove_crc && !truncate_size) {
             skb->len -= IB_CRC_LENGTH;
         }
         break;
@@ -1511,6 +1515,9 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
     u16                    sysport_lag_id = 0;
     u8                     mirror_reason = 0;
     struct sx_rx_timestamp cqe_ts, rx_timestamp;
+    struct sx_pkt         *curr_pkt;
+    struct list_head      *pos, *q;
+    u8                     found = 0;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     int should_drop = 0;
@@ -1608,19 +1615,39 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
          * the write-semaphore for ETH packets, or call gen_completion
          * for IB packets. */
         do {
+            found = 0;
             idx = dq->tail++ & (dq->wqe_cnt - 1);
             dq->last_completion = jiffies;
             wqe_sync_for_cpu(dq, idx);
 
             /* if it is a TX PTP packet, put the timestamp skb */
             if ((cqe_ts.ts_type != SXD_TS_TYPE_NONE) &&
+                (dq->sge[idx].skb != NULL) &&
                 (skb_shinfo(dq->sge[idx].skb)->tx_flags & SKBTX_IN_PROGRESS)) {
                 sx_core_clock_cqe_ts_to_utc(priv, &cqe_ts.timestamp, &cqe_ts.timestamp);
                 sx_core_ptp_tx_ts_handler(priv, dq->sge[idx].skb, &cqe_ts.timestamp);
             }
 
-            sx_skb_free(dq->sge[idx].skb);
-            dq->sge[idx].skb = NULL;
+            list_for_each_safe(pos, q, &dq->pkts_comp_list.list_wait_for_completion) {
+                curr_pkt = list_entry(pos, struct sx_pkt, list_wait_for_completion);
+                if (curr_pkt->idx == idx) {
+                    list_del(pos);
+                    kfree(curr_pkt);
+                    atomic64_inc(&dq->pkts_recv_completion);
+                    sx_skb_free(dq->sge[idx].skb);
+                    dq->sge[idx].skb = NULL;
+                    found = 1;
+                    break;
+                }
+            }
+
+            if (found == 0) {
+                if (printk_ratelimit()) {
+                    sx_err(cq->sx_dev, "Receive late completion for dqn (%d) idx (%d)\n",
+                           dqn, idx);
+                }
+                atomic64_inc(&dq->pkts_late_completion);
+            }
         } while (idx != wqe_ctr);
 
         if ((0 == cq->sx_dev->global_flushing) && (0 == dq->is_flushing)) {
@@ -1757,14 +1784,15 @@ int sx_cq_completion(struct sx_dev         *dev,
                      const struct timespec *timestamp,
                      struct sx_bitmap      *prio_bitmap)
 {
-    struct sx_cq *cq;
-    unsigned long flags;
-    int           num_of_cqes = 0;
-    int           err = 0;
+    struct sx_priv *priv = sx_priv(dev);
+    struct sx_cq   *cq;
+    unsigned long   flags;
+    int             num_of_cqes = 0;
+    int             err = 0;
 
-    spin_lock_irqsave(&sx_priv(dev)->cq_table.lock, flags);
-    cq = (sx_priv(dev)->cq_table.cq[cqn]);
-    spin_unlock_irqrestore(&sx_priv(dev)->cq_table.lock, flags);
+    spin_lock_irqsave(&priv->cq_table.lock, flags);
+    cq = (priv->cq_table.cq[cqn]);
+    spin_unlock_irqrestore(&priv->cq_table.lock, flags);
     if (!cq) {
         if (printk_ratelimit()) {
             sx_warn(dev, "Completion event for bogus CQ %08x\n", cqn);
@@ -1785,9 +1813,18 @@ int sx_cq_completion(struct sx_dev         *dev,
         }
     } while (!err && ++num_of_cqes < weight);
 
-    if (num_of_cqes < weight) {
+    /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if ((priv->pause_cqn == cqn) || (num_of_cqes < weight)) {
         sx_bitmap_free(prio_bitmap, cqn);
         sx_cq_arm(cq);
+
+        if (priv->pause_cqn == cqn) {
+            /* make sure that the next time tasklet runs, the CQ bit in 'active_bitmap' will be off.
+             * this will ensure to signal [complete()] the ioctl() command that waits for us.
+             * for more details of the flow, read the big comment in ctrl_cmd_set_monitor_rdq().
+             */
+            tasklet_schedule(&priv->intr_tasklet);
+        }
     }
 
     if (!err || (err == -EAGAIN)) {
@@ -2096,11 +2133,22 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     }
 
     /* valid cqes is cqes between cons_index and producer_index */
-    if (cq_context.producer_counter == cq->cons_index) {
+    /* for more details about 'priv->pause_cqn' role, read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if ((priv->pause_cqn == cqn) || (cq_context.producer_counter == cq->cons_index)) {
         /* No packets was received so
          * arm cq so next time we will be waked up from interrupt */
         rx_cnt = 0;
+        sx_bitmap_free(&priv->active_monitor_cq_bitmap, cqn);
         sx_cq_arm(cq);
+
+        if (priv->pause_cqn == cqn) {
+            /* make sure that the next time tasklet runs, the CQ bit in 'active_bitmap' will be off.
+             * this will ensure to signal [complete()] the ioctl() command that waits for us.
+             * for more details of the flow, read the big comment in ctrl_cmd_set_monitor_rdq().
+             */
+            tasklet_schedule(&priv->intr_tasklet);
+        }
+
         goto out;
     }
 
@@ -2332,9 +2380,15 @@ int __cpu_traffic_priority_init(struct sx_dev *dev, struct cpu_traffic_priority 
         goto out;
     }
 
-    err = sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    err = sx_bitmap_init(&sx_priv(dev)->monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
     if (err) {
         printk(KERN_ERR PFX "Monitor RDQ bitmap init failed. Aborting...\n");
+        goto out;
+    }
+
+    err = sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    if (err) {
+        printk(KERN_ERR PFX "Active monitor RDQ bitmap init failed. Aborting...\n");
         goto out;
     }
 
@@ -2354,9 +2408,14 @@ out:
 
 void __cpu_traffic_priority_deinit(struct sx_dev *dev, struct cpu_traffic_priority *cpu_traffic_prio)
 {
+    int err;
+
     /* clean all monitor cqs so on unload it will be handled in regular way and
      * not by __monitor_cq_handler_thread */
-    sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    err = sx_bitmap_init(&sx_priv(dev)->monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    if (err) {
+        printk(KERN_ERR PFX "Monitor RDQ bitmap init failed.\n");
+    }
 
     if (cpu_traffic_prio->monitor_cq_thread) {
         cpu_traffic_prio->monitor_cq_thread_alive = 0;

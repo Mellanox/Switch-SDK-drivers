@@ -179,6 +179,8 @@ static const char * const sxd_trap_id_str_s[] = {
 
     /* IPv6 L3 */
     [SXD_TRAP_ID_IPV6_UNSPECIFIED_ADDRESS] = "SXD_IPV6_UNSPEC_ADDR",
+    [SXD_TRAP_ID_IPV6_UNSPECIFIED_SIP] = "SXD_IPV6_UNSPEC_SIP",
+    [SXD_TRAP_ID_IPV6_UNSPECIFIED_DIP] = "SXD_IPV6_UNSPEC_DIP",
     [SXD_TRAP_ID_IPV6_LINK_LOCAL_DST] = "SXD_IPV6_LINK_LOCAL_DST",
     [SXD_TRAP_ID_IPV6_LINK_LOCAL_SRC] = "SXD_IPV6_LINK_LOCAL_SRC",
     [SXD_TRAP_ID_IPV6_ALL_NODES_LINK] = "SXD_IPV6_ALL_NODES_LINK",
@@ -350,9 +352,30 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_BFD_TIMEOUT_EVENT] = "SXD_SW_EV_BFD_TIMEOUT_EVENT",
     [SXD_TRAP_ID_BFD_PACKET_EVENT] = "SXD_SW_EV_BFD_PACKET_EVENT",
 
+
     /* User defined trap ID */
     [SXD_TRAP_ID_IP2ME_CUSTOM0] = "SXD_IP2ME_CUSTOM0",
     [SXD_TRAP_ID_IP2ME_CUSTOM1] = "SXD_IP2ME_CUSTOM1",
+
+    [SXD_TRAP_ID_CONFT_SWITCH0] = "SXD_TRAP_ID_CONFT_SWITCH0",
+    [SXD_TRAP_ID_CONFT_SWITCH1] = "SXD_TRAP_ID_CONFT_SWITCH1",
+    [SXD_TRAP_ID_CONFT_SWITCH2] = "SXD_TRAP_ID_CONFT_SWITCH2",
+    [SXD_TRAP_ID_CONFT_SWITCH3] = "SXD_TRAP_ID_CONFT_SWITCH3",
+
+    [SXD_TRAP_ID_CONFT_ROUTER0] = "SXD_TRAP_ID_CONFT_ROUTER0",
+    [SXD_TRAP_ID_CONFT_ROUTER1] = "SXD_TRAP_ID_CONFT_ROUTER1",
+    [SXD_TRAP_ID_CONFT_ROUTER2] = "SXD_TRAP_ID_CONFT_ROUTER2",
+    [SXD_TRAP_ID_CONFT_ROUTER3] = "SXD_TRAP_ID_CONFT_ROUTER3",
+
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC0] = "SXD_TRAP_ID_CONFT_SWITCH_ENC0",
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC1] = "SXD_TRAP_ID_CONFT_SWITCH_ENC1",
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC2] = "SXD_TRAP_ID_CONFT_SWITCH_ENC2",
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC3] = "SXD_TRAP_ID_CONFT_SWITCH_ENC3",
+
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC0] = "SXD_TRAP_ID_CONFT_SWITCH_DEC0",
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC1] = "SXD_TRAP_ID_CONFT_SWITCH_DEC1",
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC2] = "SXD_TRAP_ID_CONFT_SWITCH_DEC2",
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC3] = "SXD_TRAP_ID_CONFT_SWITCH_DEC3",
 
     [SXD_TRAP_ID_MAX + 1] = "SXD_UNKNOWN",                               /**< MAXIMUM TRAP ID */
 };
@@ -383,12 +406,13 @@ static void print_header(struct seq_file *m, const char* header)
 
 static void print_listener(struct seq_file *m, u16 synd, struct listener_entry           *listener)
 {
-    static char handler_name[KSYM_SYMBOL_LEN] = "";
-    static char uc_name[DBG_DUMP_BUFF_SIZE] = "";
-    static char type_name[DBG_DUMP_BUFF_SIZE] = "";
-    static char type_crit[DBG_DUMP_BUFF_SIZE] = "";
-    static char reg_key_name[DBG_DUMP_BUFF_SIZE] = "";
-    char       *end;
+    static char                               handler_name[KSYM_SYMBOL_LEN] = "";
+    static char                               uc_name[DBG_DUMP_BUFF_SIZE] = "";
+    static char                               type_name[DBG_DUMP_BUFF_SIZE] = "";
+    static char                               type_crit[DBG_DUMP_BUFF_SIZE] = "";
+    static char                               reg_key_name[DBG_DUMP_BUFF_SIZE] = "";
+    const struct sx_psample_listener_context *psample_ctx;
+    char                                     *end;
 
     memset(handler_name, 0, sizeof(handler_name));
     memset(uc_name, 0, sizeof(uc_name));
@@ -419,6 +443,10 @@ static void print_listener(struct seq_file *m, u16 synd, struct listener_entry  
         strcpy(uc_name, "PHY_PORT_NETDEV");
     } else if (strstr(handler_name, "sx_l2_tunnel_handler")) {
         strcpy(uc_name, "L2_TUNNEL");
+    } else if (strstr(handler_name, "psample")) {
+        psample_ctx = (struct sx_psample_listener_context*)listener->context;
+        snprintf(uc_name, sizeof(uc_name) - 1, "PSAMPLE [g=%u,rc=%u]",
+                 psample_ctx->group_num, psample_ctx->refcnt);
     } else {
         strncpy(uc_name, handler_name, sizeof(uc_name) - 1);
     }
@@ -885,6 +913,40 @@ int sx_dbg_dump_rif_to_hwfid_show(struct seq_file *m, void *v)
     return 0;
 }
 
+int sx_dbg_dump_sdq_completion_show(struct seq_file *m, void *v)
+{
+    u16             sdqn = 0;
+    struct sx_dq   *sdq = NULL;
+    struct sx_priv *priv = NULL;
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "SDQ completion dump");
+
+    seq_printf(m, "%-5s   %-15s   %-15s   %-15s   %-15s   %-15s\n",
+               "SDQ", "Sent", "Removed", "Recv Comp", "Not Recv Comp", "Late Comp");
+
+    for (sdqn = 0; sdqn < dev->dev_cap.max_num_sdqs; sdqn++) {
+        sdq = priv->sdq_table.dq[sdqn];
+        if (sdq) {
+            seq_printf(m, "%-5u   %-15llu   %-15llu   %-15llu   %-15llu   %-15llu\n",
+                       sdqn,
+                       (u64)atomic64_read(&sdq->pkts_sent_to_sdq),
+                       (u64)atomic64_read(&sdq->pkts_removed_from_sdq),
+                       (u64)atomic64_read(&sdq->pkts_recv_completion),
+                       (u64)atomic64_read(&sdq->pkts_no_rev_completion),
+                       (u64)atomic64_read(&sdq->pkts_late_completion));
+        }
+    }
+
+    return 0;
+}
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
 int sx_dbg_dump_rdq_to_filter_ebpf_prog_show(struct seq_file *m, void *v)
 {
@@ -1062,6 +1124,7 @@ int __init sx_dbg_dump_proc_fs_init(void)
     sx_dbg_dump_proc_fs_register("monitor_rdq_dump", sx_dbg_dump_monitor_rdq_show, NULL);
     sx_dbg_dump_proc_fs_register("fid_to_hwfid_dump", sx_dbg_dump_fid_to_hwfid_show, NULL);
     sx_dbg_dump_proc_fs_register("rif_to_hwfid_dump", sx_dbg_dump_rif_to_hwfid_show, NULL);
+    sx_dbg_dump_proc_fs_register("sdq_completion_dump", sx_dbg_dump_sdq_completion_show, NULL);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     sx_dbg_dump_proc_fs_register("rdq_to_filter_ebpf_prog_dump", sx_dbg_dump_rdq_to_filter_ebpf_prog_show, NULL);
 #endif

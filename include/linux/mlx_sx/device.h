@@ -174,6 +174,7 @@ struct sx_dev {
     struct list_head      list;
     u64                   fw_ver;
     u8                    dev_stuck;
+    unsigned long         dev_stuck_time;
     u8                    global_flushing;
     u8                    dev_sw_rst_flow;
     struct cdev           cdev;
@@ -193,6 +194,11 @@ struct sx_dev {
     /* cr space address and size */
     void __iomem *cr_space_start;
     u32           cr_space_size;
+
+    /* xm support */
+    u8 xm_exists;
+    u8 xm_num_local_ports;
+    u8 xm_local_ports[SX_XM_MAX_LOCAL_PORTS_LEN];
 };
 
 enum {

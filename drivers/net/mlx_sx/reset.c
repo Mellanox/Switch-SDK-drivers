@@ -67,6 +67,7 @@ static int sdk_sx_reset(struct sx_dev *dev);
 static int perform_dev_sw_reset(struct sx_dev *dev)
 {
     int err = 0;
+    int err1 = 0;
 
     if (!dev) {
         printk(KERN_ERR "%s: dev argument is null, err [%d]\n", __func__, err);
@@ -93,8 +94,11 @@ static int perform_dev_sw_reset(struct sx_dev *dev)
     case QUANTUM_PCI_DEV_ID:
         err = sdk_sx_reset(dev);
         if (err) {
-            sx_err(dev, "%s: sdk_sx_reset failed, err [%d]\n", __func__, err);
-            err = legacy_sx_reset(dev);
+            sx_err(dev, "%s: sdk_sx_reset failed, err [%d]. Running legacy reset, ASIC will stay in failure state.\n", __func__, err);
+            err1 = legacy_sx_reset(dev);
+            if (err1) {
+                sx_err(dev, "%s: legacy_sx_reset failed, err [%d]\n", __func__, err1);
+            }
             goto out;
         }
 
@@ -265,8 +269,8 @@ static int __save_headers_data(struct sx_dev *dev, u32* hca_header_p)
 
     /* SwitchX */
     if (!hca_header_p) {
-        return -EINVAL;
         printk(KERN_ERR "%s: hca_header_p argument is null, err [%d]\n", __func__, err);
+        return -EINVAL;
     }
     memset(hca_header_p, 0, SX_HCA_HEADERS_SIZE);
 
@@ -315,8 +319,8 @@ static int __restore_headers_data(struct sx_dev *dev, u32* hca_header_p)
 
     /* SwitchX */
     if (!hca_header_p) {
-        return -EINVAL;
         printk(KERN_ERR "%s: hca_header_p argument is null, err [%d]\n", __func__, err);
+        return -EINVAL;
     }
 
     /* restore PCIE headers to restore after reset from hca_header_p */

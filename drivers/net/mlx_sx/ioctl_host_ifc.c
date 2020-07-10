@@ -157,7 +157,7 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     }
 
     /* Make sure that for WJH we will be able to see timestamp for this packet (if it was enabled there) */
-    if (IS_CQ_WORKING_WITH_TIMESTAMP(sx_dev, file->bound_monitor_rdq->cq->cqn)) {
+    if (sx_dev && IS_CQ_WORKING_WITH_TIMESTAMP(sx_dev, file->bound_monitor_rdq->cq->cqn)) {
         SX_RX_TIMESTAMP_COPY(&edata->rx_timestamp, &comp_info->rx_timestamp);
     } else {
         SX_RX_TIMESTAMP_INIT(&edata->rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
@@ -166,15 +166,17 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     if (enable_monitor_rdq_trace_points) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
         should_drop = 0;
-        spin_lock_irqsave(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
-        if (sx_priv(sx_dev)->filter_ebpf_progs[dqn]) {
-            should_drop = sx_core_call_rdq_filter_trace_point_func(sx_priv(sx_dev)->filter_ebpf_progs[dqn],
-                                                                   skb,
-                                                                   FILTER_TP_HW_PORT(comp_info->is_lag,
-                                                                                     comp_info->sysport),
-                                                                   comp_info->hw_synd, comp_info->user_def_val);
+        if (sx_dev) {
+            spin_lock_irqsave(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
+            if (sx_priv(sx_dev)->filter_ebpf_progs[dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(sx_priv(sx_dev)->filter_ebpf_progs[dqn],
+                                                                       skb,
+                                                                       FILTER_TP_HW_PORT(comp_info->is_lag,
+                                                                                         comp_info->sysport),
+                                                                       comp_info->hw_synd, comp_info->user_def_val);
+            }
+            spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
         }
-        spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
         if (should_drop != 0) {
             spin_unlock_irqrestore(&file->lock, flags);
             goto out_free;
@@ -1022,7 +1024,6 @@ out:
 
         printk(KERN_ERR "%s(): connect rdq %d to TG failed. err: %d \n",
                __func__, file->bound_monitor_rdq->dqn, err);
-        goto out;
     }
 
     return err;
@@ -1038,6 +1039,42 @@ static void sx_l2_tunnel_handler(struct completion_info *comp_info, void *contex
     dev = NULL;
     skb_get(skb);
     kfree_skb(skb);
+}
+
+
+static int __add_remove_synd_psample(enum sx_dev_event          add_remove,
+                                     struct ku_synd_ioctl      *ku,
+                                     union ku_filter_critireas *critireas,
+                                     enum l2_type               listener_type,
+                                     struct sx_dev             *dev)
+{
+    union sx_event_data *event_data;
+
+#if !IS_ENABLED(CONFIG_PSAMPLE)
+    printk(KERN_ERR "PSAMPLE is not supported on this kernel (CONFIG_PSAMPLE)\n");
+    return -ENOTSUPP;
+#endif /* !IS_ENABLED(CONFIG_PSAMPLE) */
+
+    /* coverity[unreachable] */
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        return -ENOMEM;
+    }
+
+    event_data->psample_synd.swid = ku->swid;
+    event_data->psample_synd.hw_synd = ku->syndrome_num;
+    event_data->psample_synd.is_register = ku->is_register;
+    memcpy(&event_data->psample_synd.port_vlan_params,
+           &ku->port_vlan_params,
+           sizeof(event_data->psample_synd.port_vlan_params));
+    memcpy(&event_data->psample_synd.psample_info,
+           &ku->psample_params,
+           sizeof(event_data->psample_synd.psample_info));
+
+    sx_core_dispatch_event(dev, add_remove, event_data);
+    kfree(event_data);
+
+    return 0;
 }
 
 
@@ -1185,6 +1222,23 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         }
 
         if (err) {
+            goto out;
+        }
+
+        break;
+
+    case SX_KU_USER_CHANNEL_TYPE_PSAMPLE:
+        err = __add_remove_synd_psample((cmd == CTRL_CMD_ADD_SYND) ? SX_DEV_EVENT_ADD_SYND_PSAMPLE :
+                                        SX_DEV_EVENT_REMOVE_SYND_PSAMPLE,
+                                        &ku,
+                                        &critireas,
+                                        listener_type,
+                                        dev);
+
+        if (err) {
+            printk(KERN_ERR "failed to %s psample listener (err=%d)\n",
+                   (cmd == CTRL_CMD_ADD_SYND) ? "add" : "remove",
+                   err);
             goto out;
         }
 
@@ -1649,7 +1703,9 @@ out:
 long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_set_monitor_rdq_params monitor_rdq_params;
+    struct sx_priv                  *priv;
     struct sx_dq                    *dq;
+    struct sx_cq                    *cq;
     struct sx_dev                   *dev;
     struct sx_rsc                   *rsc = file->private_data;
     unsigned long                    flags;
@@ -1672,20 +1728,64 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         return -EINVAL;
     }
 
-    spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
+    priv = sx_priv(dev);
+
+    spin_lock_irqsave(&priv->rdq_table.lock, flags);
 
     /* check the rdq is valid */
-    dq = sx_priv(dev)->rdq_table.dq[monitor_rdq_params.rdq];
+    dq = priv->rdq_table.dq[monitor_rdq_params.rdq];
     if (!dq) {
         printk(KERN_ERR PFX "CTRL_CMD_SET_MONITOR_RDQ: RDQ %d is not valid\n", monitor_rdq_params.rdq);
-        spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+        spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
         return -EINVAL;
     }
+
+    /*
+     * This function switches a RDQ from 'monitoring' to 'regular' and vice versa.
+     * when switching modes, we MUST make sure that the RDQ is always handled by a single flow and there is no
+     * point in time where both WJH and regular flow handle the same RDQ in the same time.
+     *
+     * to ensure this, this is the flow:
+     * - initialize a completion object (will get to this later).
+     * - set the CQ of this RDQ as 'pause' (priv->pause_cqn = cq->cqn).
+     * - every flow looks handles RDQs will look at 'priv->pause_cqn'. if it is valid (>= 0), it will stop handling
+     *   the CQ (that is attached to the RDQ).
+     * - we must schedule the tasklet to make sure the tasklet is running at least one time with the 'priv->pause_cqn'
+     *   in order to signal the completion object (to signal the switching flow that no one handles the RDQ and it can
+     *   be switched without race conditions between the RX flows). also, if the CQ/RDQ is idle, scheduling the tasklet
+     *   will make sure that the completion object will be signaled.
+     *
+     * - after preparing all the settings, we'll wait for the completion to be signaled. until then, no switching will
+     *   take place.
+     * - the waiting must be outside of the 'rdq_table' lock. yes, leaving the lock just for the wait and then turning
+     *   back to it is a bad thing but:
+     *   1) rdq_table.lock is abused or not used at all in may cases in the driver. all RDQ/RDQ_TABLE flows should have
+     *      code refactoring.
+     *   2) the risk of leaving the lock just for the wait is only when someone unloads the driver in the middle of this
+     *      flow...
+     *
+     * - after completion is signaled, we know that no one handles the RDQ. we can switch its mode.
+     * - after switching RDQ's mode, we arm the CQ attached to it and reschedule the tasklet.
+     */
+
+    cq = dq->cq;
+    init_completion(&priv->pause_cqn_completion);
+    priv->pause_cqn_completed = 0;
+    priv->pause_cqn = cq->cqn;
+    tasklet_schedule(&priv->intr_tasklet);
+    spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+
+    if (wait_for_completion_timeout(&priv->pause_cqn_completion, msecs_to_jiffies(5000)) == 0) {
+        printk(KERN_ERR "tasklet did not signal us ...\n");
+        return -ETIMEDOUT;
+    }
+
+    spin_lock_irqsave(&priv->rdq_table.lock, flags);
 
     if (monitor_rdq_params.is_monitor) {
         if (dq->is_monitor) {
             if (dq->file_priv_p->owner == rsc->owner) { /* same owner, do nothing */
-                spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+                spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
                 goto out;
             }
 
@@ -1705,7 +1805,7 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
 
         if (dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p == NULL) {
             printk(KERN_DEBUG PFX " Failed to allocate memory for SW duplication queue. \n");
-            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             return -ENOMEM;
         }
         /* Initialize SW buffer counters */
@@ -1720,16 +1820,19 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         err = sx_core_add_rdq_to_monitor_rdq_list(dq);
         if (err) {
             unset_monitor_rdq(dq);
-            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             goto out;
         }
     } else {
         unset_monitor_rdq(dq);
-
         sx_core_del_rdq_from_monitor_rdq_list(dq);
     }
 
-    spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+    priv->pause_cqn = -1;
+    sx_cq_arm(cq);
+    tasklet_schedule(&priv->intr_tasklet);
+
+    spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
 
 out:
     return err;

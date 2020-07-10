@@ -63,7 +63,10 @@ enum sx_dev_event {
     SX_DEV_EVENT_TYPE_RPA_INIT,
     SX_DEV_EVENT_LAG_OPER_STATE_UPDATE,
     SX_DEV_EVENT_OFFLOAD_MARK_SET,
-    SX_DEV_EVENT_GET_NETDEV_TRAP_INFO
+    SX_DEV_EVENT_GET_NETDEV_TRAP_INFO,
+    SX_DEV_EVENT_ADD_SYND_PSAMPLE,
+    SX_DEV_EVENT_REMOVE_SYND_PSAMPLE,
+    SX_DEV_EVENT_UPDATE_SAMPLE_RATE
 };
 
 #define SX_PAGE_SIZE  4096
@@ -145,6 +148,17 @@ union sx_event_data {
         uint16_t                   trap_ids[NUM_OF_NET_DEV_TYPE][MAX_NUM_TRAPS_TO_REGISTER];
         uint16_t                   num_of_traps[NUM_OF_NET_DEV_TYPE];
     } netdev_trap_info;
+    struct {
+        uint8_t                    swid;
+        int                        hw_synd;
+        u8                         is_register;
+        struct ku_port_vlan_params port_vlan_params;
+        struct ku_psample_params   psample_info;
+    } psample_synd;
+    struct {
+        uint8_t  local_port;
+        uint32_t sample_rate;
+    } psample_port_sample_rate;
 };
 struct sx_interface {
     void * (*add)   (struct sx_dev *dev);
@@ -190,6 +204,11 @@ typedef enum is_bridge {
     IS_BRIDGE_FROM_BRIDGE_E = 1,
     IS_BRIDGE_NOT_FROM_BRIDGE_E = 2,
 } is_bridge_e;
+
+struct sx_psample_listener_context {
+    u32 group_num;
+    u32 refcnt;
+};
 
 int sx_core_flush_synd_by_context(void * context);
 int sx_core_flush_synd_by_handler(cq_handler handler);

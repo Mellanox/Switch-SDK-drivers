@@ -111,11 +111,6 @@ struct sx_cmd_mailbox {
     u8         is_in_param_imm;
     u8         is_out_param_imm;
 };
-struct sx_board {
-    u16  vsd_vendor_id;
-    char board_id[SX_BOARD_ID_LEN];
-    u8   inta_pin;
-};
 
 typedef void generic_reg_data;
 typedef int (*sx_ACCESS_REG_generic)(struct sx_dev *dev, generic_reg_data *reg_data);
@@ -198,7 +193,7 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw);
 int sx_QUERY_CQ(struct sx_dev *dev, u8 cqn, struct ku_query_cq *cq_context_p);
 int sx_QUERY_RSRC(struct sx_dev *dev, struct ku_query_rsrc* query_rsrc);
 int sx_QUERY_AQ_CAP(struct sx_dev *dev);
-int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct sx_board *adapter);
+int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct ku_query_board_info *adapter);
 int sx_ACCESS_REG_MGIR(struct sx_dev *dev, struct ku_access_mgir_reg *reg_data);
 int sx_ACCESS_REG_PLIB(struct sx_dev *dev, struct ku_access_plib_reg *reg_data);
 int sx_ACCESS_REG_PMLP(struct sx_dev *dev, struct ku_access_pmlp_reg *reg_data);

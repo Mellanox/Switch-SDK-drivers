@@ -93,14 +93,15 @@ DECLARE_EVENT_CLASS(sx_rdq_rx_agg,
  * we need to define multiple trace points for each RDQ so as to support attaching multiple eBPF programs
  * to one RDQ.
  */
-#define SX_AGG_TRACE_POINT_NUM_PER_RDQ 6
+#define SX_AGG_TRACE_POINT_NUM_PER_RDQ 7
 #define SX_CORE_DEFINE_AGG_EVENT(rdq_no)     \
     SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _0); \
     SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _1); \
     SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _2); \
     SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _3); \
     SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _4); \
-    SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _5)
+    SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _5); \
+    SX_CORE_DEFINE_AGG_EVENT1(rdq_no ## _6)
 #endif
 
 /* When NUMBER_OF_RDQS is modified, please modify the below definitions as well. */

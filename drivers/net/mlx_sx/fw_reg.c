@@ -130,91 +130,6 @@ out_free:
     return err;
 }
 
-
-/************************************************
- * MGIR
- ***********************************************/
-static int __MGIR_decode(u8 *outbox, void *ku_reg, void *context)
-{
-#define REG_HW_INFO_OFFSET                    0x14
-#define REG_HW_INFO_DEVICE_HW_REVISION_OFFSET 0x0
-#define REG_HW_INFO_DEVICE_ID_OFFSET          0x2
-#define REG_HW_INFO_DVFS_OFFSET               0x7
-#define REG_HW_INFO_UPTIME_OFFSET             0x1c
-
-#define REG_FW_INFO_OFFSET                    0x34
-#define REG_FW_INFO_MAJOR_OFFSET              0x01
-#define REG_FW_INFO_MINOR_OFFSET              0x02
-#define REG_FW_INFO_SUB_MINOR_OFFSET          0x03
-#define REG_FW_INFO_BUILD_ID_OFFSET           0x04
-#define REG_FW_INFO_MONTH_OFFSET              0x08
-#define REG_FW_INFO_DAY_OFFSET                0x09
-#define REG_FW_INFO_YEAR_OFFSET               0x0a
-#define REG_FW_INFO_HOUR_OFFSET               0x0e
-#define REG_FW_INFO_PSID_OFFSET               0x10
-#define REG_FW_INFO_INI_FILE_VERSION_OFFSET   0x20
-#define REG_FW_INFO_EXTENDED_MAJOR_OFFSET     0x24
-#define REG_FW_INFO_EXTENDED_MINOR_OFFSET     0x28
-#define REG_FW_INFO_EXTENDED_SUB_MINOR_OFFSET 0x2c
-
-#define REG_SW_INFO_OFFSET           0x74
-#define REG_SW_INFO_MAJOR_OFFSET     0x01
-#define REG_SW_INFO_MINOR_OFFSET     0x02
-#define REG_SW_INFO_SUB_MINOR_OFFSET 0x03
-
-    struct ku_mgir_reg *mgir_reg = (struct ku_mgir_reg*)ku_reg;
-
-    SX_GET_REG_FIELD(mgir_reg->hw_info.device_hw_revision,
-                     outbox,
-                     REG_HW_INFO_OFFSET + REG_HW_INFO_DEVICE_HW_REVISION_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->hw_info.device_id, outbox, REG_HW_INFO_OFFSET + REG_HW_INFO_DEVICE_ID_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->hw_info.dvfs, outbox, REG_HW_INFO_OFFSET + REG_HW_INFO_DVFS_OFFSET);
-    mgir_reg->hw_info.dvfs &= 0x1f;
-
-    SX_GET_REG_FIELD(mgir_reg->hw_info.uptime, outbox, REG_HW_INFO_OFFSET + REG_HW_INFO_UPTIME_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.major, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_MAJOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.minor, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.sub_minor, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_SUB_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.build_id, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_BUILD_ID_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.month, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_MONTH_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.day, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_DAY_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.year, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_YEAR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.hour, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_HOUR_OFFSET);
-    memcpy(mgir_reg->fw_info.psid,
-           outbox - REG_START_OFFSET + REG_FW_INFO_OFFSET + REG_FW_INFO_PSID_OFFSET,
-           SX_PSID_SIZE);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.ini_file_version,
-                     outbox,
-                     REG_FW_INFO_OFFSET + REG_FW_INFO_INI_FILE_VERSION_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.extended_major, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_EXTENDED_MAJOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.extended_minor, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_EXTENDED_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.extended_sub_minor,
-                     outbox,
-                     REG_FW_INFO_OFFSET + REG_FW_INFO_EXTENDED_SUB_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->sw_info.major, outbox, REG_SW_INFO_OFFSET + REG_SW_INFO_MAJOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->sw_info.minor, outbox, REG_FW_INFO_OFFSET + REG_SW_INFO_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->sw_info.sub_minor, outbox, REG_SW_INFO_OFFSET + REG_SW_INFO_SUB_MINOR_OFFSET);
-
-    return 0;
-}
-
-int sx_ACCESS_REG_MGIR(struct sx_dev *dev, struct ku_access_mgir_reg *reg_data)
-{
-#define MGIR_REG_LEN 0x21
-
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  NULL,
-                                  __MGIR_decode,
-                                  MGIR_REG_LEN,
-                                  &reg_data->mgir_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MGIR);
-
-
 /************************************************
  * PLIB
  ***********************************************/
@@ -3843,7 +3758,7 @@ static int __RITR_decode(u8 *outbox, void *ku_reg, void *context)
 
     SX_GET_REG_FIELD(tmp_val_u32, outbox, REG_INGRESS_CNTR_SET_OFFSET);
     ritr_reg->ingress_counter_set.type = (tmp_val_u32 >> 24) & 0xFF;
-    ritr_reg->ingress_counter_set.type = tmp_val_u32 & 0xFFFFFF;
+    ritr_reg->ingress_counter_set.index = tmp_val_u32 & 0xFFFFFF;
     SX_GET_REG_FIELD(tmp_val_u32, outbox, REG_EGRESS_CNTR_SET_OFFSET);
     ritr_reg->egress_counter_set.type = (tmp_val_u32 >> 24) & 0xFF;
     ritr_reg->egress_counter_set.index = tmp_val_u32 & 0xFFFFFF;
@@ -4098,7 +4013,6 @@ int sx_ACCESS_REG_MLCR(struct sx_dev *dev, struct ku_access_mlcr_reg *reg_data)
                                   NULL);
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_MLCR);
-
 
 /************************************************
  * MTPPPC

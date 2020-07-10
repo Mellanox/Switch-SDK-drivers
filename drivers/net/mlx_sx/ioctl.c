@@ -125,6 +125,7 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PCI_PROFILE_DRIVER_ONLY)] = ctrl_cmd_set_pci_profile_driver_only,
     [IOCTL_CMD_INDEX(CTRL_CMD_FLUSH_EVLIST)] = ctrl_cmd_flush_evlist,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_NODE_DESC)] = ctrl_cmd_set_sw_ib_node_desc,
+    [IOCTL_CMD_INDEX(CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE)] = ctrl_cmd_psample_port_sample_rate_update,
 #ifdef SW_PUDE_EMULATION
     /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,

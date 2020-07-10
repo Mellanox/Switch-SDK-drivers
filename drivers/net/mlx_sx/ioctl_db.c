@@ -1208,8 +1208,6 @@ long ctrl_cmd_tele_threshold_set(struct file *file, unsigned int cmd, unsigned l
     unsigned long                 flags;
     int                           err;
 
-    printk(KERN_DEBUG PFX "ioctl CTRL_CMD_TELE_THRESHOLD_SET called\n");
-
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     err = copy_from_user(&tele_thrs_data, (void*)data, sizeof(tele_thrs_data));
@@ -1388,6 +1386,41 @@ long ctrl_cmd_set_default_vid(struct file *file, unsigned int cmd, unsigned long
     }
 
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_psample_port_sample_rate_update(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_psample_port_sample_rate sample_rate;
+    union sx_event_data               *event_data;
+    struct sx_dev                     *dev;
+    int                                err;
+
+#if !IS_ENABLED(CONFIG_PSAMPLE)
+    return 0;
+#endif /* !IS_ENABLED(CONFIG_PSAMPLE) */
+       /* coverity[unreachable] */
+
+    err = copy_from_user(&sample_rate, (void*)data, sizeof(sample_rate));
+    if (err) {
+        goto out;
+    }
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        err = -ENOMEM;
+        goto out;
+    }
+
+    event_data->psample_port_sample_rate.local_port = sample_rate.local_port;
+    event_data->psample_port_sample_rate.sample_rate = sample_rate.rate;
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_UPDATE_SAMPLE_RATE, event_data);
+    kfree(event_data);
 
 out:
     return err;

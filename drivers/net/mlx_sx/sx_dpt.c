@@ -1578,7 +1578,7 @@ int sx_dpt_get_cmd_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
     if (sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path == DPT_PATH_PCI_E) {
         if (sx_glb.sx_dpt.dpt_info[sx_dev_id].is_ifc_valid[DPT_PATH_PCI_E] == true) {
             *dev = (struct sx_dev *)sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_pcie_info.sx_dev;
-            if (!dev) {
+            if (!*dev) {
                 PRINTK_ERR("PCIE path is configured but there is no PCI device\n");
                 ret = -ENODEV;
             }
@@ -1589,7 +1589,7 @@ int sx_dpt_get_cmd_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
         }
     } else {
         *dev = sx_glb.tmp_dev_ptr;
-        if (!dev) {
+        if (!*dev) {
             PRINTK_ERR("There is no device attached\n");
             ret = -ENODEV;
         }
@@ -1651,9 +1651,6 @@ int sx_dpt_i2c_writel(int dev_id, u32 reg, u32 value)
         return -EINVAL;
     }
 
-    printk(KERN_INFO "sx_dpt_i2c_writel for dev_id: %d succeeded "
-           "after %d tries!\n", dev_id, i);
-
     EXIT_FUNC();
     return err;
 }
@@ -1687,9 +1684,6 @@ int sx_dpt_i2c_write_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf
                "failed after %d tries! err: %d\n", dev_id, i2c_offset, i, err);
         return -EINVAL;
     }
-
-    printk(KERN_INFO "sx_dpt_i2c_write_buf for dev_id: %d "
-           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1725,9 +1719,6 @@ int sx_dpt_i2c_read_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf,
                    "after %d tries! err: %d \n", dev_id, i, err);
         return -EINVAL;
     }
-
-    printk(KERN_INFO "sx_dpt_i2c_read_buf for dev_id: %d "
-           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;

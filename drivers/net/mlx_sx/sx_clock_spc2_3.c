@@ -38,45 +38,29 @@
 #include "sx_clock.h"
 #include "sx.h"
 
-/* The only difference between SPC2 and SPC3 is the UTC register layout in BAR0:
- * SPC2: 64bit UTC ==> sec=32msb, nsec=32lsb
- * SPC3: 64bit UTC ==> sec=32lsb, nsec=32msb
- */
+#define READ_HW_UTC_SEC  (swab32(__raw_readl(sx_priv(sx_clock_get_dev())->hw_clock_utc_sec)))
+#define READ_HW_UTC_NSEC (swab32(__raw_readl(sx_priv(sx_clock_get_dev())->hw_clock_utc_nsec)))
 
-static void (*__read_hw_utc_cb)(sx_clock_timespec_t *ts);
-static u32 __sec_offset;
-static inline void __read_cr_space_utc(u32 *utc_high, u32* utc_low)
+static inline void __read_cr_space_utc(sx_clock_timespec_t *ts)
 {
-    struct sx_dev *dev;
-    u64            hw_utc;
+    u32 tmp_sec;
 
-    dev = sx_clock_get_dev();
+    /* to prevent race-condition when reading sec/nsec from HW, do the following:
+     * 1) read seconds to SEC_1
+     * 2) read nanoseconds to NSEC
+     * 3) read seconds again to SEC_2
+     *
+     * if (SEC_1 == SEC_2) everything's fine. otherwise, do the steps again.
+     *
+     * this algorithm is also in use by FW when reading 64bit counters on a 32bit HW.
+     *
+     */
 
-    hw_utc = swab64(__raw_readq(sx_priv(dev)->hw_clock_utc_base));
-    *utc_low = hw_utc & 0xffffffff;
-    *utc_high = hw_utc >> 32;
-}
-
-
-static void __read_cr_space_utc_spc2(sx_clock_timespec_t *ts)
-{
-    u32 sec, nsec;
-
-    /* SPC2: 64bit UTC ==> sec=32msb, nsec=32lsb */
-    __read_cr_space_utc(&sec, &nsec);
-    ts->tv_nsec = nsec;
-    ts->tv_sec = sec;
-}
-
-
-static void __read_cr_space_utc_spc3(sx_clock_timespec_t *ts)
-{
-    u32 sec, nsec;
-
-    /* SPC3: 64bit UTC ==> sec=32lsb, nsec=32msb */
-    __read_cr_space_utc(&nsec, &sec);
-    ts->tv_nsec = nsec;
-    ts->tv_sec = sec;
+    do {
+        ts->tv_sec = READ_HW_UTC_SEC;
+        ts->tv_nsec = READ_HW_UTC_NSEC;
+        tmp_sec = READ_HW_UTC_SEC;
+    } while (ts->tv_sec != tmp_sec);
 }
 
 
@@ -118,7 +102,7 @@ static int __adjfreq_spc2(struct ptp_clock_info *ptp, s32 delta)
 
 static int __gettime_spc2(struct ptp_clock_info *ptp, sx_clock_timespec_t *ts)
 {
-    __read_hw_utc_cb(ts);
+    __read_cr_space_utc(ts);
     return 0;
 }
 
@@ -149,7 +133,7 @@ static int __adjtime_spc2(struct ptp_clock_info *ptp, s64 delta)
     int                        err;
 
     if ((delta < -32768) || (delta > 32767)) { /* if it is out of range, convert it to 'set_time' */
-        __read_hw_utc_cb(&hw_utc);
+        __read_cr_space_utc(&hw_utc);
         nsec = SX_CLOCK_TIMESPEC_TO_NS(&hw_utc);
         nsec += delta;
 
@@ -188,7 +172,7 @@ static const struct ptp_clock_info __clock_info_spc2 = {
 
 int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv *priv, const struct timespec *cqe_ts, struct timespec *utc)
 {
-    u64 utc_sec = swab32(__raw_readl(priv->hw_clock_utc_base + __sec_offset));
+    u64 utc_sec = READ_HW_UTC_SEC;
     u8  utc_sec_8bit;
 
     utc_sec_8bit = utc_sec & 0xff; /* CQEv2 UTC ==> 8bits seconds, 30bits nano-seconds */
@@ -206,19 +190,8 @@ int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv *priv, const struct timespec *cqe
 
 int sx_clock_init_spc2(struct sx_priv *priv)
 {
-    __sec_offset = 0;
-    __read_hw_utc_cb = __read_cr_space_utc_spc2;
     return sx_clock_register(priv, &__clock_info_spc2);
 }
-
-
-int sx_clock_init_spc3(struct sx_priv *priv)
-{
-    __sec_offset = 4;
-    __read_hw_utc_cb = __read_cr_space_utc_spc3;
-    return sx_clock_register(priv, &__clock_info_spc2);
-}
-
 
 int sx_clock_cleanup_spc2(struct sx_priv *priv)
 {
@@ -234,7 +207,7 @@ int sx_clock_dump_spc2(struct seq_file *m, void *v)
 
     dev = sx_clock_get_dev();
 
-    __read_hw_utc_cb(&cr_space_ts);
+    __read_cr_space_utc(&cr_space_ts);
     getnstimeofday(&linux_ts);
 
     seq_printf(m, "Hardware UTC:  %u.%09u\n", (u32)cr_space_ts.tv_sec, (u32)cr_space_ts.tv_nsec);

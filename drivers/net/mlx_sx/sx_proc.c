@@ -249,8 +249,11 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
             goto print_err;
         }
 
-        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %s\n",
-                  reg_data.mgir_reg.fw_info.psid);
+        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %d%d%d%d\n",
+                  reg_data.mgir_reg.fw_info.psid[0],
+                  reg_data.mgir_reg.fw_info.psid[1],
+                  reg_data.mgir_reg.fw_info.psid[2],
+                  reg_data.mgir_reg.fw_info.psid[3]);
         break;
     }
 
@@ -873,12 +876,22 @@ void __query_cq(struct sx_dev *my_dev, char *running)
 
 void __query_board_info(struct sx_dev *my_dev, char *running)
 {
-    struct sx_board board;
+    int                        i;
+    struct ku_query_board_info board;
 
     memset(&board, 0, sizeof(board));
     PROC_DUMP("Executing QUERY_BOARDINFO Command\n");
     sx_QUERY_BOARDINFO(my_dev, &board);
     PROC_DUMP("Finished Executing QUERY_BOARDINFO Command:\n");
+    PROC_DUMP("xm_exists = %d\n", board.xm_exists);
+    PROC_DUMP("xm_num_local_ports = %d\n", board.xm_num_local_ports);
+
+    if (board.xm_num_local_ports <= SX_XM_MAX_LOCAL_PORTS_LEN) {
+        for (i = 0; i < board.xm_num_local_ports; i++) {
+            PROC_DUMP("xm_local_ports[%d] = 0x%x\n", i, board.xm_local_ports[i]);
+        }
+    }
+
     PROC_DUMP("vsd_vendor_id = 0x%x\n", board.vsd_vendor_id);
     PROC_DUMP("board_id = %s\n", board.board_id);
     PROC_DUMP("inta_pin = 0x%x\n", board.inta_pin);

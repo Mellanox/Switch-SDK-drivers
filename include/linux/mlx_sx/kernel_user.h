@@ -120,6 +120,11 @@ enum {
  * string.
  */
 #define SX_BOARD_ID_LEN 64
+/**
+ * SX_XM_MAX_LOCAL_PORTS_LEN define the length of XM local ports
+ * array.
+ */
+#define SX_XM_MAX_LOCAL_PORTS_LEN 4
 
 /**
  * SX_IB_NODE_DESCRIPTION_LEN define the length of the IB node description string
@@ -140,7 +145,7 @@ enum {
 #define MTBR_MAX_TEMPERATURE_RECORDS 47
 
 #define NUM_SW_SYNDROMES 64
-#define NUM_HW_SYNDROMES (512 + NUM_SW_SYNDROMES)
+#define NUM_HW_SYNDROMES (1024 + NUM_SW_SYNDROMES)
 
 #define NUM_OF_TRAP_GROUPS 34
 
@@ -515,8 +520,9 @@ enum ku_ctrl_cmd {
     CTRL_CMD_FLUSH_EVLIST, /**< Flush the evlist associated with a file descriptor */
     CTRL_CMD_SET_SW_IB_NODE_DESC, /**< set SW IB node description */
     CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG, /**< Attach/detach the filter eBPF program to/from an RDQ */
+    CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE, /**< update psample-port-sample-rate info to sx-netdev module */
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
-    CTRL_CMD_MAX_VAL = CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG /**< Maximum enum value */
+    CTRL_CMD_MAX_VAL = CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE /**< Maximum enum value */
 #ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
                        CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
 #endif /* SW_PUDE_EMULATION */
@@ -597,7 +603,6 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_SFD, /**< Run access register SFD command */
     CTRL_CMD_ACCESS_REG_QPBR, /**< Run access register QPBR command */
     CTRL_CMD_ACCESS_REG_PLBF, /**< Run access register PLBF command */
-    CTRL_CMD_ACCESS_REG_MGIR, /**< Run access register MGIR command */
     CTRL_CMD_ACCESS_REG_MHSR, /**< Run access register MHSR command */
     CTRL_CMD_ACCESS_REG_SGCR, /**< Run access register SGCR command */
     CTRL_CMD_ACCESS_REG_MSCI, /**< Run access register MSCI command */
@@ -1295,6 +1300,13 @@ struct ku_l2_tunnel_params {
 };
 
 /**
+ * ku_psample_params structure is used to store PSAMPLE channel parameters.
+ */
+struct ku_psample_params {
+    uint32_t group_id;
+};
+
+/**
  * ku_user_channel_type enumerated type is used to note the possible user channels types.
  */
 enum ku_user_channel_type {
@@ -1302,7 +1314,8 @@ enum ku_user_channel_type {
     SX_KU_USER_CHANNEL_TYPE_L3_NETDEV,
     SX_KU_USER_CHANNEL_TYPE_L2_NETDEV,
     SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV,
-    SX_KU_USER_CHANNEL_TYPE_L2_TUNNEL
+    SX_KU_USER_CHANNEL_TYPE_L2_TUNNEL,
+    SX_KU_USER_CHANNEL_TYPE_PSAMPLE
 };
 
 /**
@@ -1319,6 +1332,7 @@ struct ku_synd_ioctl {
     enum ku_user_channel_type  channel_type;  /**< channel_type - channel type */
     struct ku_l2_tunnel_params l2_tunnel_params;  /**< l2_tunnel_params - L2 tunnel parameters when channel type is L2 tunnel */
     struct ku_port_vlan_params port_vlan_params;  /**< port / vlan parameters for per port registration*/
+    struct ku_psample_params   psample_params; /**< psample_params - PSAMPLE parameters when channel type is PSAMPLE */
 };
 struct ku_monitor_synd_ioctl {
     uint8_t                    swid;                  /**< swid - swid (0-7, or 255=Don't care) */
@@ -1519,8 +1533,10 @@ struct ku_query_fw {
     uint8_t                              dev_id; /**< dev_id - device id */
     uint64_t __attribute__((aligned(8))) frc_offset;
     uint8_t                              frc_bar;
-    uint64_t __attribute__((aligned(8))) utc_offset;
-    uint8_t                              utc_bar;
+    uint64_t __attribute__((aligned(8))) utc_sec_offset;
+    uint8_t                              utc_sec_bar;
+    uint64_t __attribute__((aligned(8))) utc_nsec_offset;
+    uint8_t                              utc_nsec_bar;
 };
 struct ku_query_cq {
     uint8_t  eq_num;     /* 0 or 1 */
@@ -1556,9 +1572,13 @@ struct ku_ib_node_description {
  * ku_query_board_info structure is used to store the query board info parameters
  */
 struct ku_query_board_info {
-    uint16_t vsd_vendor_id;    /**< vsd_vendor_id - PCISIG Vendor ID */
-    char     board_id[SX_BOARD_ID_LEN];    /**< board_id - The board id string */
-    uint8_t  dev_id;    /**< dev_id - device id */
+    sxd_boolean_t xm_exists;                      /**< Is XM connected */
+    uint8_t       xm_num_local_ports;             /**< Number of ports connected to the XM */
+    uint8_t       xm_local_ports[SX_XM_MAX_LOCAL_PORTS_LEN];    /**< List of ports connected to XM */
+    uint16_t      vsd_vendor_id;                  /**< vsd_vendor_id - PCISIG Vendor ID */
+    char          board_id[SX_BOARD_ID_LEN];      /**< board_id - The board id string */
+    uint8_t       dev_id;                         /**< dev_id - device id */
+    uint8_t       inta_pin;                       /**< Interrupt ack pin */
 };
 
 /**
@@ -2333,6 +2353,8 @@ struct ku_mpat_reg {
     uint8_t                              stclass; /**< stclass - Stacking TClass */
     uint8_t                              span_type; /**<  SPAN Type */
     uint16_t                             truncation_size; /**< truncation_size - granularity 4 */
+    uint8_t                              pide; /**< Policer enable */
+    uint16_t                             pid; /**< Policer ID */
     union mpat_encapsulation             encap; /**<  Remote SPAN encapsulation */
     uint64_t __attribute__((aligned(8))) buffer_drop; /**< packet drops due to buffer size */
     uint64_t __attribute__((aligned(8))) be_drop; /**< packet drops due to best effort */
@@ -2951,6 +2973,7 @@ typedef enum sxd_ppbt_cong {
 typedef struct ku_ppbt_reg {
     sxd_ppbt_operation_t operation;
     uint8_t              egress;
+    uint8_t              tport;
     uint8_t              port;
     sxd_ppbt_cong_t      cong;
     uint8_t              group;
@@ -5356,7 +5379,37 @@ struct ku_ralue_reg {
     union ku_ralue_action    action;
     sxd_counter_set_t        counter_set;
 };
-
+/*
+ * ku_xm_cmd_ipv4_route structure is used to store the XMDR ipv4 cmd as part of the transaction field parameters
+ */
+typedef struct ku_xm_cmd_ipv4_route {
+    uint32_t flags : 12;
+    uint32_t seq_number : 12;
+    uint32_t command_id : 8;
+    /*----------------------------------------------------------*/
+    uint16_t vrid;
+    uint8_t  trap_id_num : 4;
+    uint8_t  trap_action : 4;
+    uint8_t  op_code;
+    /*----------------------------------------------------------*/
+    uint8_t entry_type : 4;
+    uint8_t action_type : 4;
+    uint8_t reserved0;
+    uint8_t bmp_len;
+    uint8_t prefix_len;
+    /*----------------------------------------------------------*/
+    uint32_t counter_index : 24;
+    uint32_t counter_set_type : 8;
+    /*----------------------------------------------------------*/
+    uint32_t entry0;
+    /*----------------------------------------------------------*/
+    uint32_t entry1;
+    /*----------------------------------------------------------*/
+    uint32_t reserved1;
+    /*----------------------------------------------------------*/
+    uint32_t dip;
+    /*----------------------------------------------------------*/
+} ku_xm_cmd_ipv4_route_t;
 /**
  * ku_raleu_reg structure is used to store the RALEU register parameters
  */
@@ -5469,51 +5522,6 @@ struct ku_pmlp_reg {
 #define SXD_MGIR_HW_REV_ID_SWITCHIB_A0 SXD_MGIR_HW_REV_ID_A0
 #define SXD_MGIR_HW_REV_ID_SLAVE_DEV   0xFF
 
-struct ku_mgir_hw_info {
-    uint16_t device_hw_revision;
-    uint16_t device_id;
-    uint8_t  dvfs;
-    uint32_t uptime;
-};
-enum mgir_fw_info_flags {
-    MGIR_FW_INFO_F_SECURED,
-    MGIR_FW_INFO_F_SIGNED_FW,
-    MGIR_FW_INFO_F_DEBUG,
-    MGIR_FW_INFO_F_DEV,
-    MGIR_FW_INFO_F_STRING_TLV
-};
-struct ku_mgir_fw_info {
-    uint8_t  flags;
-    uint8_t  major;
-    uint8_t  minor;
-    uint8_t  sub_minor;
-    uint32_t build_id;
-    uint8_t  month;
-    uint8_t  day;
-    uint16_t year;
-    uint16_t hour;
-    uint8_t  psid[16];
-    uint32_t ini_file_version;
-    uint32_t extended_major;
-    uint32_t extended_minor;
-    uint32_t extended_sub_minor;
-    uint16_t isfu_major;
-};
-struct ku_mgir_sw_info {
-    uint8_t major;
-    uint8_t minor;
-    uint8_t sub_minor;
-};
-
-/**
- * ku_mgir_reg structure is used to store the MGIR register parameters
- */
-struct ku_mgir_reg {
-    struct ku_mgir_hw_info hw_info; /**< hw_info - HW information */
-    struct ku_mgir_fw_info fw_info; /**< fw_info - FW information */
-    struct ku_mgir_sw_info sw_info; /**< sw_info - SW information */
-};
-
 /**
  * ku_plib_reg structure is used to store the PLIB register parameters
  */
@@ -5536,10 +5544,12 @@ struct ku_pcnr_reg {
  */
 struct ku_pcmr_reg {
     uint8_t local_port;        /**< local_port - local port number */
+    uint8_t rx_ts_over_crc_cap; /**< rx_ts_over_crc_cap - Ingress timestamp over CRC capability */
     uint8_t tx_fcs_recalc_cap; /**< tx_fcs_recalc_cap - Egress prevent CRC overwrite capability */
     uint8_t tx_ts_over_crc_cap; /**< tx_ts_over_crc_cap - Egress timestamp over CRC capability */
     uint8_t rx_fcs_drop_cap;   /**< rx_fcs_drop_cap - Ingress forward on bad CRC capability */
     uint8_t fcs_cap;           /**< fcs_cap - FCS check capability */
+    uint8_t rx_ts_over_crc;    /**< rx_ts_over_crc - ENA/ DIS - enable Ingress timestamp over CRC */
     uint8_t tx_fcs_recalc;     /**< tx_fcs_recalc - ENA/ DIS - enable Egress prevent CRC overwrite */
     uint8_t tx_ts_over_crc;    /**< tx_ts_over_crc - ENA/ DIS - enable Egress timestamp over CRC */
     uint8_t rx_fcs_drop;       /**< rx_fcs_drop - ENA/ DIS - enable Ingress forward on bad CRC */
@@ -6706,15 +6716,6 @@ struct ku_access_pspa_reg {
 struct ku_access_pmlp_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_pmlp_reg      pmlp_reg; /**< pmlp_reg - pmlp register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_mgir_reg structure is used to store the access register MGIR command parameters
- */
-struct ku_access_mgir_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mgir_reg      mgir_reg; /**< mgir_reg - mgir register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -8171,31 +8172,6 @@ typedef enum sxd_tunnel_nve_type {
     SXD_TUNNEL_NVE_NVGRE = 3,
 } sxd_tunnel_nve_type_t;
 
-/**
- * ku_tngcr_reg structure is used to store the TNGCR register parameters
- */
-struct ku_tngcr_reg {
-    sxd_tunnel_nve_type_t   type;
-    uint8_t                 nve_valid;
-    uint8_t                 nve_ttl_uc;
-    uint8_t                 nve_ttl_mc;
-    sxd_tunnel_flc_type_t   nve_flc;
-    sxd_tunnel_flh_type_t   nve_flh;
-    uint16_t                nve_fl_prefix;
-    uint8_t                 nve_enc_orig;
-    uint8_t                 nve_enc_orig_we;
-    sxd_tunnel_sport_type_t nve_udp_sport_type;
-    uint8_t                 et_vlan;
-    uint8_t                 nve_udp_sport_prefix;
-    uint16_t                nve_udp_dport;
-    uint8_t                 nve_group_size_mc;
-    uint8_t                 nve_group_size_flood;
-    uint8_t                 learn_enable;
-    uint16_t                underlay_virtual_router;
-    uint16_t                underlay_rif;
-    uint32_t                usipv4;
-    uint32_t                usipv6[4];
-};
 
 /**
  * sxd_tunnel_enc_set_dscp_t structure enumerates types how to set DSCP field for encapsulation
@@ -8306,16 +8282,21 @@ typedef enum sxd_tunnel_tigcr_ttlc {
 } sxd_tunnel_tigcr_ttlc_t;
 
 /**
- * ku_tigcr_reg structure is used to store the TIGCR register parameters
+ * sxd_tunnel_tngcr_ttlc enumerated TNGCR nve_ttlc type.
  */
-struct ku_tigcr_reg {
-    sxd_tunnel_tigcr_ttlc_t ipip_ttlc;
-    uint8_t                 ipip_ttl_uc;
-    sxd_tunnel_flc_type_t   ipip_flc;
-    sxd_tunnel_flh_type_t   ipip_flh;
-    uint16_t                ipip_fl_prefix;
-    uint32_t                ipip_gre_key_for_hash;
-};
+typedef enum sxd_tunnel_tngcr_ttlc {
+    SXD_TNGCR_TTLC_USE_CONFIG = 0,
+    SXD_TNGCR_TTLC_COPY_FROM_PKT = 1
+} sxd_tunnel_tngcr_ttlc_t;
+
+/**
+ * sxd_tunnel_tngcr_ttlc enumerated TNGCR nve_decap_ttl type.
+ */
+typedef enum sxd_tunnel_tngcr_decap_ttl {
+    SXD_TNGCR_NVE_DECAP_TTL_PRESERVE_E = 0,
+    SXD_TNGCR_NVE_DECAP_TTL_COPY_E = 1,
+    SXD_TNGCR_NVE_DECAP_TTL_MINIMUM_E = 2
+} sxd_tunnel_tngcr_nve_decap_ttl_t;
 
 /**
  * ku_vrpa_details is used to store the vrpa details for the vrpa create ioctls
@@ -9312,6 +9293,12 @@ struct ku_dpt_info {
     struct ku_dpt_pcie_info  sx_pcie_info;
     struct ku_dpt_sgmii_info sx_sgmii_info;
 };
+struct ku_psample_port_sample_rate {
+    uint8_t  local_port;
+    uint32_t rate;
+};
+
+
 /**
  * ku_sx_bitmap is used to store the bitmap.
  */
@@ -9492,6 +9479,8 @@ typedef enum sxd_trap_id {
 
     /* IPv6 L3 */
     SXD_TRAP_ID_IPV6_UNSPECIFIED_ADDRESS = 0x60,
+    SXD_TRAP_ID_IPV6_UNSPECIFIED_SIP = 0x7b,
+    SXD_TRAP_ID_IPV6_UNSPECIFIED_DIP = 0x7c,
     SXD_TRAP_ID_IPV6_LINK_LOCAL_DST = 0x61,
     SXD_TRAP_ID_IPV6_LINK_LOCAL_SRC = 0x62,
     SXD_TRAP_ID_IPV6_ALL_NODES_LINK = 0x63,
@@ -9670,6 +9659,23 @@ typedef enum sxd_trap_id {
     /* User defined trap ID */
     SXD_TRAP_ID_IP2ME_CUSTOM0 = 0xc0,
     SXD_TRAP_ID_IP2ME_CUSTOM1 = 0xc1,
+    /* Host Configurable Traps */
+    SXD_TRAP_ID_CONFT_SWITCH0 = 0x240,
+    SXD_TRAP_ID_CONFT_SWITCH1 = 0x241,
+    SXD_TRAP_ID_CONFT_SWITCH2 = 0x242,
+    SXD_TRAP_ID_CONFT_SWITCH3 = 0x243,
+    SXD_TRAP_ID_CONFT_ROUTER0 = 0x250,
+    SXD_TRAP_ID_CONFT_ROUTER1 = 0x251,
+    SXD_TRAP_ID_CONFT_ROUTER2 = 0x252,
+    SXD_TRAP_ID_CONFT_ROUTER3 = 0x253,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC0 = 0x260,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC1 = 0x261,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC2 = 0x262,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC3 = 0x263,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC0 = 0x270,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC1 = 0x271,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC2 = 0x272,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC3 = 0x273,
 
     SXD_TRAP_ID_MIN = SXD_TRAP_ID_GENERAL_FDB,
     SXD_TRAP_ID_MAX = SXD_TRAP_ID_TRANSACTION_ERROR,

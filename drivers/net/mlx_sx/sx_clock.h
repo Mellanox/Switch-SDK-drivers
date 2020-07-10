@@ -152,7 +152,4 @@ int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv        *priv,
                                 struct timespec       *utc);
 int sx_clock_dump_spc2(struct seq_file *m, void *v);
 
-/* SPC3 functions */
-int sx_clock_init_spc3(struct sx_priv *priv);
-
 #endif  /* SX_CLOCK_H */

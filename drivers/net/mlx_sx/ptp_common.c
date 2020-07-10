@@ -51,10 +51,19 @@ enum ptp_common_counters {
     PTP_COUNTER_COMMON_RATE_LIMIT,
     PTP_COUNTER_COMMON_LAST
 };
+enum ptp_trap_counters {
+    PTP_COUNTER_TRAP_PTP0,
+    PTP_COUNTER_TRAP_PTP1,
+    PTP_COUNTER_TRAP_OTHER,
+    PTP_COUNTER_TRAP_PTP0_ERROR,
+    PTP_COUNTER_TRAP_PTP1_ERROR,
+    PTP_COUNTER_TRAP_LAST
+};
 static struct delayed_work __per_sec_dwork;
 static atomic64_t          __ptp_rx_budget[PTP_MAX_PORTS];
 static atomic64_t          __ptp_tx_budget[PTP_MAX_PORTS];
 static atomic64_t          __ptp_common_counters[2][PTP_COUNTER_COMMON_LAST];
+static atomic64_t          __ptp_traps_counters[PTP_COUNTER_TRAP_LAST];
 static ptp_mode_t          __ptp_working_mode = KU_PTP_MODE_DISABLED;
 static void __ptp_reset_budget(void)
 {
@@ -77,6 +86,7 @@ static void __per_sec(struct work_struct *work)
     sx_clock_queue_delayed_work(&__per_sec_dwork, HZ);
 }
 
+#define IS_PTP_UDP_PORT(udp_hdr) (be16_to_cpu((udp_hdr)->dest) == 319 || be16_to_cpu((udp_hdr)->dest) == 320)
 
 static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pkt_meta)
 {
@@ -107,10 +117,8 @@ static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pk
         ip_hdr = (struct iphdr *)(data + offset);
         if (ip_hdr->protocol == IPPROTO_UDP) {
             udp = (struct udphdr *)(data + offset + (ip_hdr->ihl << 2));
-            if (be16_to_cpu(udp->dest) == 319) {
-                offset += (ip_hdr->ihl << 2) + UDP_HLEN;
-                is_ptp = 1;
-            }
+            is_ptp = IS_PTP_UDP_PORT(udp);
+            offset += (ip_hdr->ihl << 2) + UDP_HLEN;
         }
         break;
 
@@ -118,10 +126,8 @@ static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pk
         ip6_hdr = (struct ipv6hdr *)(data + offset);
         if (ip6_hdr->nexthdr == IPPROTO_UDP) {
             udp = (struct udphdr *)(data + offset + IP6_HLEN);
-            if (be16_to_cpu(udp->dest) == 319) {
-                offset += IP6_HLEN + UDP_HLEN;
-                is_ptp = 1;
-            }
+            is_ptp = IS_PTP_UDP_PORT(udp);
+            offset += IP6_HLEN + UDP_HLEN;
         }
         break;
 
@@ -135,6 +141,7 @@ static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pk
         pkt_meta->seqid = ntohs(*((u16*)(data + offset + OFF_PTP_SEQUENCE_ID)));
         pkt_meta->domain = *(data + offset + OFFSET_PTP_DOMAIN_NUMBER);
         pkt_meta->msg_type = *(data + offset) & 0xf;
+        pkt_meta->timestamp_required = ((u16)(1 << pkt_meta->msg_type)) & PTP_MSG_EVENT_ALL;
     }
 
     return is_ptp;
@@ -144,6 +151,7 @@ static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pk
 int sx_core_ptp_rx_handler(struct sx_priv *priv, struct completion_info *ci, int cqn)
 {
     struct sx_ptp_packet_metadata pkt_meta;
+    int                           trap_counter_index, trap_counter_error_index = PTP_COUNTER_TRAP_LAST;
 
     switch (ci->hw_synd) {
     case SXD_TRAP_ID_PTP_ING_EVENT:
@@ -152,20 +160,39 @@ int sx_core_ptp_rx_handler(struct sx_priv *priv, struct completion_info *ci, int
         break;
 
     case SXD_TRAP_ID_PTP_PTP0:
-    case SXD_TRAP_ID_PTP_PTP1:
-    case SXD_TRAP_ID_ETH_L2_LLDP: /* PTP L2 Peer to Peer packets received with LLDP trap */
-        if (__is_ptp_packet(ci->skb, &pkt_meta)) {
-            goto ptp_packet;
-        }
+        trap_counter_index = PTP_COUNTER_TRAP_PTP0;
+        trap_counter_error_index = PTP_COUNTER_TRAP_PTP0_ERROR; /* counter index if it is not PTP packet */
+        break;
 
-    /* fall through */
+    case SXD_TRAP_ID_PTP_PTP1:
+        trap_counter_index = PTP_COUNTER_TRAP_PTP1;
+        trap_counter_error_index = PTP_COUNTER_TRAP_PTP1_ERROR; /* counter index if it is not PTP packet */
+        break;
+
+    case SXD_TRAP_ID_ETH_L2_LLDP: /* PTP L2 Peer to Peer packets received with LLDP trap */
+        trap_counter_index = PTP_COUNTER_TRAP_OTHER;
+        break;
 
     default:
         return -1; /* if we get here, it is not a PTP packet */
     }
 
-ptp_packet:
+    if (!__is_ptp_packet(ci->skb, &pkt_meta)) {
+        /* if we get here from PTP0/PTP1 traps, it is an error. either it is not a PTP
+         *  packet or it is not a valid one */
+        if (trap_counter_error_index != PTP_COUNTER_TRAP_LAST) {
+            atomic64_inc(&__ptp_common_counters[PTP_PACKET_INGRESS][PTP_COUNTER_COMMON_TOTAL]);
+            atomic64_inc(&__ptp_traps_counters[trap_counter_error_index]);
+        }
+
+        return -1; /* if we get here, it is not a PTP packet or not a valid one */
+    }
+
+    priv->ptp_cqn = cqn;
+
     atomic64_inc(&__ptp_common_counters[PTP_PACKET_INGRESS][PTP_COUNTER_COMMON_TOTAL]);
+    atomic64_inc(&__ptp_traps_counters[trap_counter_index]);
+
 
     if (ci->is_lag) {
         pkt_meta.sysport_lag_id = priv->lag_member_to_local_db[ci->sysport][ci->lag_subport];
@@ -173,14 +200,7 @@ ptp_packet:
         pkt_meta.sysport_lag_id = ci->sysport;
     }
 
-    /*  with LLDP trap ptp general messages should be dispatch without timestamp */
-    if (((u16)(1 << pkt_meta.msg_type) & PTP_MSG_GENERAL_ALL) && (ci->hw_synd == SXD_TRAP_ID_ETH_L2_LLDP)) {
-        pkt_meta.timestamp_required = 0;
-    } else if (ci->hw_synd == SXD_TRAP_ID_PTP_PTP1) {
-        pkt_meta.timestamp_required = 0;
-    } else {
-        pkt_meta.timestamp_required = 1;
-
+    if (pkt_meta.timestamp_required) {
         if (atomic64_dec_return(&__ptp_rx_budget[pkt_meta.sysport_lag_id]) < 0) {
             /* no more budget for this RX PTP packet! */
             atomic64_inc(&__ptp_common_counters[PTP_PACKET_INGRESS][PTP_COUNTER_COMMON_RATE_LIMIT]);
@@ -188,8 +208,6 @@ ptp_packet:
 
         atomic64_inc(&__ptp_common_counters[PTP_PACKET_INGRESS][PTP_COUNTER_COMMON_NEED_TIMESTAMP]);
     }
-
-    priv->ptp_cqn = cqn;
 
 ptp_fifo_event:
 
@@ -229,12 +247,10 @@ int sx_core_ptp_tx_handler(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_
     atomic64_inc(&__ptp_common_counters[PTP_PACKET_EGRESS][PTP_COUNTER_COMMON_TOTAL]);
 
     /*  with ptp general messages should be dispatch without timestamp */
-    if (((u16)(1 << pkt_meta.msg_type) & PTP_MSG_GENERAL_ALL)) {
+    if (!pkt_meta.timestamp_required) {
         skb_tstamp_tx(skb, NULL);
         return 0;
     }
-
-    pkt_meta.timestamp_required = 1;
 
     if (atomic64_dec_return(&__ptp_tx_budget[pkt_meta.sysport_lag_id]) < 0) {
         atomic64_inc(&__ptp_common_counters[PTP_PACKET_EGRESS][PTP_COUNTER_COMMON_RATE_LIMIT]);
@@ -301,6 +317,10 @@ int sx_core_ptp_init(struct sx_priv *priv, ptp_mode_t ptp_mode)
     for (i = 0; i < PTP_COUNTER_COMMON_LAST; i++) {
         atomic64_set(&__ptp_common_counters[PTP_PACKET_INGRESS][i], 0);
         atomic64_set(&__ptp_common_counters[PTP_PACKET_EGRESS][i], 0);
+    }
+
+    for (i = 0; i < PTP_COUNTER_TRAP_LAST; i++) {
+        atomic64_set(&__ptp_traps_counters[i], 0);
     }
 
     for (i = 0; i < PTP_MAX_PORTS; i++) {
@@ -424,6 +444,26 @@ int sx_dbg_ptp_dump_proc_show(struct seq_file *m, void *v)
                "Total packets",
                (u64)atomic64_read(&__ptp_common_counters[PTP_PACKET_INGRESS][PTP_COUNTER_COMMON_TOTAL]),
                (u64)atomic64_read(&__ptp_common_counters[PTP_PACKET_EGRESS][PTP_COUNTER_COMMON_TOTAL]));
+
+    seq_printf(m, "    %-36s   %-15llu\n",
+               "PTP0 (Ok)",
+               (u64)atomic64_read(&__ptp_traps_counters[PTP_COUNTER_TRAP_PTP0]));
+
+    seq_printf(m, "    %-36s   %-15llu\n",
+               "PTP0 (Error)",
+               (u64)atomic64_read(&__ptp_traps_counters[PTP_COUNTER_TRAP_PTP0_ERROR]));
+
+    seq_printf(m, "    %-36s   %-15llu\n",
+               "PTP1 (Ok)",
+               (u64)atomic64_read(&__ptp_traps_counters[PTP_COUNTER_TRAP_PTP1]));
+
+    seq_printf(m, "    %-36s   %-15llu\n",
+               "PTP1 (Error)",
+               (u64)atomic64_read(&__ptp_traps_counters[PTP_COUNTER_TRAP_PTP1_ERROR]));
+
+    seq_printf(m, "    %-36s   %-15llu\n",
+               "Other",
+               (u64)atomic64_read(&__ptp_traps_counters[PTP_COUNTER_TRAP_OTHER]));
 
     seq_printf(m, "%-40s   %-15llu   %-15llu\n",
                "Timestamp required",

@@ -66,6 +66,7 @@ extern sx_core_rdq_agg_trace_point_func sx_core_rdq_agg_trace_points[NUMBER_OF_R
         trace_sx_rdq_rx_agg_ ## rdq_no ## _3, \
         trace_sx_rdq_rx_agg_ ## rdq_no ## _4, \
         trace_sx_rdq_rx_agg_ ## rdq_no ## _5, \
+        trace_sx_rdq_rx_agg_ ## rdq_no ## _6, \
     }
 
 extern sx_core_rdq_agg_trace_point_func sx_core_rdq_agg_trace_points[NUMBER_OF_RDQS][SX_AGG_TRACE_POINT_NUM_PER_RDQ];

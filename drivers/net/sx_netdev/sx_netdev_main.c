@@ -62,6 +62,7 @@
 #include <net/switchdev.h>
 #endif
 #include "sx_netdev.h"
+#include "sx_psample.h"
 
 MODULE_AUTHOR("Amos Hersch");
 MODULE_DESCRIPTION("Mellanox SwitchX Network Device Driver");
@@ -556,7 +557,6 @@ static int sx_netdev_unregister_global_event_handler(void)
     }
 
     CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_flush_synd_by_handler, sx_netdev_handle_global_pkt);
-
     return err;
 }
 
@@ -1103,6 +1103,8 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
     u16                 pcp = 0;
     uint16_t            ifc_vlan = 0;
     u8                  is_ifc_rp = 0;
+    u8                  tx_hw_timestamp = 0, tx_hw_timestamp_flags = 0;
+    struct sock        *tx_hw_timestamp_sock = NULL;
 
     if (net_priv->dev == NULL) {
         if (printk_ratelimit()) {
@@ -1180,11 +1182,24 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
 
     if ((net_priv->hwtstamp_config.tx_type == HWTSTAMP_TX_ON) &&
         unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
-        CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_ptp_tx_handler,
-                                      net_priv->dev,
-                                      skb,
-                                      net_priv->port,
-                                      net_priv->is_lag);
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_ptp_tx_handler,
+                                   err,
+                                   net_priv->dev,
+                                   skb,
+                                   net_priv->port,
+                                   net_priv->is_lag);
+
+        if (err) {
+            if (printk_ratelimit()) {
+                printk(KERN_ERR "failed to handle PTP TX packet (err=%d)\n", err);
+            }
+        } else {
+            /* we should save these local parameters in case skb will be replaced in this function (a VLAN
+             * header should be added or not enough headroom */
+            tx_hw_timestamp = 1;
+            tx_hw_timestamp_flags = skb_shinfo(skb)->tx_flags;
+            tx_hw_timestamp_sock = skb->sk;
+        }
     }
 
     if (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp) {
@@ -1243,6 +1258,13 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         memcpy(skb_put(tmp_skb, len), skb->data, len);
         kfree_skb(skb);
         len += ISX_HDR_SIZE;
+    }
+
+    if (tx_hw_timestamp) {
+        /* need to override these parameters with the ones we saved in this function. skb may have replaced
+         * (allocated again) and these old parameters does not exist there anymore */
+        skb_shinfo(tmp_skb)->tx_flags = tx_hw_timestamp_flags;
+        tmp_skb->sk = tx_hw_timestamp_sock;
     }
 
     if (sx_netdev_sx_core_if_get_reference()) {
@@ -2264,6 +2286,29 @@ static void sx_netdev_event(struct sx_dev       *dev,
         sx_netdev_get_trap_info(dev, resources, event_data);
         break;
 
+    case SX_DEV_EVENT_ADD_SYND_PSAMPLE:
+        printk(KERN_INFO PFX "sx_netdev_event: Got ADD_SYND_PSAMPLE event. "
+               "dev = %p, dev_id = %u, trap_id = 0x%x\n",
+               dev, dev->device_id, event_data->psample_synd.hw_synd);
+        sx_psample_set_synd(dev, event_data->psample_synd.hw_synd,
+                            SX_DEV_EVENT_ADD_SYND_PSAMPLE, event_data);
+        break;
+
+    case SX_DEV_EVENT_REMOVE_SYND_PSAMPLE:
+        printk(KERN_INFO PFX "sx_netdev_event: Got REMOVE_SYND_PSAMPLE event. "
+               "dev = %p, dev_id = %u, trap_id = 0x%x\n",
+               dev, dev->device_id, event_data->psample_synd.hw_synd);
+        sx_psample_set_synd(dev, event_data->psample_synd.hw_synd,
+                            SX_DEV_EVENT_REMOVE_SYND_PSAMPLE, event_data);
+        break;
+
+    case SX_DEV_EVENT_UPDATE_SAMPLE_RATE:
+        printk(KERN_INFO PFX "sx_netdev_event: got port sample-rate update event (rate=%u).",
+               event_data->psample_port_sample_rate.sample_rate);
+        sx_psample_set_port_sample_ret(event_data->psample_port_sample_rate.local_port,
+                                       event_data->psample_port_sample_rate.sample_rate);
+        break;
+
     case SX_DEV_EVENT_CATASTROPHIC_ERROR:
     default:
         return;
@@ -2956,6 +3001,7 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
 
         detach_netdevs();
         sx_netdev_unregister_global_event_handler();
+        sx_psample_cleanup();
         dev = g_sx_dev;
 
         write_lock_irqsave(&sx_core_if.access_lock, flags);
@@ -3117,6 +3163,8 @@ static void __exit sx_netdev_cleanup(void)
     sx_bridge_rtnl_link_unregister();
     sx_netdev_rtnl_link_unregister();
     sx_netdev_unregister_global_event_handler();
+    sx_psample_cleanup();
+
     if (netdev_wq) {
         destroy_workqueue(netdev_wq);
     }
