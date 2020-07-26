@@ -521,8 +521,9 @@ enum ku_ctrl_cmd {
     CTRL_CMD_SET_SW_IB_NODE_DESC, /**< set SW IB node description */
     CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG, /**< Attach/detach the filter eBPF program to/from an RDQ */
     CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE, /**< update psample-port-sample-rate info to sx-netdev module */
+    CTRL_CMD_SET_WARM_BOOT_MODE, /**< set sdk boot mode : normal, issu , ... */
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
-    CTRL_CMD_MAX_VAL = CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE /**< Maximum enum value */
+    CTRL_CMD_MAX_VAL = CTRL_CMD_SET_WARM_BOOT_MODE /**< Maximum enum value */
 #ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
                        CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
 #endif /* SW_PUDE_EMULATION */

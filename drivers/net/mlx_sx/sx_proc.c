@@ -2535,6 +2535,9 @@ void __dump_kdbs(void)
             printk("%u\t| DOWN\t|\n", i);
         }
     }
+
+    printk("============================\n");
+    printk("warm_boot_mode: %d\n", priv->warm_boot_mode);
 }
 
 

@@ -147,6 +147,7 @@ long ctrl_cmd_set_vid_2_ip(struct file *file, unsigned int cmd, unsigned long da
 long ctrl_cmd_set_port_vid_to_fid_map(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_fid_to_hwfid_map(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_default_vid(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_warm_boot_mode(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_psample_port_sample_rate_update(struct file *file, unsigned int cmd, unsigned long data);
 
 /* ioctl_dpt.c */

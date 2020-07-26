@@ -345,6 +345,7 @@ enum {
 static u8 __pci_probe_state = PCI_PROBE_STATE_NONE_E;
 static u8 __perform_chip_reset = 0;
 static u8 __oob_pci = 0;
+u8        __warm_boot_mode = 0;
 
 /************************************************
  *  Functions
@@ -4429,7 +4430,7 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
     __pci_probe_state = PCI_PROBE_STATE_SUCCESS_E;
 
     if (__perform_chip_reset) {
-        /* udev event for system management purpose (only if chip was reset) */
+        /* udev event for system management purpose (only if chip was reset or warm_boot) */
         kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
     }
 
@@ -4698,8 +4699,8 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     struct sx_dev  *dev;
     int             i;
 
-    if (__perform_chip_reset) {
-        /* udev event for system management purpose (only if chip was reset on last registration) */
+    if (__perform_chip_reset || __warm_boot_mode) {
+        /* udev event for system management purpose (only if chip was reset enable or warm boot) */
         kobject_uevent(&pdev->dev.kobj, KOBJ_REMOVE);
     }
 
@@ -4784,6 +4785,11 @@ int sx_restart_one_pci(struct pci_dev *pdev)
         return -ENODEV;
     }
 
+    /* enable chip reset from sx_restart_one_pci even
+     * if driver was loaded with __perform_chip_reset = 0
+     * for example in case of WARM boot*/
+    __perform_chip_reset = 1;
+    
     down_write(&sx_glb.pci_restart_lock);
     sx_core_remove_one_pci(pdev);
     err = sx_core_init_one_pci(pdev, NULL);

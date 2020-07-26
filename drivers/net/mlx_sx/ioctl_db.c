@@ -47,7 +47,7 @@
  * struct is successfully copied between user space and kernel space.
  */
 #define SX_CORE_DB_MAGIC_NUM 0xabcdabcd
-
+extern u8 __warm_boot_mode;
 static int sx_core_ioctl_set_dpt_info(struct sx_dev *dev, struct ku_sx_core_db *sx_core_db)
 {
     int                    err = 0;
@@ -1391,6 +1391,36 @@ out:
     return err;
 }
 
+long ctrl_cmd_set_warm_boot_mode(struct file *file, unsigned int cmd, unsigned long data)
+{
+    uint32_t       warm_boot_mode;
+    struct sx_dev *dev;
+    unsigned long  flags;
+    int            err;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    err = copy_from_user(&warm_boot_mode, (void*)data, sizeof(warm_boot_mode));
+    if (err) {
+        goto out;
+    }
+
+    /* in case of warm boot generate udev_add event */
+    if (warm_boot_mode) {
+        /* udev event for system management purpose */
+        kobject_uevent(&dev->pdev->dev.kobj, KOBJ_ADD);
+        __warm_boot_mode = 1;
+        
+        /* sx_priv(dev)->warm_boot_mode is for debug purpose only 
+         * the logic based on __warm_boot_mode variable */
+        spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
+        sx_priv(dev)->warm_boot_mode = warm_boot_mode;
+        spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    }
+
+out:
+    return err;
+}
 
 long ctrl_cmd_psample_port_sample_rate_update(struct file *file, unsigned int cmd, unsigned long data)
 {

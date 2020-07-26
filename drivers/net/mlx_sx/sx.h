@@ -738,6 +738,7 @@ struct sx_priv {
     u32                   monitor_rdqs_count;
     struct sx_bitmap      monitor_cq_bitmap;        /* WJH CQs */
     struct sx_bitmap      active_monitor_cq_bitmap; /* WJH CQs that hold CQEs to handle */
+    u32                   warm_boot_mode;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     struct bpf_prog* filter_ebpf_progs[NUMBER_OF_RDQS];
 #endif
