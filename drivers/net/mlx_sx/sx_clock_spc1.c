@@ -81,6 +81,10 @@ static u64 __frc2nsec(u64 frc)
     nsec = timecounter_cyc2time(&priv->tstamp.clock, frc);
     spin_unlock_irqrestore(&priv->tstamp.lock, flags);
 
+    SX_CLOCK_ACTIVITY_LOG("FRC_to_NSEC [frc=%llu, nsec=%llu]",
+                          frc,
+                          nsec);
+
     return nsec;
 }
 
@@ -125,6 +129,12 @@ find_good_timing:
 
     if (nsec_till_full_sec <= TOO_CLOSE_TO_NEXT_SEC) {
         spin_unlock_bh(&tstamp->lock);
+        SX_CLOCK_ACTIVITY_LOG(
+            "Too close to next-sec, wait 100msec [curr_frc=%llu, curr_nsec=%llu, nsec_till_full_sec=%llu]",
+            curr_frc,
+            curr_nsec,
+            nsec_till_full_sec);
+
         msleep(100);
         goto find_good_timing;
     }
@@ -143,6 +153,13 @@ find_good_timing:
     pps_frc = curr_frc + __nsec2frc(&tstamp->clock, nsec_till_full_sec);
 
     /* SET PPS */
+
+    SX_CLOCK_ACTIVITY_LOG("PERIODIC MTPPS [curr_frc=%llu, curr_nsec=%llu, pps_frc=%llu, nsec_till_full_sec=%llu]",
+                          curr_frc,
+                          curr_nsec,
+                          pps_frc,
+                          nsec_till_full_sec);
+
     memset(&reg_mtpps, 0, sizeof(reg_mtpps));
     reg_mtpps.dev_id = tstamp->dev->device_id;
     sx_cmd_set_op_tlv(&reg_mtpps.op_tlv, MTPPS_REG_ID, EMAD_METHOD_WRITE);
@@ -157,6 +174,10 @@ find_good_timing:
 
     if (freq_adj != 0) {
         /* ADJUST FREQ */
+
+        SX_CLOCK_ACTIVITY_LOG("PERIODIC MTUTC [freq_adj=%d]",
+                              freq_adj);
+
         memset(&reg_mtutc, 0, sizeof(reg_mtutc));
         reg_mtutc.dev_id = tstamp->dev->device_id;
         sx_cmd_set_op_tlv(&reg_mtutc.op_tlv, MTUTC_REG_ID, EMAD_METHOD_WRITE);
@@ -169,6 +190,11 @@ find_good_timing:
     }
 
     /* SET TIME */
+
+    SX_CLOCK_ACTIVITY_LOG("PERIODIC MTUTC [utc_sec=%llu]",
+                          curr_nsec / NSEC_PER_SEC + 1,
+                          nsec_till_full_sec);
+
     memset(&reg_mtutc, 0, sizeof(reg_mtutc));
     reg_mtutc.dev_id = tstamp->dev->device_id;
     sx_cmd_set_op_tlv(&reg_mtutc.op_tlv, MTUTC_REG_ID, EMAD_METHOD_WRITE);

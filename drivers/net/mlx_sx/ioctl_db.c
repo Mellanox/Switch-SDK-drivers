@@ -1165,13 +1165,31 @@ out:
     return err;
 }
 
+static void ber_monitor_bitmask_work_handler(struct work_struct *work)
+{
+    struct ber_bitmask_set_work_data *ber_wdata = container_of(work, struct ber_bitmask_set_work_data, work);
+    unsigned long                     flags;
+
+    spin_lock_irqsave(&sx_priv(ber_wdata->dev)->db_lock, flags);
+    sx_priv(ber_wdata->dev)->port_ber_monitor_bitmask[ber_wdata->local_port] = ber_wdata->bitmask;
+    /* If BER monitor is disable: clear the operational state */
+    if (ber_wdata->bitmask == 0) {
+        sx_priv(ber_wdata->dev)->port_ber_monitor_state[ber_wdata->local_port] = 0;
+    }
+    spin_unlock_irqrestore(&sx_priv(ber_wdata->dev)->db_lock, flags);
+
+    complete(ber_wdata->wq_completion);
+}
 
 long ctrl_cmd_port_ber_monitor_bitmask_set(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_ber_monitor_bitmask_data ber_monitor_bitmask_data;
     struct sx_dev                     *dev;
-    unsigned long                      flags;
     int                                err;
+    struct completion                  __ber_wq_completion;
+    struct ber_bitmask_set_work_data   ber_wdata;
+
+    memset(&ber_wdata, 0, sizeof(ber_wdata));
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1188,13 +1206,18 @@ long ctrl_cmd_port_ber_monitor_bitmask_set(struct file *file, unsigned int cmd, 
         goto out;
     }
 
-    spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-    sx_priv(dev)->port_ber_monitor_bitmask[ber_monitor_bitmask_data.local_port] = ber_monitor_bitmask_data.bitmask;
-    /* If BER monitor is disable: clear the operational state */
-    if (ber_monitor_bitmask_data.bitmask == 0) {
-        sx_priv(dev)->port_ber_monitor_state[ber_monitor_bitmask_data.local_port] = 0;
-    }
-    spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    /* The ber monitor DB update is done in worker thread to prevent
+     * race between DB update and PPBME handler */
+    init_completion(&__ber_wq_completion);
+    ber_wdata.dev = dev;
+    ber_wdata.local_port = ber_monitor_bitmask_data.local_port;
+    ber_wdata.bitmask = ber_monitor_bitmask_data.bitmask;
+    ber_wdata.wq_completion = &__ber_wq_completion;
+    INIT_WORK(&ber_wdata.work, ber_monitor_bitmask_work_handler);
+    queue_work(dev->generic_wq, &ber_wdata.work);
+
+    /* Wait for DB update completion for synchronous ioctl */
+    wait_for_completion_interruptible(&__ber_wq_completion);
 
 out:
     return err;

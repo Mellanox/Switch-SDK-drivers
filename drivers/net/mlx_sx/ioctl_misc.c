@@ -256,3 +256,39 @@ long ctrl_cmd_set_sw_ib_node_desc(struct file *file, unsigned int cmd, unsigned 
 out:
     return err;
 }
+
+
+long ctrl_cmd_set_sw_ib_up_down(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_ib_swid_up_down event_params;
+    union sx_event_data      *event_data;
+    struct sx_dev            *dev;
+    int                       err;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    err = copy_from_user(&event_params, (struct ku_ib_node_description*)data, sizeof(event_params));
+    if (err) {
+        goto out;
+    }
+
+    printk(KERN_INFO "Setting swid [%u] device [%u] [%s]\n",
+           event_params.swid,
+           event_params.dev_id,
+           event_params.up ? "up" : "down");
+
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        err = -ENOMEM;
+        goto out;
+    }
+
+    event_data->ib_swid_change.swid = event_params.swid;
+    event_data->ib_swid_change.dev_id = event_params.dev_id;
+
+    sx_core_dispatch_event(dev, event_params.up ? SX_DEV_EVENT_IB_SWID_UP : SX_DEV_EVENT_IB_SWID_DOWN, event_data);
+    kfree(event_data);
+
+out:
+    return err;
+}

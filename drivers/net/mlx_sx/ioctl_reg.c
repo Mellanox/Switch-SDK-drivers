@@ -107,6 +107,7 @@ SX_CORE_IOCTL_ACCESS_REG_HANDLER(PPBME, ku_access_ppbme_reg);
 SX_CORE_IOCTL_ACCESS_REG_HANDLER(MCION, ku_access_mcion_reg);
 SX_CORE_IOCTL_ACCESS_REG_HANDLER(PMMP, ku_access_pmmp_reg);
 SX_CORE_IOCTL_ACCESS_REG_HANDLER(QPCR, ku_access_qpcr_reg);
+SX_CORE_IOCTL_ACCESS_REG_HANDLER(SBCM, ku_access_sbcm_reg);
 
 
 const ioctl_handler_cb_t
@@ -178,5 +179,6 @@ const ioctl_handler_cb_t
     IOCTL_REG_HANDLER(PPBME),
     IOCTL_REG_HANDLER(MCION),
     IOCTL_REG_HANDLER(PMMP),
-    IOCTL_REG_HANDLER(QPCR)
+    IOCTL_REG_HANDLER(QPCR),
+    IOCTL_REG_HANDLER(SBCM)
 };

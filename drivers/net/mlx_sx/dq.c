@@ -1140,6 +1140,7 @@ void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq)
     for (i = 0; i < sx_priv(dev)->monitor_rdqs_count; i++) {
         if (sx_priv(dev)->monitor_rdqs_arr[i] == dq->dqn) {
             sx_bitmap_free(&(sx_priv(dev)->monitor_cq_bitmap), dq->cq->cqn);
+            sx_bitmap_free(&(sx_priv(dev)->active_monitor_cq_bitmap), dq->cq->cqn);
             sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count - 1];
             sx_priv(dev)->monitor_rdqs_count--;
         }

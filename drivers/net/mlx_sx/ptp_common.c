@@ -138,10 +138,10 @@ static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pk
 #define OFFSET_PTP_DOMAIN_NUMBER (4)
 
     if (is_ptp) {
-        pkt_meta->seqid = ntohs(*((u16*)(data + offset + OFF_PTP_SEQUENCE_ID)));
-        pkt_meta->domain = *(data + offset + OFFSET_PTP_DOMAIN_NUMBER);
-        pkt_meta->msg_type = *(data + offset) & 0xf;
-        pkt_meta->timestamp_required = ((u16)(1 << pkt_meta->msg_type)) & PTP_MSG_EVENT_ALL;
+        pkt_meta->pkt_fields.seqid = ntohs(*((u16*)(data + offset + OFF_PTP_SEQUENCE_ID)));
+        pkt_meta->pkt_fields.domain = *(data + offset + OFFSET_PTP_DOMAIN_NUMBER);
+        pkt_meta->pkt_fields.msg_type = *(data + offset) & 0xf;
+        pkt_meta->timestamp_required = !!(((u16)(1 << pkt_meta->pkt_fields.msg_type)) & PTP_MSG_EVENT_ALL);
     }
 
     return is_ptp;
@@ -372,6 +372,8 @@ int sx_core_ptp_init(struct sx_priv *priv, ptp_mode_t ptp_mode)
     __ptp_working_mode = ptp_mode;
     priv->tstamp.is_ptp_enable = 1;
 
+    SX_CLOCK_ACTIVITY_LOG("PTP initialized");
+
 out:
     return err;
 }
@@ -396,6 +398,8 @@ int sx_core_ptp_cleanup(struct sx_priv *priv)
     priv->ptp_cqn = -1;
     __ptp_working_mode = KU_PTP_MODE_DISABLED;
     priv->tstamp.is_ptp_enable = 0;
+
+    SX_CLOCK_ACTIVITY_LOG("PTP cleanup");
 
 out:
     return err;

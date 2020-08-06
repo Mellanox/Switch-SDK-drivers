@@ -521,6 +521,7 @@ enum ku_ctrl_cmd {
     CTRL_CMD_SET_SW_IB_NODE_DESC, /**< set SW IB node description */
     CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG, /**< Attach/detach the filter eBPF program to/from an RDQ */
     CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE, /**< update psample-port-sample-rate info to sx-netdev module */
+    CTRL_CMD_SET_SW_IB_SWID_UP_DOWN, /**< IB swid went up or down */
     CTRL_CMD_SET_WARM_BOOT_MODE, /**< set sdk boot mode : normal, issu , ... */
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
     CTRL_CMD_MAX_VAL = CTRL_CMD_SET_WARM_BOOT_MODE /**< Maximum enum value */
@@ -698,12 +699,12 @@ enum ku_l2_type {
  * swid types.
  */
 enum ku_swid_type {
-    KU_SWID_TYPE_DISABLED = 0, /**< Disabled */
-    KU_SWID_TYPE_INFINIBAND = 1, /**< IB */
-    KU_SWID_TYPE_ETHERNET = 2, /**< Eth */
+    KU_SWID_TYPE_DISABLED = 0,    /**< Disabled */
+    KU_SWID_TYPE_INFINIBAND = 1,  /**< IB */
+    KU_SWID_TYPE_ETHERNET = 2,    /**< Eth */
     KU_SWID_TYPE_ROUTER_PORT = 8, /**< RP */
-    KU_SWID_TYPE_MIN = KU_SWID_TYPE_DISABLED, /**< Minimum enum value */
-    KU_SWID_TYPE_MAX = KU_SWID_TYPE_ROUTER_PORT /**< Maximum enum value */
+    KU_SWID_TYPE_MIN = KU_SWID_TYPE_DISABLED,         /**< Minimum enum value */
+    KU_SWID_TYPE_MAX = KU_SWID_TYPE_ROUTER_PORT         /**< Maximum enum value */
 };
 
 /**
@@ -723,8 +724,8 @@ enum ku_command_ifc_ret_status {
     COMMAND_IFC_RET_STATUS_BAD_INDEX = 0X0A,      /**< Bad index */
     COMMAND_IFC_RET_STATUS_BAD_NVMEM = 0X0B,      /**< Bad NVMEM */
     COMMAND_IFC_RET_STATUS_BAD_PKT = 0X30,        /**< Bad packet */
-    COMMAND_IFC_RET_STATUS_MIN = COMMAND_IFC_RET_STATUS_OK, /**< Minimum enum value */
-    COMMAND_IFC_RET_STATUS_MAX = COMMAND_IFC_RET_STATUS_BAD_PKT /**< Maximum enum value */
+    COMMAND_IFC_RET_STATUS_MIN = COMMAND_IFC_RET_STATUS_OK,            /**< Minimum enum value */
+    COMMAND_IFC_RET_STATUS_MAX = COMMAND_IFC_RET_STATUS_BAD_PKT            /**< Maximum enum value */
 };
 
 /**
@@ -770,11 +771,11 @@ enum hpkt_action {
  * paths in HTGT register.
  */
 enum htgt_path {
-    HTGT_LOCAL_PATH = 0, /**< Local path */
+    HTGT_LOCAL_PATH = 0,    /**< Local path */
     HTGT_STACKING_PATH = 1, /**< Stacking path */
-    HTGT_DR_PATH = 2, /**< Directed route path */
-    HTGT_ETH_PATH = 3, /**< Ethernet path */
-    HTGT_NULL_PATH = 0xF /**< NULL path */
+    HTGT_DR_PATH = 2,       /**< Directed route path */
+    HTGT_ETH_PATH = 3,      /**< Ethernet path */
+    HTGT_NULL_PATH = 0xF     /**< NULL path */
 };
 
 typedef uint8_t sxd_boolean_t;
@@ -1568,6 +1569,16 @@ struct ku_ib_node_description {
     uint8_t swid; /**< swid - Switch partition ID */
     uint8_t node_description[SX_IB_NODE_DESCRIPTION_LEN]; /**< IB node description string */
 };
+
+/**
+ * ku_ib_swid_up_down structure is used to set IB swid up down events
+ */
+struct ku_ib_swid_up_down {
+    uint8_t dev_id; /**< dev_id - device id */
+    uint8_t swid; /**< swid - Switch partition ID */
+    uint8_t up; /**<  True if swid went up, false if went down */
+};
+
 
 /**
  * ku_query_board_info structure is used to store the query board info parameters
@@ -5777,14 +5788,17 @@ struct ku_pmmp_reg {
  */
 struct ku_sbcm_reg {
     uint8_t  desc; /**< desc - Descriptor buffer */
+    uint8_t  snap; /**< snap - Read the snapshot */
     uint8_t  local_port; /**< local_port - Local port number */
     uint8_t  pg_buff; /**< pg_buff - Port PG */
     uint8_t  dir; /**< dir - Direction */
     uint8_t  infinite_size; /**< infinite_size - pool with infinite size. When set size is reserved */
+    uint8_t  exc; /** Exclude - no accounting in the pool */
     uint32_t buff_occupancy; /**< buff_occupancy - Current buffer occupancy */
     uint32_t max_buff_occupancy; /**< max_buff_occupancy - Maximum value of buffer occupancy monitored */
     uint32_t clr; /**< clr - Clear max buffer occupancy - when set the max value is cleared */
     uint32_t min_buff; /**< min_buff - Minimum buffer size for the limiter */
+    uint8_t  infi_max; /** Max buffer is infinite */
     uint32_t max_buff; /**< max_buff - Maximum buffer size for the limiter in cells or "alpha" */
     uint8_t  pool; /**< pool - Association of the port-priority to a pool*/
 };
@@ -7706,6 +7720,7 @@ typedef enum sxd_sbctc_event {
 struct ku_sbctc_reg {
     uint8_t                              dir_ing;
     uint8_t                              local_port;
+    uint8_t                              res;
     uint8_t                              mode;
     uint8_t                              en_config;
     uint8_t                              event;
@@ -9031,8 +9046,8 @@ struct ku_access_ppbmp_reg {
 };
 
 typedef enum ku_ppbmp_monitor_type {
-    KU_PPBMP_MONITOR_GROUP_RS_PRE_FEC_E = 0, /**< Pre RS FEC */
-    KU_PPBMP_MONITOR_GROUP_FC_PRE_FEC_E = 1, /**< Pre FC FEC */
+    KU_PPBMP_MONITOR_GROUP_RS_PRE_FEC_E = 0,     /**< Pre RS FEC */
+    KU_PPBMP_MONITOR_GROUP_FC_PRE_FEC_E = 1,     /**< Pre FC FEC */
     KU_PPBMP_MONITOR_GROUP_NO_FEC_PRE_FEC_E = 2, /**< No FEC/Post FEC */
 } ku_ppbmp_monitor_type_e;
 
@@ -9387,7 +9402,7 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_FORE = 0x0B,
     SXD_TRAP_ID_TMPW = 0x0C,
     SXD_TRAP_ID_CPUWD = 0x0D,
-    SXD_TRAP_ID_PPMBE = 0x101, /* Keep for legacy */
+    SXD_TRAP_ID_PPMBE = 0x101,           /* Keep for legacy */
     SXD_TRAP_ID_PPBME = 0x101,
     SXD_TRAP_ID_PACKET_RECEIVED = 0x103,
 
@@ -9416,7 +9431,7 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_ETH_CONF_TYPE0 = 0x35,
     SXD_TRAP_ID_ETH_CONF_TYPE1 = 0x36,
     SXD_TRAP_ID_ETH_L2_PKT_SAMPLE = 0x38,
-    SXD_TRAP_ID_ETH_L2_PACKET_SAMPLING = 0x38, /* Keep for legacy */
+    SXD_TRAP_ID_ETH_L2_PACKET_SAMPLING = 0x38,     /* Keep for legacy */
     SXD_TRAP_ID_FDB_MISS = 0x3a,
     SXD_TRAP_ID_FDB_MISMATCH = 0x3b,
     SXD_TRAP_ID_ICMPV6_CONF_TYPE0 = 0x48,

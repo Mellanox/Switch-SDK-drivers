@@ -56,8 +56,8 @@ int sx_ptp_init_spc2(struct sx_priv *priv, ptp_mode_t ptp_mode)
     struct ku_access_mtpcpc_reg mtpcpc;
     int                         err, i;
 
-    sx_clock_log_init(&__log_tx);
-    sx_clock_log_init(&__log_rx);
+    sx_clock_log_init(&__log_tx, 10);
+    sx_clock_log_init(&__log_rx, 10);
 
     if (ptp_mode != KU_PTP_MODE_EVENTS) {
         printk(KERN_ERR "invalid PTP mode for SPC2/3: %u\n", ptp_mode);
@@ -88,6 +88,8 @@ int sx_ptp_init_spc2(struct sx_priv *priv, ptp_mode_t ptp_mode)
 
 int sx_ptp_cleanup_spc2(struct sx_priv *priv)
 {
+    sx_clock_log_deinit(&__log_tx);
+    sx_clock_log_deinit(&__log_rx);
     return 0;
 }
 
@@ -116,7 +118,7 @@ int sx_ptp_rx_handler_spc2(struct sx_priv                      *priv,
 
         utc_ts = ((u64)ci->rx_timestamp.timestamp.tv_sec) * NSEC_PER_SEC + ci->rx_timestamp.timestamp.tv_nsec;
 
-        sx_clock_log_add(&__log_rx, (s64)utc_ts);
+        sx_clock_log_add_s64(&__log_rx, utc_ts);
 
         if (utc_ts != 0) {
             __fill_hwtstamp_from_cqe_ts(priv,
@@ -144,7 +146,7 @@ int sx_ptp_tx_ts_handler_spc2(struct sx_priv *priv, struct sk_buff *skb, const s
 
     atomic64_inc(&__ptp_spc2_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC2_TIMESTAMP_ARRIVED]);
 
-    sx_clock_log_add(&__log_tx, (s64)utc_ts);
+    sx_clock_log_add_s64(&__log_tx, utc_ts);
 
     if (utc_ts != 0) {
         __fill_hwtstamp_from_cqe_ts(priv, tx_ts, &hwts);

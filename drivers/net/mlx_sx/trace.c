@@ -152,9 +152,13 @@ int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog* bpf_prog_p,
         bpf_args.hw_port = port;
         bpf_args.trap_id = trap_id;
         bpf_args.acl_user_id = acl_user_id;
+        rcu_read_lock();
         err = BPF_PROG_RUN(bpf_prog_p, (void*)&bpf_args);
+        rcu_read_unlock();
         if (err != 0) {
             skb->mark = SKB_MARK_DROP;
+        } else {
+            skb->mark = 0;
         }
     }
 

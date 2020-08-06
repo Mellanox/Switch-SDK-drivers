@@ -44,10 +44,9 @@
 #include "sx_clock.h"
 #include "ptp.h"
 
-#define PTP_GC_TIME         (5 * HZ) /* Event with age of more than 5 seconds should be garbage-collected */
-#define PTP_LATE_MATCH_TIME (HZ / 4) /* matching after 1/4 second or longer is 'late match' */
-#define PTP_MAX_RECORDS     (4)
-#define MTPPTR_OFFSET       (0x24)
+#define PTP_GC_TIME     (5 * HZ)     /* Event with age of more than 5 seconds should be garbage-collected */
+#define PTP_MAX_RECORDS (4)
+#define MTPPTR_OFFSET   (0x24)
 
 enum ptp_spc1_counters {
     PTP_COUNTER_SPC1_FIFO_TRAP,
@@ -57,7 +56,8 @@ enum ptp_spc1_counters {
     PTP_COUNTER_SPC1_OUT_OF_MEMORY,
     PTP_COUNTER_SPC1_PENDING_EVENTS,
     PTP_COUNTER_SPC1_PENDING_RECORDS,
-    PTP_COUNTER_SPC1_LATE_MATCH,
+    PTP_COUNTER_SPC1_EVENT_ARRIVED_FIRST,
+    PTP_COUNTER_SPC1_RECORD_ARRIVED_FIRST,
     PTP_COUNTER_SPC1_EMPTY_TS,
     PTP_COUNTER_SPC1_REG_ACCESS_SUCCEEDED,
     PTP_COUNTER_SPC1_REG_ACCESS_FAILED,
@@ -69,12 +69,10 @@ struct ptp_record {
     struct mtpptr_record mtpptr;
 };
 struct ptp_common_event_data {
-    struct list_head list;
-    u16              sequence_id;
-    u8               msg_type;
-    u8               domain_num;
-    u8               need_timestamp;
-    unsigned long    since;
+    struct list_head            list;
+    u8                          need_timestamp;
+    unsigned long               since;
+    struct sx_ptp_packet_fields pkt_fields;
 };
 struct ptp_rx_event_data {
     struct ptp_common_event_data common;
@@ -96,16 +94,102 @@ struct ptp_db {
     ptp_db_handle_cb_t handle_cb;
     ptp_db_gc_cb_t     gc_cb;
 };
-static atomic64_t          __ptp_spc1_counters[2][PTP_COUNTER_SPC1_LAST];
-static atomic64_t          __ptp_records_dist[2][PTP_MAX_RECORDS + 1];
-static struct kmem_cache  *__records_cache;
-static struct kmem_cache  *__rx_event_cache;
-static struct kmem_cache  *__tx_event_cache;
-static struct ptp_db       __ptp_tx_db;
-static struct ptp_db       __ptp_rx_db;
-static struct delayed_work __gc_dwork;
-static struct semaphore    __ptp_polling_sem;
-static struct task_struct *__ptp_rx_polling_thread;
+static atomic64_t                 __ptp_spc1_counters[2][PTP_COUNTER_SPC1_LAST];
+static atomic64_t                 __ptp_records_dist[2][PTP_MAX_RECORDS + 1];
+static struct kmem_cache         *__records_cache;
+static struct kmem_cache         *__rx_event_cache;
+static struct kmem_cache         *__tx_event_cache;
+static struct ptp_db              __ptp_tx_db;
+static struct ptp_db              __ptp_rx_db;
+static struct delayed_work        __gc_dwork;
+static struct semaphore           __ptp_polling_sem;
+static struct task_struct        *__ptp_rx_polling_thread;
+static unsigned long              __max_diff = 0;
+static struct ptp_rx_event_data * __ptp_allocate_rx_event_data(gfp_t                                gfp,
+                                                               struct completion_info              *ci,
+                                                               const struct sx_ptp_packet_metadata *pkt_meta)
+{
+    struct ptp_rx_event_data *rx_event;
+
+    rx_event = (struct ptp_rx_event_data*)kmem_cache_alloc(__rx_event_cache, gfp);
+
+    if (rx_event) {
+        INIT_LIST_HEAD(&rx_event->common.list);
+        rx_event->common.pkt_fields.seqid = pkt_meta->pkt_fields.seqid;
+        rx_event->common.pkt_fields.domain = pkt_meta->pkt_fields.domain;
+        rx_event->common.pkt_fields.msg_type = pkt_meta->pkt_fields.msg_type;
+        rx_event->common.need_timestamp = pkt_meta->timestamp_required;
+        rx_event->common.since = jiffies;
+        rx_event->ci = ci;
+    }
+
+    return rx_event;
+}
+
+
+static void __ptp_free_rx_event_data(struct ptp_rx_event_data *rx_event_data)
+{
+    sx_skb_free(rx_event_data->ci->skb);
+    kfree(rx_event_data->ci);
+    kmem_cache_free(__rx_event_cache, rx_event_data);
+}
+
+
+static struct ptp_tx_event_data * __ptp_allocate_tx_event_data(gfp_t                                gfp,
+                                                               struct sk_buff                      *skb,
+                                                               const struct sx_ptp_packet_metadata *pkt_meta)
+{
+    struct ptp_tx_event_data *tx_event;
+
+    tx_event = (struct ptp_tx_event_data*)kmem_cache_alloc(__tx_event_cache, gfp);
+
+    if (tx_event) {
+        INIT_LIST_HEAD(&tx_event->common.list);
+        tx_event->skb = skb_get(skb); /* need to add reference so skb will not be deleted until FIFO event */
+        tx_event->common.pkt_fields.seqid = pkt_meta->pkt_fields.seqid;
+        tx_event->common.pkt_fields.domain = pkt_meta->pkt_fields.domain;
+        tx_event->common.pkt_fields.msg_type = pkt_meta->pkt_fields.msg_type;
+        tx_event->common.need_timestamp = 1;
+        tx_event->common.since = jiffies;
+    }
+
+    return tx_event;
+}
+
+
+static void __ptp_free_tx_event_data(struct ptp_tx_event_data *tx_event_data)
+{
+    if (tx_event_data->skb) {
+        sock_put(tx_event_data->skb->sk);
+        sx_skb_free(tx_event_data->skb); /* just release the reference we took when tx_event_data was allocated */
+    }
+
+    kmem_cache_free(__tx_event_cache, tx_event_data);
+}
+
+
+static struct ptp_record * __ptp_allocate_record_data(gfp_t gfp, const struct mtpptr_record *record)
+{
+    struct ptp_record *record_data;
+
+    record_data = (struct ptp_record*)kmem_cache_alloc(__records_cache, gfp);
+
+    if (record_data) {
+        record_data->since = jiffies;
+        INIT_LIST_HEAD(&record_data->list);
+        memcpy(&record_data->mtpptr, record, sizeof(record_data->mtpptr));
+    }
+
+    return record_data;
+}
+
+
+static void __ptp_free_record_data(struct ptp_record *record_data)
+{
+    kmem_cache_free(__records_cache, record_data);
+}
+
+
 static void __gc_db(int sysport, struct ptp_db *db, u8 gc_all)
 {
     struct ptp_common_event_data *iter_common, *tmp_common;
@@ -128,7 +212,7 @@ static void __gc_db(int sysport, struct ptp_db *db, u8 gc_all)
     list_for_each_entry_safe(iter_rec, tmp_rec, &db->sysport_records_list[sysport], list) {
         if (gc_all || time_after(now, iter_rec->since + PTP_GC_TIME)) {
             list_del(&iter_rec->list);
-            kmem_cache_free(__records_cache, iter_rec);
+            __ptp_free_record_data(iter_rec);
             atomic64_inc(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_GC_RECORDS]);
             atomic64_dec(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_PENDING_RECORDS]);
         } else {
@@ -151,37 +235,6 @@ static void __gc(struct work_struct *work)
     }
 
     sx_clock_queue_delayed_work(&__gc_dwork, PTP_GC_TIME);
-}
-
-
-static struct ptp_rx_event_data * __ptp_allocate_rx_event_data(gfp_t gfp)
-{
-    return (struct ptp_rx_event_data*)kmem_cache_alloc(__rx_event_cache, gfp);
-}
-
-
-static void __ptp_free_rx_event_data(struct ptp_rx_event_data *rx_event_data)
-{
-    sx_skb_free(rx_event_data->ci->skb);
-    kfree(rx_event_data->ci);
-    kmem_cache_free(__rx_event_cache, rx_event_data);
-}
-
-
-static struct ptp_tx_event_data * __ptp_allocate_tx_event_data(gfp_t gfp)
-{
-    return (struct ptp_tx_event_data*)kmem_cache_alloc(__tx_event_cache, gfp);
-}
-
-
-static void __ptp_free_tx_event_data(struct ptp_tx_event_data *tx_event_data)
-{
-    if (tx_event_data->skb) {
-        sock_put(tx_event_data->skb->sk);
-        sx_skb_free(tx_event_data->skb); /* just release the reference we took when tx_event_data was allocated */
-    }
-
-    kmem_cache_free(__tx_event_cache, tx_event_data);
 }
 
 
@@ -257,16 +310,39 @@ static void __ptp_dequeue_general_messages(u8 local_port, struct ptp_db *db)
 }
 
 
-static u8 __match_record_with_event(const struct mtpptr_record *record, u8 local_port, struct ptp_db *db)
+static u8 __is_match(const struct sx_ptp_packet_fields *pkt_fields, const struct mtpptr_record *record)
+{
+    return ((record->domain_number == pkt_fields->domain) &&
+            (record->message_type == pkt_fields->msg_type) &&
+            (be16_to_cpu(record->sequence_id) == pkt_fields->seqid));
+}
+
+
+static unsigned long __event_and_record_time_diff(unsigned long event_time, unsigned long record_time)
+{
+    unsigned long diff = (event_time >= record_time) ?
+                         event_time - record_time :
+                         record_time - event_time;
+
+    if (diff > __max_diff) {
+        __max_diff = diff;
+    }
+
+    return diff;
+}
+
+
+static u8 __match_record_with_event(const struct mtpptr_record *record,
+                                    u8                          local_port,
+                                    struct ptp_db              *db,
+                                    unsigned long               record_time)
 {
     struct ptp_common_event_data *ced, *found = NULL;
+    unsigned long                 diff;
     u64                           frc;
 
     list_for_each_entry(ced, &db->sysport_events_list[local_port], list) {
-        if (ced->need_timestamp &&
-            (record->domain_number == ced->domain_num) &&
-            (record->message_type == ced->msg_type) &&
-            (be16_to_cpu(record->sequence_id) == ced->sequence_id)) {
+        if (ced->need_timestamp && __is_match(&ced->pkt_fields, record)) {
             found = ced;
             break;
         }
@@ -280,11 +356,20 @@ static u8 __match_record_with_event(const struct mtpptr_record *record, u8 local
         ced = list_entry(db->sysport_events_list[local_port].next, struct ptp_common_event_data, list);
 
         if (ced == found) {
+            diff = __event_and_record_time_diff(ced->since, record_time);
             frc = be64_to_cpu(record->timestamp);
 
-            if (time_after(jiffies, ced->since + PTP_LATE_MATCH_TIME)) {
-                atomic64_inc(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_LATE_MATCH]);
-            }
+            SX_CLOCK_ACTIVITY_LOG("%s MATCH [port=%u, seq=%u, domain=%u, msg_type=%u, "
+                                  "pkt_jiffies=%lu, rec_jiffies=%lu, diff_msec=%u, frc=%llu]",
+                                  (db == &__ptp_rx_db) ? "RX" : "TX",
+                                  local_port,
+                                  ced->pkt_fields.seqid,
+                                  ced->pkt_fields.domain,
+                                  ced->pkt_fields.msg_type,
+                                  ced->since,
+                                  record_time,
+                                  jiffies_to_msecs(diff),
+                                  frc);
         } else {
             frc = 0;
         }
@@ -301,8 +386,8 @@ static u8 __match_record_with_event(const struct mtpptr_record *record, u8 local
 static void __ptp_lookup_event(const u8 *mtpptr_buff, struct ptp_db *db)
 {
     const struct mtpptr_record *record;
-    struct ptp_record          *rec, *tmp_rec;
     struct ptp_record          *to_cache;
+    unsigned long               now = jiffies;
     u8                          local_port;
     u8                          ovf;
     u8                          num_rec;
@@ -328,30 +413,28 @@ static void __ptp_lookup_event(const u8 *mtpptr_buff, struct ptp_db *db)
 
     spin_lock_bh(&db->sysport_lock[local_port]);
 
-    /* try to find matches for old records that are still pending */
-    list_for_each_entry_safe(rec, tmp_rec, &db->sysport_records_list[local_port], list) {
-        found = __match_record_with_event(&rec->mtpptr, local_port, db);
-
-        if (found) {
-            list_del(&rec->list);
-            kmem_cache_free(__records_cache, rec);
-            atomic64_dec(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_PENDING_RECORDS]);
-        }
-    }
-
     /* try to find matches for current records and save records that has no matched event */
     for (i = 0; i < num_rec; i++) {
-        found = __match_record_with_event(&record[i], local_port, db);
+        SX_CLOCK_ACTIVITY_LOG("%s record [port=%u, seq=%u, domain=%u, msg_type=%u, frc=%llu]",
+                              (db == &__ptp_rx_db) ? "RX" : "TX",
+                              local_port,
+                              be16_to_cpu(record[i].sequence_id),
+                              record[i].domain_number,
+                              record[i].message_type,
+                              be64_to_cpu(record[i].timestamp));
+
+        found = __match_record_with_event(&record[i],
+                                          local_port,
+                                          db,
+                                          now);
 
         if (!found) {
-            to_cache = (struct ptp_record*)kmem_cache_alloc(__records_cache, GFP_ATOMIC);
+            atomic64_inc(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_RECORD_ARRIVED_FIRST]);
+
+            to_cache = __ptp_allocate_record_data(GFP_ATOMIC, &record[i]);
             if (!to_cache) {
                 atomic64_inc(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_OUT_OF_MEMORY]);
             } else {
-                to_cache->since = jiffies;
-                INIT_LIST_HEAD(&to_cache->list);
-                memcpy(&to_cache->mtpptr, &record[i], sizeof(to_cache->mtpptr));
-
                 list_add_tail(&to_cache->list, &db->sysport_records_list[local_port]);
                 atomic64_inc(&__ptp_spc1_counters[db->direction][PTP_COUNTER_SPC1_PENDING_RECORDS]);
             }
@@ -361,6 +444,47 @@ static void __ptp_lookup_event(const u8 *mtpptr_buff, struct ptp_db *db)
     __ptp_dequeue_general_messages(local_port, db);
 
     spin_unlock_bh(&db->sysport_lock[local_port]);
+}
+
+
+static u8 __match_event_with_record_rx(struct ptp_rx_event_data *rx_event, u8 local_port)
+{
+    struct ptp_record *rec = NULL;
+    unsigned long      diff;
+    u64                frc;
+    u8                 found = 0;
+
+    list_for_each_entry(rec, &__ptp_rx_db.sysport_records_list[local_port], list) {
+        if (__is_match(&rx_event->common.pkt_fields, &rec->mtpptr)) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        return 0;
+    }
+
+    diff = __event_and_record_time_diff(jiffies, rec->since);
+    frc = be64_to_cpu(rec->mtpptr.timestamp);
+
+    SX_CLOCK_ACTIVITY_LOG("RX MATCH [port=%u, seq=%u, domain=%u, msg_type=%u, "
+                          "pkt_jiffies=%lu, rec_jiffies=%lu, diff_msec=%u, frc=%llu]",
+                          local_port,
+                          rx_event->common.pkt_fields.seqid,
+                          rx_event->common.pkt_fields.domain,
+                          rx_event->common.pkt_fields.msg_type,
+                          jiffies,
+                          rec->since,
+                          jiffies_to_msecs(diff),
+                          frc);
+
+    list_del(&rec->list);
+    __ptp_free_record_data(rec);
+
+    atomic64_dec(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_PENDING_RECORDS]);
+    __ptp_rx_db.handle_cb(&rx_event->common, frc);
+    return 1;
 }
 
 
@@ -492,9 +616,9 @@ static void __dump_db(struct seq_file *m, const char *title, struct ptp_db *db)
 
             list_for_each_entry_safe(iter_common, tmp_common, &db->sysport_events_list[sysport], list) {
                 seq_printf(m, "    EVENT   Seq:%5u  Type:%3u  Domain:%3u  Need_TS:%u  Msec_Ago:%lu\n",
-                           iter_common->sequence_id,
-                           iter_common->msg_type,
-                           iter_common->domain_num,
+                           iter_common->pkt_fields.seqid,
+                           iter_common->pkt_fields.msg_type,
+                           iter_common->pkt_fields.domain,
                            iter_common->need_timestamp,
                            ((now - iter_common->since) * 1000) / HZ);
             }
@@ -610,6 +734,7 @@ int sx_ptp_rx_handler_spc1(struct sx_priv                      *priv,
                            const struct sx_ptp_packet_metadata *pkt_meta)
 {
     struct ptp_rx_event_data *rx_ptp_event;
+    u8                        found = 0;
 
     if (ci->hw_synd == SXD_TRAP_ID_PTP_ING_EVENT) {
         atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_FIFO_TRAP]);
@@ -628,28 +753,37 @@ int sx_ptp_rx_handler_spc1(struct sx_priv                      *priv,
     }
 
     /* if we get here, the trap must be PTP0, PTP1 or LLDP */
-    rx_ptp_event = __ptp_allocate_rx_event_data(GFP_ATOMIC);
+    rx_ptp_event = __ptp_allocate_rx_event_data(GFP_ATOMIC, ci, pkt_meta);
     if (!rx_ptp_event) {
         atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_OUT_OF_MEMORY]);
         goto free_ci_and_skb;
     }
 
-    INIT_LIST_HEAD(&rx_ptp_event->common.list);
-    rx_ptp_event->common.sequence_id = pkt_meta->seqid;
-    rx_ptp_event->common.domain_num = pkt_meta->domain;
-    rx_ptp_event->common.msg_type = pkt_meta->msg_type;
-    rx_ptp_event->common.need_timestamp = pkt_meta->timestamp_required;
-    rx_ptp_event->common.since = jiffies;
-    rx_ptp_event->ci = ci;
+    SX_CLOCK_ACTIVITY_LOG("RX packet [port=%u, seq=%u, domain=%u, msg_type=%u, ts_required=%u]",
+                          pkt_meta->sysport_lag_id,
+                          pkt_meta->pkt_fields.seqid,
+                          pkt_meta->pkt_fields.domain,
+                          pkt_meta->pkt_fields.msg_type,
+                          pkt_meta->timestamp_required);
 
     spin_lock_bh(&__ptp_rx_db.sysport_lock[pkt_meta->sysport_lag_id]);
 
-    list_add_tail(&rx_ptp_event->common.list, &__ptp_rx_db.sysport_events_list[pkt_meta->sysport_lag_id]);
-    atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_PENDING_EVENTS]);
-    if (!pkt_meta->timestamp_required) {
-        __ptp_dequeue_general_messages(pkt_meta->sysport_lag_id, &__ptp_rx_db);
-    } else if (ptp_mode == KU_PTP_MODE_POLLING) {
-        up(&__ptp_polling_sem);
+    if (pkt_meta->timestamp_required && (ptp_mode == KU_PTP_MODE_EVENTS)) {
+        found = __match_event_with_record_rx(rx_ptp_event, pkt_meta->sysport_lag_id);
+    }
+
+    if (!found) {
+        list_add_tail(&rx_ptp_event->common.list, &__ptp_rx_db.sysport_events_list[pkt_meta->sysport_lag_id]);
+        atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_PENDING_EVENTS]);
+
+        if (!pkt_meta->timestamp_required) {
+            __ptp_dequeue_general_messages(pkt_meta->sysport_lag_id, &__ptp_rx_db);
+        } else if (ptp_mode == KU_PTP_MODE_POLLING) {
+            up(&__ptp_polling_sem);
+        }
+        else {
+            atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_EVENT_ARRIVED_FIRST]);
+        }
     }
 
     spin_unlock_bh(&__ptp_rx_db.sysport_lock[pkt_meta->sysport_lag_id]);
@@ -669,19 +803,20 @@ int sx_ptp_tx_handler_spc1(struct sx_priv *priv, struct sk_buff *skb, const stru
     struct ptp_tx_event_data *ptp_event;
     unsigned long             flags;
 
-    ptp_event = __ptp_allocate_tx_event_data(GFP_ATOMIC);
+    ptp_event = __ptp_allocate_tx_event_data(GFP_ATOMIC, skb, pkt_meta);
     if (!ptp_event) {
         atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_OUT_OF_MEMORY]);
         return -ENOMEM;
     }
 
-    INIT_LIST_HEAD(&ptp_event->common.list);
-    ptp_event->skb = skb_get(skb); /* need to add reference so skb will not be deleted until FIFO event */
-    ptp_event->common.sequence_id = pkt_meta->seqid;
-    ptp_event->common.domain_num = pkt_meta->domain;
-    ptp_event->common.msg_type = pkt_meta->msg_type;
-    ptp_event->common.need_timestamp = 1;
-    ptp_event->common.since = jiffies;
+    /* on TX, packet always comes before the timestamp */
+    atomic64_inc(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_EVENT_ARRIVED_FIRST]);
+
+    SX_CLOCK_ACTIVITY_LOG("TX packet [port=%u, seq=%u, domain=%u, msg_type=%u, ts_required=1]",
+                          pkt_meta->sysport_lag_id,
+                          pkt_meta->pkt_fields.seqid,
+                          pkt_meta->pkt_fields.domain,
+                          pkt_meta->pkt_fields.msg_type);
 
     spin_lock_irqsave(&__ptp_tx_db.sysport_lock[pkt_meta->sysport_lag_id], flags);
     list_add_tail(&ptp_event->common.list, &__ptp_tx_db.sysport_events_list[pkt_meta->sysport_lag_id]);
@@ -727,11 +862,6 @@ int sx_ptp_dump_spc1(struct seq_file *m, void *v)
                (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_REG_ACCESS_FAILED]));
 
     seq_printf(m, "%-40s   %-15llu   %-15llu\n",
-               "Late match",
-               (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_LATE_MATCH]),
-               (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_LATE_MATCH]));
-
-    seq_printf(m, "%-40s   %-15llu   %-15llu\n",
                "No matching timestamp",
                (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_EMPTY_TS]),
                (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_EMPTY_TS]));
@@ -751,6 +881,16 @@ int sx_ptp_dump_spc1(struct seq_file *m, void *v)
                (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_PENDING_RECORDS]),
                (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_PENDING_RECORDS]));
 
+    seq_printf(m, "%-40s   %-15llu   %-15llu\n",
+               "Event arrived before record",
+               (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_EVENT_ARRIVED_FIRST]),
+               (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_EVENT_ARRIVED_FIRST]));
+
+    seq_printf(m, "%-40s   %-15llu   %-15llu\n",
+               "Record arrived before event",
+               (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_INGRESS][PTP_COUNTER_SPC1_RECORD_ARRIVED_FIRST]),
+               (u64)atomic64_read(&__ptp_spc1_counters[PTP_PACKET_EGRESS][PTP_COUNTER_SPC1_RECORD_ARRIVED_FIRST]));
+
     seq_printf(m, "\n");
 
     for (i = 0; i <= PTP_MAX_RECORDS; i++) {
@@ -760,6 +900,11 @@ int sx_ptp_dump_spc1(struct seq_file *m, void *v)
                    (u64)atomic64_read(&__ptp_records_dist[PTP_PACKET_INGRESS][i]),
                    (u64)atomic64_read(&__ptp_records_dist[PTP_PACKET_EGRESS][i]));
     }
+
+    seq_printf(m, "\n");
+
+    seq_printf(m, "Max time diff between packet reception and FIFO record (msecs): %u\n",
+               jiffies_to_msecs(__max_diff));
 
     __dump_db(m, "RX Database", &__ptp_rx_db);
     __dump_db(m, "TX Database", &__ptp_tx_db);

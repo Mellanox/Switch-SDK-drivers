@@ -48,6 +48,8 @@
 #define MAD_HDR_STATUS_OFFSET              (0x4)
 #define MAD_HDR_ATTR_ID_OFFSET             (0x10)
 
+#define MAD_IFC_TR_ID_BITS (28)                 /* 28bit [the rest 4bits (MSB) reserved for op-modifier] */
+
 static struct sgmii_transaction_db __mad_tr_db;
 static atomic_t                    __sgmii_mad_transactions_in_progress = ATOMIC_INIT(0);
 static struct mutex                __mad_ifc_mutex;
@@ -326,6 +328,7 @@ static int __sgmii_send_mad_ifc_cb(int                                    dev_id
 int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
                                 int            dev_id,
                                 u32            in_modifier,
+                                u8             op_modifier,
                                 void          *in_mad,
                                 int            in_size,
                                 void          *out_mad,
@@ -380,7 +383,18 @@ int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
         return err;
     }
 
-    tid_low = ++packet_seq_number;
+    /*
+     * MAD_IFC transaction ID (64bit):
+     *
+     *    6         5         4         3         2         1
+     * 3210987654321098765432109876543210987654321098765432109876543210
+     * ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                  0xC001D00D (SGMII MAD_IFC prefix)
+     *                                 ^^^^                              Opcode modifier (4bits)
+     *                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  Running transaction ID (28bits)
+     *
+     */
+    tid_low = (((u32)op_modifier) & 0xf) << MAD_IFC_TR_ID_BITS;
+    tid_low |= (++packet_seq_number) & ((1U << MAD_IFC_TR_ID_BITS) - 1);
 
     tid_low = cpu_to_be32(tid_low);
     psn = tid_low;

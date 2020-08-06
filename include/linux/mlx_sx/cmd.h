@@ -272,6 +272,7 @@ int sx_ACCESS_REG_PPBME(struct sx_dev *dev, struct ku_access_ppbme_reg *reg_data
 int sx_ACCESS_REG_MCION(struct sx_dev *dev, struct ku_access_mcion_reg *reg_data);
 int sx_ACCESS_REG_PMMP(struct sx_dev *dev, struct ku_access_pmmp_reg *reg_data);
 int sx_ACCESS_REG_QPCR(struct sx_dev *dev, struct ku_access_qpcr_reg *reg_data);
+int sx_ACCESS_REG_SBCM(struct sx_dev *dev, struct ku_access_sbcm_reg *reg_data);
 int sx_ISSU_FW_START(struct sx_dev *dev);
 int sx_ISSU_FW_STATUS_GET(struct sx_dev *dev, u8 *issu_fw_status);
 

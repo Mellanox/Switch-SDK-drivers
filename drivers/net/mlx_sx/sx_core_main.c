@@ -4914,7 +4914,7 @@ int sx_core_send_mad_sync(struct sx_dev *dev,
     int err = 0;
 
     if (is_sgmii_supported()) {
-        err = sgmii_simulate_sync_mad_ifc(dev, dev_id, in_modifier, in_mad, in_size, out_mad, out_size);
+        err = sgmii_simulate_sync_mad_ifc(dev, dev_id, in_modifier, op_modifier, in_mad, in_size, out_mad, out_size);
     } else {
         err = sx_cmd_send_mad_sync(dev, dev_id, in_modifier, op_modifier, in_mad, in_size, out_mad, out_size);
     }

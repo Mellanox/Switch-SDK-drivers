@@ -70,12 +70,15 @@ enum ptp_message_type {
     PTP_MSG_EVENT_ALL = (PTP_MSG_SYNC | PTP_MSG_DELAY_REQ | PTP_MSG_PDELAY_REQ | PTP_MSG_PDELAY_RESP),
     PTP_MSG_GENERAL_ALL = (PTP_MSG_TYPE_ALL & ~(PTP_MSG_EVENT_ALL))
 };
-struct sx_ptp_packet_metadata {
-    u16 sysport_lag_id;
+struct sx_ptp_packet_fields {
     u16 seqid;
     u8  domain;
     u8  msg_type;
-    u8  timestamp_required;
+};
+struct sx_ptp_packet_metadata {
+    u16                         sysport_lag_id;
+    u8                          timestamp_required;
+    struct sx_ptp_packet_fields pkt_fields;
 };
 
 /************************************************

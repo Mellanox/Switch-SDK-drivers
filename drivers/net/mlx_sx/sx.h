@@ -189,52 +189,52 @@ enum {
 };
 
 enum TX_BASE_HEADER_DEFS {
-    TX_HDR_VER_MASK_V1 = 0xF,
-    TX_HDR_VER_SHIFT_V1 = 4,
-    TX_HDR_CTL_MASK = 0x3,
-    TX_HDR_CTL_SHIFT = 2,
-    TX_HDR_MC_MASK = 0x1,
-    TX_HDR_MC_SHIFT = 0,
-    TX_HDR_PROTOCOL_MASK = 0x7,
-    TX_HDR_PROTOCOL_SHIFT = 5,
-    TX_HDR_ETCLASS_MASK = 0x7,
-    TX_HDR_ETCLASS_SHIFT = 2,
-    TX_HDR_SWID_MASK = 0x7,
-    TX_HDR_SWID_SHIFT = 12,
-    TX_HDR_SYSTEM_PORT_MID_MASK = 0xFFFF,
+    TX_HDR_VER_MASK_V1           = 0xF,
+    TX_HDR_VER_SHIFT_V1          = 4,
+    TX_HDR_CTL_MASK              = 0x3,
+    TX_HDR_CTL_SHIFT             = 2,
+    TX_HDR_MC_MASK               = 0x1,
+    TX_HDR_MC_SHIFT              = 0,
+    TX_HDR_PROTOCOL_MASK         = 0x7,
+    TX_HDR_PROTOCOL_SHIFT        = 5,
+    TX_HDR_ETCLASS_MASK          = 0x7,
+    TX_HDR_ETCLASS_SHIFT         = 2,
+    TX_HDR_SWID_MASK             = 0x7,
+    TX_HDR_SWID_SHIFT            = 12,
+    TX_HDR_SYSTEM_PORT_MID_MASK  = 0xFFFF,
     TX_HDR_SYSTEM_PORT_MID_SHIFT = 0,
-    TX_HDR_CTCLASS3_MASK = 0x1,
-    TX_HDR_CTCLASS3_SHIFT = 14,
-    TX_HDR_RDQ_MASK = 0x1F,
-    TX_HDR_RDQ_SHIFT = 9,
-    TX_HDR_CPU_SIGNATURE_MASK = 0x1FF,
-    TX_HDR_CPU_SIGNATURE_SHIFT = 0,
-    TX_HDR_SIGNATURE_MASK = 0xFFFF,
-    TX_HDR_SIGNATURE_SHIFT = 0,
-    TX_HDR_STCLASS_MASK = 0x7,
-    TX_HDR_STCLASS_SHIFT = 13,
-    TX_HDR_EMAD_MASK = 0x1,
-    TX_HDR_EMAD_SHIFT = 5,
-    TX_HDR_TYPE_MASK = 0xF,
-    TX_HDR_TYPE_SHIFT = 0,
-    TX_HDR_RX_IS_ROUTER_MASK_V1 = 0x1,
+    TX_HDR_CTCLASS3_MASK         = 0x1,
+    TX_HDR_CTCLASS3_SHIFT        = 14,
+    TX_HDR_RDQ_MASK              = 0x1F,
+    TX_HDR_RDQ_SHIFT             = 9,
+    TX_HDR_CPU_SIGNATURE_MASK    = 0x1FF,
+    TX_HDR_CPU_SIGNATURE_SHIFT   = 0,
+    TX_HDR_SIGNATURE_MASK        = 0xFFFF,
+    TX_HDR_SIGNATURE_SHIFT       = 0,
+    TX_HDR_STCLASS_MASK          = 0x7,
+    TX_HDR_STCLASS_SHIFT         = 13,
+    TX_HDR_EMAD_MASK             = 0x1,
+    TX_HDR_EMAD_SHIFT            = 5,
+    TX_HDR_TYPE_MASK             = 0xF,
+    TX_HDR_TYPE_SHIFT            = 0,
+    TX_HDR_RX_IS_ROUTER_MASK_V1  = 0x1,
     TX_HDR_RX_IS_ROUTER_SHIFT_V1 = 3,
-    TX_HDR_RX_IS_TUNNEL_MASK_V1 = 0x1,
+    TX_HDR_RX_IS_TUNNEL_MASK_V1  = 0x1,
     TX_HDR_RX_IS_TUNNEL_SHIFT_V1 = 2,
-    TX_HDR_FID_VALID_MASK_V1 = 0x1,
-    TX_HDR_FID_VALID_SHIFT_V1 = 0,
-    TX_HDR_CONTROL_MASK_V1 = 0x1,
-    TX_HDR_CONTROL_SHIFT_V1 = 6,
-    TX_HDR_ETCLASS_MASK_V1 = 0xF,
-    TX_HDR_ETCLASS_SHIFT_V1 = 0,
-    TX_HDR_FID_MASK_V1 = 0xFFFF,
-    TX_HDR_FID_SHIFT_V1 = 0
+    TX_HDR_FID_VALID_MASK_V1     = 0x1,
+    TX_HDR_FID_VALID_SHIFT_V1    = 0,
+    TX_HDR_CONTROL_MASK_V1       = 0x1,
+    TX_HDR_CONTROL_SHIFT_V1      = 6,
+    TX_HDR_ETCLASS_MASK_V1       = 0xF,
+    TX_HDR_ETCLASS_SHIFT_V1      = 0,
+    TX_HDR_FID_MASK_V1           = 0xFFFF,
+    TX_HDR_FID_SHIFT_V1          = 0
 };
 enum tele_dir_ing {
-    TELE_DIR_ING_EGRESS_E = 0,
+    TELE_DIR_ING_EGRESS_E  = 0,
     TELE_DIR_ING_INGRESS_E = 1,
-    TELE_DIR_ING_MAX_E = 1,
-    TELE_DIR_ING_NUM_E = 2,
+    TELE_DIR_ING_MAX_E     = 1,
+    TELE_DIR_ING_NUM_E     = 2,
 };
 /************************************************
  *  Structs
@@ -608,6 +608,13 @@ struct ber_work_data {
     struct sx_dev      *dev;
     u8                  local_port;
     struct delayed_work dwork;
+};
+struct ber_bitmask_set_work_data {
+    struct sx_dev     *dev;
+    struct completion *wq_completion;
+    u8                 local_port;
+    u8                 bitmask;
+    struct work_struct work;
 };
 struct sx_priv;
 struct sx_ptp_packet_metadata;

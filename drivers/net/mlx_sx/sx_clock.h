@@ -95,19 +95,34 @@ typedef struct timespec sx_clock_timespec_t;
          __err;                                                              \
      })
 
+enum log_type {
+    LOG_TYPE_STRING_E,
+    LOG_TYPE_S64_E
+};
 struct sx_clock_log_entry {
-    s64           value;
     unsigned long jiffies;
+    enum log_type type;
+    union {
+        char val_str[256];
+        s64  val_s64;
+    } value;
 };
-
-#define SX_CLOCK_LOG_DB_SIZE (10)
-
 struct sx_clock_log_db {
-    struct sx_clock_log_entry vec[SX_CLOCK_LOG_DB_SIZE];
-    spinlock_t                lock;
-    u32                       size;
-    u32                       next;
+    struct sx_clock_log_entry *cyc_buff;
+    u32                        cyc_buff_size;
+    spinlock_t                 lock;
+    u32                        size;
+    u32                        next;
 };
+extern int                    clock_activity_log;
+extern struct sx_clock_log_db __log_activity;
+#define SX_CLOCK_ACTIVITY_LOG(fmt, args ...)                        \
+    do {                                                            \
+        if (clock_activity_log) {                                   \
+            sx_clock_log_add_string(&__log_activity, fmt, ## args); \
+        }                                                           \
+    } while (0)
+
 struct sx_priv;
 struct sx_tstamp;
 struct skb_shared_hwtstamps;
@@ -123,14 +138,16 @@ int sx_core_clock_cqe_ts_to_utc(struct sx_priv        *priv,
                                 struct timespec       *utc);
 
 /* common functions */
-void sx_clock_log_init(struct sx_clock_log_db *log_db);
-void sx_clock_log_add(struct sx_clock_log_db *log_db, s64 value);
+int sx_clock_log_init(struct sx_clock_log_db *log_db, u32 cyc_buff_size);
+void sx_clock_log_deinit(struct sx_clock_log_db *log_db);
 void sx_clock_log_dump(struct sx_clock_log_db *log_db,
                        struct seq_file        *m,
                        const char             *title);
 void sx_clock_log_add_settime(s64 value);
 void sx_clock_log_add_adjtime(s64 value);
 void sx_clock_log_add_adjfreq(s64 value);
+int sx_clock_log_add_string(struct sx_clock_log_db *log_db, const char *fmt, ...);
+void sx_clock_log_add_s64(struct sx_clock_log_db *log_db, s64 value);
 int sx_clock_register(struct sx_priv              *priv,
                       const struct ptp_clock_info *ptp_clock_info);
 struct sx_dev * sx_clock_get_dev(void);

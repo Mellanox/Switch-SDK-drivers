@@ -126,6 +126,7 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_FLUSH_EVLIST)] = ctrl_cmd_flush_evlist,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_NODE_DESC)] = ctrl_cmd_set_sw_ib_node_desc,
     [IOCTL_CMD_INDEX(CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE)] = ctrl_cmd_psample_port_sample_rate_update,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_SWID_UP_DOWN)] = ctrl_cmd_set_sw_ib_up_down,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_WARM_BOOT_MODE)] = ctrl_cmd_set_warm_boot_mode,
 #ifdef SW_PUDE_EMULATION
     /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */

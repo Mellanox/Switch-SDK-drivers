@@ -4320,10 +4320,13 @@ static int __SBCTC_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_sbctc_reg *sbctc_reg = (struct ku_sbctc_reg*)ku_reg;
     u8                   en_config;
+    u8                   tmp_val_u8 = 0;
 
     SX_PUT_REG_FIELD(inbox, sbctc_reg->dir_ing, REG_SBCTC_DIR_ING_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->local_port, REG_SBCTC_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, sbctc_reg->mode, REG_SBCTC_MODE_OFFSET);
+    tmp_val_u8 |= (sbctc_reg->res & 1) << 4;
+    tmp_val_u8 |= (sbctc_reg->mode & 1);
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_SBCTC_MODE_OFFSET);
     en_config = sbctc_reg->en_config << 7;
     SX_PUT_REG_FIELD(inbox, en_config, REG_SBCTC_EN_CONFIG_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->event, REG_SBCTC_EVENT_OFFSET);
@@ -4336,8 +4339,11 @@ static int __SBCTC_encode(u8 *inbox, void *ku_reg, void *context)
 static int __SBCTC_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_sbctc_reg *sbctc_reg = (struct ku_sbctc_reg*)ku_reg;
+    u8                   tmp_val_u8 = 0;
 
-    SX_GET_REG_FIELD(sbctc_reg->mode, outbox, REG_SBCTC_MODE_OFFSET);
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_SBCTC_MODE_OFFSET);
+    sbctc_reg->res = (tmp_val_u8 >> 4) & 1;
+    sbctc_reg->mode = tmp_val_u8 & 1;
     SX_GET_REG_FIELD(sbctc_reg->event, outbox, REG_SBCTC_EVENT_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->tclass_en, outbox, REG_SBCTC_TCLASS_EN_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->thr_max, outbox, REG_SBCTC_THR_MAX_OFFSET);
@@ -4902,6 +4908,95 @@ int sx_ACCESS_REG_QPCR(struct sx_dev *dev, struct ku_access_qpcr_reg *reg_data)
                                   NULL);
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_QPCR);
+
+
+/************************************************
+ * SBCM
+ ***********************************************/
+#define SBCM_REG_LEN              0xa
+#define SBCM_DESC_SNAP_OFFSET     0x14
+#define SBCM_LOCAL_PORT_OFFSET    0x15
+#define SBCM_PG_BUFF_OFFSET       0x16
+#define SBCM_DIR_OFFSET           0x17
+#define SBCM_EXC_OFFSET           0x1b
+#define SBCM_BUFF_OCCUP_OFFSET    0x20
+#define SBCM_CLR_M_BUFF_OC_OFFSET 0x24
+#define SBCM_MIN_BUFF_OFFSET      0x28
+#define SBCM_INFI_M_M_BUFF_OFFSET 0x2c
+#define SBCM_POOL_OFFSET          0x37
+
+static int __SBCM_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_sbcm_reg *sbcm_reg = (struct ku_sbcm_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+    u32                 tmp_val_u32 = 0;
+
+    tmp_val_u8 |= (sbcm_reg->desc & 1) << 7;
+    tmp_val_u8 |= (sbcm_reg->snap & 1) << 6;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, SBCM_DESC_SNAP_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->local_port, SBCM_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->pg_buff, SBCM_PG_BUFF_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->dir, SBCM_DIR_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->exc, SBCM_EXC_OFFSET);
+
+    tmp_val_u32 = sbcm_reg->clr << 31;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u32, SBCM_CLR_M_BUFF_OC_OFFSET);
+
+    tmp_val_u32 = 0;
+    tmp_val_u32 = sbcm_reg->min_buff;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u32, SBCM_MIN_BUFF_OFFSET);
+
+    tmp_val_u32 = 0;
+    tmp_val_u32 = sbcm_reg->infi_max << 31;
+    tmp_val_u32 |= sbcm_reg->max_buff;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u32, SBCM_INFI_M_M_BUFF_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->pool, SBCM_POOL_OFFSET);
+    return 0;
+}
+
+
+static int __SBCM_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_sbcm_reg *sbcm_reg = (struct ku_sbcm_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+    u32                 tmp_val_u32 = 0;
+
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, SBCM_DESC_SNAP_OFFSET);
+    sbcm_reg->desc = (tmp_val_u8 >> 7) & 1;
+
+    SX_GET_REG_FIELD(sbcm_reg->local_port, outbox, SBCM_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(sbcm_reg->pg_buff, outbox, SBCM_PG_BUFF_OFFSET);
+    SX_GET_REG_FIELD(sbcm_reg->dir, outbox, SBCM_DIR_OFFSET);
+    SX_GET_REG_FIELD(sbcm_reg->exc, outbox, SBCM_EXC_OFFSET);
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_CLR_M_BUFF_OC_OFFSET);
+
+    sbcm_reg->buff_occupancy = tmp_val_u32 & 0xFFFFFF;
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_CLR_M_BUFF_OC_OFFSET);
+    sbcm_reg->max_buff_occupancy = tmp_val_u32 & 0xFFFFFF;
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_MIN_BUFF_OFFSET);
+    sbcm_reg->min_buff = tmp_val_u32 & 0xFFFFFF;
+
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_INFI_M_M_BUFF_OFFSET);
+    sbcm_reg->infi_max = (tmp_val_u32 >> 31) & 1;
+    sbcm_reg->max_buff = tmp_val_u32 & 0xFFFFFF;
+
+    SX_GET_REG_FIELD(sbcm_reg->pool, outbox, SBCM_POOL_OFFSET);
+    return 0;
+}
+
+int sx_ACCESS_REG_SBCM(struct sx_dev *dev, struct ku_access_sbcm_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __SBCM_encode,
+                                  __SBCM_decode,
+                                  SBCM_REG_LEN,
+                                  &reg_data->sbcm_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_SBCM);
 
 
 /************************************************

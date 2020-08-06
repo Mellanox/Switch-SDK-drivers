@@ -359,13 +359,27 @@ static void ber_monitor_work_handler(struct work_struct *work)
 {
     struct ber_work_data      *ber_wdata = container_of(work, struct ber_work_data, dwork.work);
     struct ku_access_ppbmc_reg ppbmc_reg_data;
-    int                        err = 0;
+    int                        err = 0, to_rearm = 0;
+    struct sx_priv            *priv = sx_priv((struct sx_dev *)ber_wdata->dev);
+    unsigned long              flags;
 
     memset(&ppbmc_reg_data, 0, sizeof(ppbmc_reg_data));
 
     ppbmc_reg_data.dev_id = ber_wdata->dev->device_id;
     sx_cmd_set_op_tlv(&ppbmc_reg_data.op_tlv, PPBMC_REG_ID, 1);
     ppbmc_reg_data.ppbmc_reg.local_port = ber_wdata->local_port;
+
+    spin_lock_irqsave(&priv->db_lock, flags);
+    to_rearm = (priv->port_ber_monitor_bitmask[ber_wdata->local_port] != 0);
+    spin_unlock_irqrestore(&priv->db_lock, flags);
+
+    if (!to_rearm) {
+        if (printk_ratelimit()) {
+            printk(KERN_INFO PFX "Local port %d ber monitor is disabled: skip ppbmc re-arm\n",
+                   ber_wdata->local_port);
+        }
+        goto out;
+    }
 
     /* Read PPBMC */
     err = sx_ACCESS_REG_PPBMC(ber_wdata->dev, &ppbmc_reg_data);
@@ -2163,36 +2177,30 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
      * the timestamp from HW (thus, from CQE).
      */
     if (cq_ts_enabled) {
+        getnstimeofday(&priv->cq_table.timestamps[cq->cqn]);
         for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
             cq->cqe_ts_arr[i % cq->nent].timestamp = priv->cq_table.timestamps[cq->cqn];
             cq->cqe_ts_arr[i % cq->nent].ts_type = SXD_TS_TYPE_LINUX;
         }
     }
 
-    if (enable_monitor_rdq_trace_points) {
-        for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
-            sx_get_cqe_all_versions(cq, i, &u_cqe);
-            if (u_cqe.v2 == NULL) {
-                continue;
-            }
-            cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-                                                    &is_send, &dqn1, &wqe_counter, &byte_count,
-                                                    &user_def_val_orig_pkt_len, &is_lag, &lag_subport,
-                                                    &sysport_lag_id, &mirror_reason, &cqe_ts);
+    for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
+        sx_get_cqe_all_versions(cq, i, &u_cqe);
+        if (u_cqe.v2 == NULL) {
+            continue;
+        }
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
+                                                &is_send, &dqn1, &wqe_counter, &byte_count,
+                                                &user_def_val_orig_pkt_len, &is_lag, &lag_subport,
+                                                &sysport_lag_id, &mirror_reason, &cqe_ts);
 
-            if (is_send) {
-                continue;
-            }
-            idx = i % rdq->wqe_cnt;
-            skb = rdq->sge[idx].skb;
-            /* Unlike the normal RDQ, the skb buffer for monitor RDQ is reused.
-             * We need to set the skb mark back to default value 0 if it is already
-             * set to drop for the previous packet which used this skb buffer.
-             */
-            if (skb->mark == SKB_MARK_DROP) {
-                skb->mark = 0;
-            }
+        if (is_send) {
+            continue;
+        }
+        idx = i % rdq->wqe_cnt;
+        skb = rdq->sge[idx].skb;
 
+        if (enable_monitor_rdq_trace_points) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
             should_drop = 0;
             spin_lock_irqsave(&priv->rdq_table.lock, flags);
@@ -2200,6 +2208,8 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
                 should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn], skb,
                                                                        FILTER_TP_HW_PORT(is_lag, sysport_lag_id),
                                                                        trap_id, user_def_val_orig_pkt_len);
+            } else {
+                skb->mark = 0;
             }
             spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             if (should_drop != 0) {
@@ -2218,6 +2228,8 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
                                                                                     lag_subport,
                                                                                     sysport_lag_id));
             }
+        } else {
+            skb->mark = 0;
         }
     }
 
