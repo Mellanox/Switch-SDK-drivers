@@ -189,52 +189,52 @@ enum {
 };
 
 enum TX_BASE_HEADER_DEFS {
-    TX_HDR_VER_MASK_V1           = 0xF,
-    TX_HDR_VER_SHIFT_V1          = 4,
-    TX_HDR_CTL_MASK              = 0x3,
-    TX_HDR_CTL_SHIFT             = 2,
-    TX_HDR_MC_MASK               = 0x1,
-    TX_HDR_MC_SHIFT              = 0,
-    TX_HDR_PROTOCOL_MASK         = 0x7,
-    TX_HDR_PROTOCOL_SHIFT        = 5,
-    TX_HDR_ETCLASS_MASK          = 0x7,
-    TX_HDR_ETCLASS_SHIFT         = 2,
-    TX_HDR_SWID_MASK             = 0x7,
-    TX_HDR_SWID_SHIFT            = 12,
-    TX_HDR_SYSTEM_PORT_MID_MASK  = 0xFFFF,
+    TX_HDR_VER_MASK_V1 = 0xF,
+    TX_HDR_VER_SHIFT_V1 = 4,
+    TX_HDR_CTL_MASK = 0x3,
+    TX_HDR_CTL_SHIFT = 2,
+    TX_HDR_MC_MASK = 0x1,
+    TX_HDR_MC_SHIFT = 0,
+    TX_HDR_PROTOCOL_MASK = 0x7,
+    TX_HDR_PROTOCOL_SHIFT = 5,
+    TX_HDR_ETCLASS_MASK = 0x7,
+    TX_HDR_ETCLASS_SHIFT = 2,
+    TX_HDR_SWID_MASK = 0x7,
+    TX_HDR_SWID_SHIFT = 12,
+    TX_HDR_SYSTEM_PORT_MID_MASK = 0xFFFF,
     TX_HDR_SYSTEM_PORT_MID_SHIFT = 0,
-    TX_HDR_CTCLASS3_MASK         = 0x1,
-    TX_HDR_CTCLASS3_SHIFT        = 14,
-    TX_HDR_RDQ_MASK              = 0x1F,
-    TX_HDR_RDQ_SHIFT             = 9,
-    TX_HDR_CPU_SIGNATURE_MASK    = 0x1FF,
-    TX_HDR_CPU_SIGNATURE_SHIFT   = 0,
-    TX_HDR_SIGNATURE_MASK        = 0xFFFF,
-    TX_HDR_SIGNATURE_SHIFT       = 0,
-    TX_HDR_STCLASS_MASK          = 0x7,
-    TX_HDR_STCLASS_SHIFT         = 13,
-    TX_HDR_EMAD_MASK             = 0x1,
-    TX_HDR_EMAD_SHIFT            = 5,
-    TX_HDR_TYPE_MASK             = 0xF,
-    TX_HDR_TYPE_SHIFT            = 0,
-    TX_HDR_RX_IS_ROUTER_MASK_V1  = 0x1,
+    TX_HDR_CTCLASS3_MASK = 0x1,
+    TX_HDR_CTCLASS3_SHIFT = 14,
+    TX_HDR_RDQ_MASK = 0x1F,
+    TX_HDR_RDQ_SHIFT = 9,
+    TX_HDR_CPU_SIGNATURE_MASK = 0x1FF,
+    TX_HDR_CPU_SIGNATURE_SHIFT = 0,
+    TX_HDR_SIGNATURE_MASK = 0xFFFF,
+    TX_HDR_SIGNATURE_SHIFT = 0,
+    TX_HDR_STCLASS_MASK = 0x7,
+    TX_HDR_STCLASS_SHIFT = 13,
+    TX_HDR_EMAD_MASK = 0x1,
+    TX_HDR_EMAD_SHIFT = 5,
+    TX_HDR_TYPE_MASK = 0xF,
+    TX_HDR_TYPE_SHIFT = 0,
+    TX_HDR_RX_IS_ROUTER_MASK_V1 = 0x1,
     TX_HDR_RX_IS_ROUTER_SHIFT_V1 = 3,
-    TX_HDR_RX_IS_TUNNEL_MASK_V1  = 0x1,
+    TX_HDR_RX_IS_TUNNEL_MASK_V1 = 0x1,
     TX_HDR_RX_IS_TUNNEL_SHIFT_V1 = 2,
-    TX_HDR_FID_VALID_MASK_V1     = 0x1,
-    TX_HDR_FID_VALID_SHIFT_V1    = 0,
-    TX_HDR_CONTROL_MASK_V1       = 0x1,
-    TX_HDR_CONTROL_SHIFT_V1      = 6,
-    TX_HDR_ETCLASS_MASK_V1       = 0xF,
-    TX_HDR_ETCLASS_SHIFT_V1      = 0,
-    TX_HDR_FID_MASK_V1           = 0xFFFF,
-    TX_HDR_FID_SHIFT_V1          = 0
+    TX_HDR_FID_VALID_MASK_V1 = 0x1,
+    TX_HDR_FID_VALID_SHIFT_V1 = 0,
+    TX_HDR_CONTROL_MASK_V1 = 0x1,
+    TX_HDR_CONTROL_SHIFT_V1 = 6,
+    TX_HDR_ETCLASS_MASK_V1 = 0xF,
+    TX_HDR_ETCLASS_SHIFT_V1 = 0,
+    TX_HDR_FID_MASK_V1 = 0xFFFF,
+    TX_HDR_FID_SHIFT_V1 = 0
 };
 enum tele_dir_ing {
-    TELE_DIR_ING_EGRESS_E  = 0,
+    TELE_DIR_ING_EGRESS_E = 0,
     TELE_DIR_ING_INGRESS_E = 1,
-    TELE_DIR_ING_MAX_E     = 1,
-    TELE_DIR_ING_NUM_E     = 2,
+    TELE_DIR_ING_MAX_E = 1,
+    TELE_DIR_ING_NUM_E = 2,
 };
 /************************************************
  *  Structs
@@ -644,6 +644,13 @@ struct dev_specific_cb {
     int (*sx_ptp_tx_ts_handler)(struct sx_priv        *priv,
                                 struct sk_buff        *skb,
                                 const struct timespec *tx_ts);
+    int (*sx_ptp_tx_control_to_data)(struct sx_priv  *priv,
+                                     struct sk_buff **orig_skb,
+                                     struct isx_meta *meta,
+                                     u16              port,
+                                     u8               is_lag,
+                                     u8              *is_tagged,
+                                     u8               hw_ts_required);
     void (*sx_set_device_profile_update_cb)(struct ku_profile* profile, struct profile_driver_params *driver_params);
     void (*sx_init_cq_db_cb)(struct sx_cq *cq, u8 cqn, u8 *cqe_ver);
     void (*sx_printk_cqe_cb)(union sx_cqe *u_cqe);
@@ -946,6 +953,12 @@ int sx_get_sdq_num_from_profile(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq
 int sx_get_sdq_num_per_etclasss(struct sx_dev *dev, u8 swid, u8 etclass, u8 *sdq);
 
 void unset_monitor_rdq(struct sx_dq *dq);
+
+/**
+ * Used to send "SDK health" event (SXD_TRAP_ID_SDK_HEALTH_EVENT) to the registered users
+ */
+int sx_send_health_event(uint8_t dev_id, sxd_health_cause_t cause);
+
 #endif  /* SX_H */
 
 /************************************************

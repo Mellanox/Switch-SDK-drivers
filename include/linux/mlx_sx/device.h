@@ -137,6 +137,7 @@ struct completion_info {
     u8                        mirror_tclass;
     u16                       mirror_cong;
     u32                       mirror_lantency;
+    u8                        device_id;
 };
 
 typedef void (*cq_handler)(struct completion_info*, void *);

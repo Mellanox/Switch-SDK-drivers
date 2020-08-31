@@ -92,6 +92,7 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_CPUWD] = "SXD_CPUWD",                 /**< CPU Watchdog Event */
     [SXD_TRAP_ID_PPBME] = "SXD_PPBME",                  /**< BER monitor trap */
     [SXD_TRAP_ID_PACKET_RECEIVED] = "SXD_PACKET_RECEIVED",
+    [SXD_TRAP_ID_MFDE] = "SXD_MFDE",                   /**< FW MFDE (FW_SOS) */
 
     /* ETHERNET L2 */
     [SXD_TRAP_ID_ETH_L2_STP] = "SXD_STP",                /**< ETHERNET L2 STP */
@@ -351,6 +352,7 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_TRANSACTION_ERROR] = "SXD_SW_EV_TRANSACTION_ERROR",               /**< error in transaction mode */
     [SXD_TRAP_ID_BFD_TIMEOUT_EVENT] = "SXD_SW_EV_BFD_TIMEOUT_EVENT",
     [SXD_TRAP_ID_BFD_PACKET_EVENT] = "SXD_SW_EV_BFD_PACKET_EVENT",
+    [SXD_TRAP_ID_SDK_HEALTH_EVENT] = "SXD_SW_SDK_HEALTH_EVENT",
 
 
     /* User defined trap ID */

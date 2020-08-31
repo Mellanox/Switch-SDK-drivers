@@ -830,12 +830,13 @@ out:
  * extracts the needed data from the cqe and from the packet, calls
  * the filter listeners with that info
  */
-int rx_skb(void                         *context,
-           struct sk_buff               *skb,
-           union sx_cqe                 *u_cqe,
+int rx_skb(void                  *context,
+           struct sk_buff        *skb,
+           union sx_cqe          *u_cqe,
            const struct sx_rx_timestamp *rx_timestamp,
-           int                           is_from_monitor_rdq,
-           struct listener_entry       * force_listener)
+           int                    is_from_monitor_rdq,
+           struct listener_entry* force_listener,
+           u8                     dev_id)
 {
     struct completion_info *ci = NULL;
     struct sx_priv         *priv = sx_priv((struct sx_dev *)context);
@@ -910,6 +911,7 @@ int rx_skb(void                         *context,
     ci->context = NULL;
     ci->dev = sx_device;
     ci->hw_synd = hw_synd;
+    ci->device_id = dev_id;
 
 #ifdef SW_PUDE_EMULATION
     /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
@@ -1762,7 +1764,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
                 }
             }
 
-            rx_skb(cq->sx_dev, skb, &u_cqe, &rx_timestamp, 0, NULL);
+            rx_skb(cq->sx_dev, skb, &u_cqe, &rx_timestamp, 0, NULL, cq->sx_dev->device_id);
         } else {
             sx_skb_free(skb);
         }

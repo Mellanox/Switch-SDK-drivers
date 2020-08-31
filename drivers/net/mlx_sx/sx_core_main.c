@@ -350,6 +350,42 @@ u8        __warm_boot_mode = 0;
 /************************************************
  *  Functions
  ***********************************************/
+
+int sx_core_skb_add_vlan(struct sk_buff **untagged_skb, uint16_t vid, uint16_t pcp)
+{
+    u32             vlan_hdr = cpu_to_be32((ETH_P_8021Q << 16) | ((pcp & 0x7) << 13) | (vid & 0xfff));
+    struct sk_buff *skb = *untagged_skb, *new_skb = NULL;
+    u8             *p_skb_data;
+
+    if (skb_headroom(skb) < ISX_HDR_SIZE + VLAN_HLEN) {
+        new_skb = alloc_skb(skb->len + ISX_HDR_SIZE + VLAN_HLEN, GFP_ATOMIC);
+        if (!new_skb) {
+            printk(KERN_ERR PFX "adding vlan to skb failed because of allocation\n");
+            return -ENOMEM;
+        }
+
+        p_skb_data = skb_put(new_skb, skb->len + VLAN_HLEN);
+        if (!p_skb_data) {
+            kfree_skb(new_skb);
+            return -ENOMEM;
+        }
+
+        memcpy(p_skb_data, skb->data, 12); /* DMAC, SMAC */
+        memcpy(p_skb_data + 12 + VLAN_HLEN, skb->data + 12, skb->len - 12); /* rest of the frame */
+
+        kfree_skb(skb);
+        *untagged_skb = new_skb;
+    } else {
+        p_skb_data = skb_push(skb, VLAN_HLEN);
+        memmove(p_skb_data, p_skb_data + VLAN_HLEN, 12); /* DMAC, SMAC */
+    }
+
+    memcpy(p_skb_data + 12, &vlan_hdr, VLAN_HLEN);
+    return 0;
+}
+EXPORT_SYMBOL(sx_core_skb_add_vlan);
+
+
 static inline void SX_CORE_REGISTER_FILTER_BITMASK_SET(u64 *arr, u32 num, int set)
 {
     int idx = (num) / 64;
@@ -1343,7 +1379,7 @@ static int check_valid_meta(struct sx_dev *dev, struct isx_meta *meta)
  * returns: 0 success
  *	    !0 error
  */
-static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u8 reserve_hdrs)
+static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u8 reserve_hdrs, u8 is_from_user)
 {
     int              err = 0;
     int              index = 0;
@@ -1357,17 +1393,22 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
         goto out_err;
     }
 
-    iov = kmalloc(sizeof(*iov) * (write_data->vec_entries), GFP_KERNEL);
-    if (!iov) {
-        err = -ENOMEM;
-        goto out_err;
-    }
+    if (is_from_user) {
+        iov = kmalloc(sizeof(*iov) * (write_data->vec_entries), GFP_KERNEL);
+        if (!iov) {
+            err = -ENOMEM;
+            goto out_err;
+        }
 
-    /*1. copy io vector */
-    err = copy_from_user((void*)iov, (void*)(write_data->iov),
-                         sizeof(*iov) * (write_data->vec_entries));
-    if (err) {
-        goto out_free;
+        /*1. copy io vector */
+        err = copy_from_user((void*)iov, (void*)(write_data->iov),
+                             sizeof(*iov) * (write_data->vec_entries));
+        if (err) {
+            printk(KERN_WARNING PFX "failed to copy buffer from user\n");
+            goto out_free;
+        }
+    } else {
+        iov = write_data->iov;
     }
 
     /* 2. calc the packet size */
@@ -1411,10 +1452,16 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
         }
 
         memset(p_skb_data, 0, iov[index].iov_len);
-        err = copy_from_user(p_skb_data, iov[index].iov_base,
-                             iov[index].iov_len);
-        if (err) {
-            goto out_free_skb;
+
+        if (is_from_user) {
+            err = copy_from_user(p_skb_data, iov[index].iov_base,
+                                 iov[index].iov_len);
+            if (err) {
+                printk(KERN_WARNING PFX "failed to copy buffer from user index:[%d]\n", index);
+                goto out_free_skb;
+            }
+        } else {
+            memcpy(p_skb_data, iov[index].iov_base, iov[index].iov_len);
         }
     }
 
@@ -1423,12 +1470,14 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
 out_free_skb:
     kfree_skb(*skb);
 out_free:
-    kfree(iov);
+    if (is_from_user) {
+        kfree(iov);
+    }
 out_err:
     return err;
 }
 
-static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, void *context)
+static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, void *context, u8 is_from_user)
 {
     int                    err = 0;
     struct completion_info ci;
@@ -1437,9 +1486,9 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     u16                    fid = 0;
 
     memset(&ci, 0, sizeof(ci));
-    err = copy_buff_to_skb(&ci.skb, write_data, false);
+    err = copy_buff_to_skb(&ci.skb, write_data, false, is_from_user);
     if (err) {
-        printk(KERN_WARNING "sx_send_loopback: failed copying buffer to SKB\n");
+        printk(KERN_WARNING "sx_send_loopback: failed copying buffer to SKB err:[%d]\n", err);
         goto out;
     }
 
@@ -1506,6 +1555,7 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     ci.mirror_cong = 0xFFFF;
     ci.mirror_lantency = 0xFFFFFF;
     ci.mirror_tclass = 0x1F;
+    ci.device_id = dev->device_id;
     SX_RX_TIMESTAMP_INIT(&ci.rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
 
     if (dispatch_pkt(dev, &ci, ci.hw_synd, 0) > 0) {
@@ -1518,7 +1568,7 @@ out:
     return err;
 }
 
-int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id)
+int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id, u8 is_from_user, u8 device_id)
 {
     struct ku_write write_data;
     struct ku_iovec iov;
@@ -1538,16 +1588,36 @@ int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id)
     write_data.vec_entries = 1;
     write_data.iov = &iov;
     write_data.meta.type = SX_PKT_TYPE_LOOPBACK_CTL;
-    write_data.meta.dev_id = 1;
+    write_data.meta.dev_id = device_id;
     write_data.meta.etclass = 6;
     write_data.meta.loopback_data.trap_id = trap_id;
 
-    err = sx_send_loopback(sx_glb.tmp_dev_ptr, &write_data, NULL);
+    err = sx_send_loopback(sx_glb.tmp_dev_ptr, &write_data, NULL, is_from_user);
 
 out:
     return err;
 }
 EXPORT_SYMBOL(send_trap);
+
+
+int sx_send_health_event(uint8_t dev_id, sxd_health_cause_t cause)
+{
+    sxd_event_health_notification_t sdk_health;
+
+    memset(&sdk_health, 0, sizeof(sdk_health));
+
+    sdk_health.device_id = dev_id;
+    sdk_health.cause = cause;
+    sdk_health.severity = SXD_HEALTH_SEVERITY_ERR;
+    sdk_health.irisc_id = DBG_ALL_IRICS;
+    sdk_health.was_debug_started = false;
+
+    /* Send SDK health event */
+    printk(KERN_ERR PFX "SDK health event, device:[%d] \n", sdk_health.device_id);
+
+    return send_trap(&sdk_health, sizeof(sdk_health), SXD_TRAP_ID_SDK_HEALTH_EVENT, 0, dev_id);
+}
+
 
 /**
  * Prepare a meta-data struct from the edata
@@ -1585,6 +1655,7 @@ void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p, struct event_data 
     metadata_p->mirror_cong = edata_p->mirror_cong;
     metadata_p->mirror_lantency = edata_p->mirror_lantency;
     metadata_p->mirror_tclass = edata_p->mirror_tclass;
+    metadata_p->dev_id = edata_p->dev_id;
 }
 
 
@@ -2127,7 +2198,7 @@ void sx_cq_handle_event_data_prepare(struct event_data      *edata_p,
     edata_p->skb = skb_p;
     edata_p->system_port = comp_info_p->sysport;
     edata_p->trap_id = comp_info_p->hw_synd;
-    edata_p->dev_id = 0;
+    edata_p->dev_id = comp_info_p->device_id;
     edata_p->dev = comp_info_p->dev;
     edata_p->is_lag = comp_info_p->is_lag;
     edata_p->lag_sub_port = comp_info_p->lag_subport;
@@ -2900,6 +2971,7 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .sx_ptp_rx_handler = NULL,
     .sx_ptp_tx_handler = NULL,
     .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -2933,6 +3005,7 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .sx_ptp_rx_handler = NULL,
     .sx_ptp_tx_handler = NULL,
     .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -2966,6 +3039,7 @@ struct dev_specific_cb spec_cb_pelican = {
     .sx_ptp_rx_handler = NULL,
     .sx_ptp_tx_handler = NULL,
     .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -2999,6 +3073,7 @@ struct dev_specific_cb spec_cb_quantum = {
     .sx_ptp_rx_handler = NULL,
     .sx_ptp_tx_handler = NULL,
     .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3032,6 +3107,7 @@ struct dev_specific_cb spec_cb_spectrum = {
     .sx_ptp_rx_handler = sx_ptp_rx_handler_spc1,
     .sx_ptp_tx_handler = sx_ptp_tx_handler_spc1,
     .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
     .sx_init_cq_db_cb = sx_init_cq_db_spc,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
@@ -3065,6 +3141,7 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
     .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
     .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
+    .sx_ptp_tx_control_to_data = sx_ptp_tx_control_to_data_spc2,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
     .sx_init_cq_db_cb = sx_init_cq_db_v2,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
@@ -3098,6 +3175,7 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
     .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
     .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
+    .sx_ptp_tx_control_to_data = sx_ptp_tx_control_to_data_spc2,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
     .sx_init_cq_db_cb = sx_init_cq_db_v2,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
@@ -3460,7 +3538,7 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
         }
 
         if (write_data.meta.type == SX_PKT_TYPE_LOOPBACK_CTL) {
-            err = sx_send_loopback(dev, &write_data, filp);
+            err = sx_send_loopback(dev, &write_data, filp, 1);
             if (err) {
                 printk(KERN_WARNING PFX "sx_core_write: "
                        "Failed sending loopback packet\n");
@@ -3503,7 +3581,7 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
         }
 
         user_buffer_copied_size += sizeof(write_data);
-        err = copy_buff_to_skb(&skb, &write_data, true);
+        err = copy_buff_to_skb(&skb, &write_data, true, 1);
         if (err) {
             goto out;
         }
@@ -4789,7 +4867,7 @@ int sx_restart_one_pci(struct pci_dev *pdev)
      * if driver was loaded with __perform_chip_reset = 0
      * for example in case of WARM boot*/
     __perform_chip_reset = 1;
-    
+
     down_write(&sx_glb.pci_restart_lock);
     sx_core_remove_one_pci(pdev);
     err = sx_core_init_one_pci(pdev, NULL);

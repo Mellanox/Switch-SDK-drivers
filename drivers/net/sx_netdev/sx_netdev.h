@@ -210,6 +210,14 @@ struct sx_core_interface {
     int            (*sx_core_ptp_tx_handler)(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag);
     int            (*sx_core_get_lag_max)(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag);
     int            (*sx_core_get_rp_mode)(struct sx_dev *dev, u8 is_lag, u16 sysport_lag_id, u16 vlan_id, u8 *is_rp);
+    int            (*sx_core_skb_add_vlan)(struct sk_buff **untagged_skb, uint16_t vid, uint16_t pcp);
+    int            (*sx_core_ptp_tx_control_to_data)(struct sx_dev   *dev,
+                                                     struct sk_buff **orig_skb,
+                                                     struct isx_meta *meta,
+                                                     u16              port,
+                                                     u8               is_lag,
+                                                     u8              *is_tagged,
+                                                     u8               hw_ts_required);
 };
 extern struct sx_core_interface sx_core_if;
 

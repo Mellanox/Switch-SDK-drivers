@@ -202,6 +202,34 @@ void __sgmii_dev_counters_init(int dev_id, struct sgmii_dev_counters *dev_counte
                          "CR-Space send failed",
                          COUNTER_SEV_ERROR);
     sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_default_device_not_configured,
+                         "CR-Space default device is not configured",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_dev_mismatch,
+                         "CR-Space transaction RX and TX devices mismatch",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_invalid_oob_checks,
+                         "CR-Space invalid OOB checks",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_invalid_trap_id,
+                         "CR-Space invalid trap ID",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_misc_failed,
+                         "CR-Space misc failure",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_unsolicited,
+                         "CR-Space unsolicited message",
+                         COUNTER_SEV_NOTICE);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_snipped_data,
+                         "CR-Space snipped packet",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
                          &dev_counters->misc_tx,
                          "MISC packet application transmissions",
                          COUNTER_SEV_INFO);
@@ -281,34 +309,6 @@ void __sgmii_dev_counters_init(int dev_id, struct sgmii_dev_counters *dev_counte
                          &dev_counters->rx_cqev2_ok,
                          "RX (CQEv2) succeeded",
                          COUNTER_SEV_INFO);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_default_device_not_configured,
-                         "CR-Space default device is not configured",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_dev_mismatch,
-                         "CR-Space transaction RX and TX devices mismatch",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_invalid_oob_checks,
-                         "CR-Space invalid OOB checks",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_invalid_trap_id,
-                         "CR-Space invalid trap ID",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_misc_failed,
-                         "CR-Space misc failure",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_unsolicited,
-                         "CR-Space unsolicited message",
-                         COUNTER_SEV_NOTICE);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_snipped_data,
-                         "CR-Space snipped packet",
-                         COUNTER_SEV_ERROR);
 }
 
 

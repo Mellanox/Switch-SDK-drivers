@@ -1433,8 +1433,8 @@ long ctrl_cmd_set_warm_boot_mode(struct file *file, unsigned int cmd, unsigned l
         /* udev event for system management purpose */
         kobject_uevent(&dev->pdev->dev.kobj, KOBJ_ADD);
         __warm_boot_mode = 1;
-        
-        /* sx_priv(dev)->warm_boot_mode is for debug purpose only 
+
+        /* sx_priv(dev)->warm_boot_mode is for debug purpose only
          * the logic based on __warm_boot_mode variable */
         spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
         sx_priv(dev)->warm_boot_mode = warm_boot_mode;

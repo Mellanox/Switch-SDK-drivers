@@ -645,8 +645,7 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
         } else {
             SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
         }
-
-        err = rx_skb(cq->sx_dev, skb, &u_cqe, &rx_ts, 1, force_listener);
+        err = rx_skb(cq->sx_dev, skb, &u_cqe, &rx_ts, 1, force_listener, priv->dev.device_id);
         if (err) {
             printk(KERN_WARNING PFX "rx_skb error %d . Aborting\n", err);
             goto out;
@@ -1781,6 +1780,7 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
 
     if (wait_for_completion_timeout(&priv->pause_cqn_completion, msecs_to_jiffies(5000)) == 0) {
         printk(KERN_ERR "tasklet did not signal us ...\n");
+        priv->pause_cqn = -1;
         return -ETIMEDOUT;
     }
 
@@ -1789,6 +1789,7 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
     if (monitor_rdq_params.is_monitor) {
         if (dq->is_monitor) {
             if (dq->file_priv_p->owner == rsc->owner) { /* same owner, do nothing */
+                priv->pause_cqn = -1;
                 spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
                 goto out;
             }
@@ -1809,6 +1810,7 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
 
         if (dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p == NULL) {
             printk(KERN_DEBUG PFX " Failed to allocate memory for SW duplication queue. \n");
+            priv->pause_cqn = -1;
             spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             return -ENOMEM;
         }
@@ -1824,6 +1826,7 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         err = sx_core_add_rdq_to_monitor_rdq_list(dq);
         if (err) {
             unset_monitor_rdq(dq);
+            priv->pause_cqn = -1;
             spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             goto out;
         }

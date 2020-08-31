@@ -164,8 +164,9 @@ struct send_mad_info {
 };
 static void __sgmii_send_mad_deferred(void *task_param)
 {
-    struct send_mad_info *info;
-    int                   ret = 0, should_free_skb = 1;
+    struct send_mad_info         *info;
+    int                           ret = 0, should_free_skb = 1;
+    struct sgmii_transaction_meta tr_meta;
 
     info = (struct send_mad_info*)task_param;
 
@@ -191,9 +192,12 @@ static void __sgmii_send_mad_deferred(void *task_param)
      * transaction will free the SKB when it completes (or upon failure), so we should not worry about it */
     should_free_skb = 0;
 
-    ret = sgmii_send_transaction(&__mad_tr_db,
-                                 info->skb,
-                                 info->tr_id,
+    tr_meta.skb = info->skb;
+    tr_meta.tr_db = &__mad_tr_db;
+    tr_meta.tr_id = info->tr_id;
+    tr_meta.transport_type = SXD_COMMAND_TYPE_MAD;
+
+    ret = sgmii_send_transaction(&tr_meta,
                                  info->sgmii_dev,
                                  &info->meta,
                                  info->sync_context);

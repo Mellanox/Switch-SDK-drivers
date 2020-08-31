@@ -42,6 +42,8 @@
 #include "sx_clock.h"
 #include "ptp.h"
 
+#define CAP_FID_SPC2_3 ((16 * 1024) - 256) /* 16K - 256 ==> 256 FIDs reserved for SPC2/3 PTP WA */
+
 enum ptp_spc2_counters {
     PTP_COUNTER_SPC2_TIMESTAMP_ARRIVED,
     PTP_COUNTER_SPC2_EMPTY_TIMESTAMP,
@@ -176,5 +178,85 @@ int sx_ptp_dump_spc2(struct seq_file *m, void *v)
     sx_clock_log_dump(&__log_tx, m, "TX log");
     sx_clock_log_dump(&__log_rx, m, "RX log");
 
+    return 0;
+}
+
+
+int sx_ptp_tx_control_to_data_spc2(struct sx_priv  *priv,
+                                   struct sk_buff **orig_skb,
+                                   struct isx_meta *meta,
+                                   u16              port,
+                                   u8               is_lag,
+                                   u8              *is_tagged,
+                                   u8               hw_ts_required)
+{
+    struct sx_dev  *dev = &priv->dev;
+    struct sk_buff *skb = *orig_skb;
+    u8              is_ptp_pkt = hw_ts_required;
+    u16             pvid;
+    int             err;
+
+    /* ************************************************************************
+     * PTP SPC2/3 WA
+     *
+     * On SPC2/3 when PTP is sent as control, HW does not override the 'correction'
+     * field on the PTP packet so it remains negative (and invalid). therefore, the
+     * WA is to switch the 'Control' packet to 'Data' packet:
+     *
+     * if packet is 'Control':
+     *     Switch to 'Data'
+     *     fid = CAP_FID + port - 1
+     *     fid_valid = 1
+     *     rx_is_router = 1
+     *     if packet is untagged:
+     *         add VLAN tag with PVID and PCP=6
+     * ***********************************************************************/
+
+    /* if PTP is disabled, skip WA */
+    if (!priv->tstamp.is_ptp_enable) {
+        return 0;
+    }
+
+    /* if packet is not 'Control', skip WA */
+    if (meta->type != SX_PKT_TYPE_ETH_CTL_UC) {
+        return 0;
+    }
+
+    /* if packet does not require timestamp (i.e. not sure if it a PTP packet), check if packet is PTP. */
+    if (!hw_ts_required) {
+        sx_core_is_ptp_packet(skb, &is_ptp_pkt);
+
+        /* if packet is not PTP, skip WA */
+        if (!is_ptp_pkt) {
+            return 0;
+        }
+    }
+
+    /* from this point, WA will be surely applied to the packet */
+
+    /* if packet is untagged, add a VLAN tag with PVID and PCP=6 */
+    if (!(*is_tagged)) {
+        err = sx_core_get_pvid(dev, port, is_lag, &pvid);
+        if (err) {
+            return err;
+        }
+
+        err = sx_core_skb_add_vlan(&skb, pvid, 6);
+        if (err) {
+            return err;
+        }
+
+        *orig_skb = skb; /* skb may have changed pointer in call to sx_netdev_skb_add_vlan() */
+        *is_tagged = 1;
+    }
+
+    meta->type = SX_PKT_TYPE_ETH_DATA;
+    meta->fid = CAP_FID_SPC2_3 + meta->system_port_mid - 1;  /* see PRM, TX-base-header description */
+    meta->fid_valid = 1;
+    meta->rx_is_router = 1;
+
+    /* following fields must be reserved when sending as 'DATA': */
+    meta->system_port_mid = 0;
+    meta->etclass = 0;
     return 0;
 }

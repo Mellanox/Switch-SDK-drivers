@@ -137,7 +137,7 @@ static u8 __is_ptp_packet(struct sk_buff *skb, struct sx_ptp_packet_metadata *pk
 
 #define OFFSET_PTP_DOMAIN_NUMBER (4)
 
-    if (is_ptp) {
+    if (pkt_meta && is_ptp) {
         pkt_meta->pkt_fields.seqid = ntohs(*((u16*)(data + offset + OFF_PTP_SEQUENCE_ID)));
         pkt_meta->pkt_fields.domain = *(data + offset + OFFSET_PTP_DOMAIN_NUMBER);
         pkt_meta->pkt_fields.msg_type = *(data + offset) & 0xf;
@@ -285,6 +285,14 @@ int sx_core_get_ptp_state(struct sx_dev *dev, uint8_t *is_ptp_enable)
 }
 EXPORT_SYMBOL(sx_core_get_ptp_state);
 
+
+int sx_core_is_ptp_packet(struct sk_buff *skb, u8 *is_ptp_pkt)
+{
+    *is_ptp_pkt = __is_ptp_packet(skb, NULL);
+    return 0;
+}
+
+
 int sx_core_get_ptp_clock_index(struct sx_dev *dev, uint8_t *ptp_clock_index_p)
 {
     if (sx_priv(dev)->tstamp.is_ptp_enable) {
@@ -300,6 +308,27 @@ int sx_core_ptp_tx_ts_handler(struct sx_priv *priv, struct sk_buff *skb, const s
 {
     return SX_CLOCK_DEV_SPECIFIC_CB(&priv->dev, sx_ptp_tx_ts_handler, priv, skb, tx_ts);
 }
+
+
+int sx_core_ptp_tx_control_to_data(struct sx_dev   *dev,
+                                   struct sk_buff **orig_skb,
+                                   struct isx_meta *meta,
+                                   u16              port,
+                                   u8               is_lag,
+                                   u8              *is_tagged,
+                                   u8               hw_ts_required)
+{
+    return SX_CLOCK_DEV_SPECIFIC_CB(dev,
+                                    sx_ptp_tx_control_to_data,
+                                    sx_priv(dev),
+                                    orig_skb,
+                                    meta,
+                                    port,
+                                    is_lag,
+                                    is_tagged,
+                                    hw_ts_required);
+}
+EXPORT_SYMBOL(sx_core_ptp_tx_control_to_data);
 
 
 int sx_core_ptp_init(struct sx_priv *priv, ptp_mode_t ptp_mode)

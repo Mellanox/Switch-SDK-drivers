@@ -81,9 +81,10 @@ static int __sgmii_send_emad(int                                    dev_id,
                              const struct isx_meta                 *meta,
                              struct sgmii_sync_transaction_context *sync_context)
 {
-    struct sgmii_dev      *sgmii_dev;
-    sgmii_transaction_id_t tr_id;
-    int                    ret;
+    struct sgmii_dev             *sgmii_dev;
+    sgmii_transaction_id_t        tr_id;
+    int                           ret;
+    struct sgmii_transaction_meta tr_meta;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -102,7 +103,12 @@ static int __sgmii_send_emad(int                                    dev_id,
         sync_context->tr_id = tr_id;
     }
 
-    ret = sgmii_send_transaction(&__emad_tr_db, skb, tr_id, sgmii_dev, meta, sync_context);
+    tr_meta.skb = skb;
+    tr_meta.tr_db = &__emad_tr_db;
+    tr_meta.tr_id = tr_id;
+    tr_meta.transport_type = SXD_COMMAND_TYPE_EMAD;
+
+    ret = sgmii_send_transaction(&tr_meta, sgmii_dev, meta, sync_context);
     if (ret == 0) {
         atomic_inc(&__sgmii_emad_transactions_in_progress);
         goto dec_ref;

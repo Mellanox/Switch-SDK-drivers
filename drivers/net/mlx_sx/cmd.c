@@ -404,7 +404,8 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
                            u8                     op_modifier,
                            u16                    op,
                            u16                    token,
-                           int                    event)
+                           int                    event,
+                           sxd_health_cause_t    *cause)
 {
     struct sx_cmd *cmd = &sx_priv(dev)->cmd;
     int            ret = -EAGAIN;
@@ -425,6 +426,7 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
 
     err = wait_for_cmd_pending(dev, dev->device_id, DPT_PATH_PCI_E, op, (event ? GO_BIT_TIMEOUT_MSECS : 0));
     if (-ETIMEDOUT == err) {
+        *cause = SXD_HEALTH_CAUSE_GO_BIT;
         if (!dev->dev_stuck) {
             printk(KERN_ERR "Device %d is stuck from a previous command. Aborting command %s.\n",
                    dev->device_id, cmd_str(op));
@@ -432,7 +434,6 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
             dev->dev_stuck = 1;
             dev->dev_stuck_time = jiffies;
         }
-
         goto out;
     }
 
@@ -497,7 +498,8 @@ static int sx_cmd_post_i2c(struct sx_dev         *dev,
                            u16                    op,
                            u16                    token,
                            int                    event,
-                           int                    in_mb_size)
+                           int                    in_mb_size,
+                           sxd_health_cause_t    *cause)
 {
     struct sx_cmd *cmd = &sx_priv(dev)->cmd;
     int            ret = -EAGAIN;
@@ -527,22 +529,16 @@ static int sx_cmd_post_i2c(struct sx_dev         *dev,
         goto out;
     } else if (-ETIMEDOUT == err) {
         sx_warn(dev, "I2C go bit not cleared\n");
+        *cause = SXD_HEALTH_CAUSE_GO_BIT;
         if (sx_glb.sx_i2c.set_go_bit_stuck) {
             int i2c_dev_id;
-            err = sx_dpt_get_i2c_dev_by_id(
-                sx_dev_id,
-                &i2c_dev_id);
-            if (err) {
-                sx_err(dev, "sx_dpt_get_i2c_dev_by_id "
-                       "for dev_id: %d "
-                       "failed !\n",
+            if (sx_dpt_get_i2c_dev_by_id(sx_dev_id, &i2c_dev_id) != 0) {
+                sx_err(dev, "sx_dpt_get_i2c_dev_by_id for dev_id: %d failed !\n",
                        sx_dev_id);
-                return -EINVAL;
+            } else {
+                sx_glb.sx_i2c.set_go_bit_stuck(i2c_dev_id);
             }
-
-            sx_glb.sx_i2c.set_go_bit_stuck(i2c_dev_id);
         }
-
         goto out;
     } else if (err) {
         sx_err(dev, "client return error %d, "
@@ -622,19 +618,20 @@ static int sx_cmd_post(struct sx_dev         *dev,
                        u16                    token,
                        int                    event,
                        int                    cmd_path,
-                       int                    in_mb_size)
+                       int                    in_mb_size,
+                       sxd_health_cause_t    *cause)
 {
     int err = 0;
 
     if (cmd_path == DPT_PATH_I2C) {
         err = sx_cmd_post_i2c(dev, sx_dev_id, in_mb, out_mb,
                               in_modifier, op_modifier,
-                              op, token, event, in_mb_size);
+                              op, token, event, in_mb_size, cause);
     } else if (cmd_path == DPT_PATH_PCI_E) {
         if (dev->pdev) {
             err = sx_cmd_post_pci(dev, in_mb, out_mb,
                                   in_modifier, op_modifier,
-                                  op, token, event);
+                                  op, token, event, cause);
         }
     } else {
         printk(KERN_WARNING "%s(): Error: sx_dev_id %d unsupported "
@@ -658,7 +655,8 @@ static int sx_cmd_poll(struct sx_dev         *dev,
                        u16                    op,
                        unsigned long          timeout,
                        int                    cmd_path,
-                       int                    in_mb_size)
+                       int                    in_mb_size,
+                       sxd_health_cause_t    *cause)
 {
     struct sx_priv   *priv = sx_priv(dev);
     int               err = 0;
@@ -692,7 +690,7 @@ static int sx_cmd_poll(struct sx_dev         *dev,
     }
 
     err = sx_cmd_post(dev, sx_dev_id, in_param, out_param, in_modifier,
-                      op_modifier, op, CMD_POLL_TOKEN, 0, cmd_path, in_mb_size);
+                      op_modifier, op, CMD_POLL_TOKEN, 0, cmd_path, in_mb_size, cause);
     if (err) {
         printk(KERN_WARNING "sx_cmd_poll: got err = %d "
                "from sx_cmd_post\n", err);
@@ -713,8 +711,10 @@ static int sx_cmd_poll(struct sx_dev         *dev,
 
     err = wait_for_cmd_pending(dev, sx_dev_id, cmd_path, op, timeout);
     if (err) {
-        printk(KERN_WARNING "sx_cmd_poll: got err = %d from "
-               "cmd_pending\n", err);
+        printk(KERN_WARNING "sx_cmd_poll: got err = %d from cmd_pending\n", err);
+        if (-ETIMEDOUT == err) {
+            *cause = SXD_HEALTH_CAUSE_GO_BIT;
+        }
         goto out;
     }
 
@@ -827,7 +827,8 @@ static int sx_cmd_wait(struct sx_dev         *dev,
                        u8                     op_modifier,
                        u16                    op,
                        unsigned long          timeout,
-                       int                    cmd_path)
+                       int                    cmd_path,
+                       sxd_health_cause_t    *cause)
 {
     struct sx_cmd         *cmd = &sx_priv(dev)->cmd;
     struct sx_cmd_context *context;
@@ -859,7 +860,7 @@ static int sx_cmd_wait(struct sx_dev         *dev,
     }
 #else
     sx_cmd_post(dev, sx_dev_id, in_param, out_param, in_modifier,
-                op_modifier, op, context->token, 1, cmd_path, 0);
+                op_modifier, op, context->token, 1, cmd_path, 0, cause);
 #endif
 
 #ifdef INCREASED_TIMEOUT
@@ -868,9 +869,10 @@ static int sx_cmd_wait(struct sx_dev         *dev,
     if (!wait_for_completion_timeout(&context->done, msecs_to_jiffies(timeout))) {
 #endif
         if (!context->done.done) {
-            sx_err(dev, "command 0x%x (%s) timeout for "
-                   "device %d\n", op, cmd_str(op), sx_dev_id);
-            err = -EBUSY;
+            sx_err(dev, "command 0x%x (%s) timeout for cmd-ifc completion event on device %d\n",
+                   op, cmd_str(op), sx_dev_id);
+            err = -ETIMEDOUT;
+            *cause = SXD_HEALTH_CAUSE_NO_CMDIFC_COMPLETION;
             goto out;
         }
     }
@@ -950,13 +952,14 @@ int __sx_cmd(struct sx_dev         *dev,
              unsigned long          timeout,
              int                    in_mb_size)
 {
-    int err = 0;
-    int cmd_path = 0;
+    int                err = 0;
+    int                cmd_path = 0;
+    sxd_health_cause_t cause = SXD_HEALTH_CAUSE_NONE;
 
     if ((sx_dev_id == DEFAULT_DEVICE_ID) && is_sgmii_supported()) {
         err = sgmii_default_dev_id_get(&sx_dev_id);
         if (err) {
-            return err;
+            goto out;
         }
     }
 
@@ -1008,17 +1011,18 @@ int __sx_cmd(struct sx_dev         *dev,
                    "Aborting command %s\n", sx_dev_id, cmd_str(op));
         }
 
-        return -EINVAL;
+        err = -EINVAL;
+        goto out;
     }
 
     if (sx_priv(dev)->cmd.use_events && (cmd_path != DPT_PATH_I2C)) {
         err = sx_cmd_wait(dev, sx_dev_id, in_param, out_param,
                           out_is_imm, in_modifier, op_modifier,
-                          op, timeout, cmd_path);
+                          op, timeout, cmd_path, &cause);
     } else {
         err = sx_cmd_poll(dev, sx_dev_id, in_param, out_param,
                           out_is_imm, in_modifier, op_modifier,
-                          op, timeout, cmd_path, in_mb_size);
+                          op, timeout, cmd_path, in_mb_size, &cause);
     }
 
     if (i2c_cmd_dump) {
@@ -1037,6 +1041,13 @@ int __sx_cmd(struct sx_dev         *dev,
         printk(KERN_INFO PFX "__sx_cmd: command %s finished with err %d\n", cmd_str(op), err);
     }
 #endif
+
+out:
+    if (SXD_HEALTH_CAUSE_NONE != cause) {
+        printk(KERN_ERR PFX "CMD-IFC timeout for device:[%d] sending SDK health event\n",
+               sx_dev_id);
+        sx_send_health_event(sx_dev_id, cause);
+    }
     return err;
 }
 EXPORT_SYMBOL(__sx_cmd);

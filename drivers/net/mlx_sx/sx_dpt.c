@@ -1999,7 +1999,8 @@ int sx_dpt_cr_space_read(int dev_id, unsigned int address, unsigned char *buf, i
     case DPT_PATH_SGMII:
         err = sgmii_send_cr_space_read(dev_id, address, buf, size);
         if (err) {
-            printk(KERN_ERR "failed to send CR-Space read-request over SGMII (err=%d)\n", err);
+            printk(KERN_ERR "failed to send CR-Space read-request device:[%d], address:[0x%x] over SGMII (err=%d)\n",
+                   dev_id, address, err);
             goto out;
         }
 
@@ -2078,7 +2079,8 @@ int sx_dpt_cr_space_write(int dev_id, unsigned int address, unsigned char *buf, 
     case DPT_PATH_SGMII:
         err = sgmii_send_cr_space_write(dev_id, address, buf, size);
         if (err) {
-            printk(KERN_ERR "failed to send CR-Space write-request over SGMII (err=%d)\n", err);
+            printk(KERN_ERR "failed to send CR-Space write-request device:[%d], address:[0x%x] over SGMII (err=%d)\n",
+                   dev_id, address, err);
             goto out;
         }
 

@@ -193,7 +193,7 @@ int sx_cq_completion(struct sx_dev *dev, u32 cqn, u16 weight, const struct times
                      struct sx_bitmap *prio_bitmap);
 void sx_core_dump_synd_tbl(struct sx_dev *dev);
 int rx_skb(void *context, struct sk_buff *skb, union sx_cqe *u_cqe, const struct sx_rx_timestamp *rx_timestamp,
-           int is_from_monitor_rdq, struct listener_entry* force_listener);
+           int is_from_monitor_rdq, struct listener_entry* force_listener, u8 dev_id);
 void sx_get_cqe_all_versions(struct sx_cq *cq, uint32_t n, union sx_cqe *cqe_p);
 int sx_cq_credit_thread_handler(void *cq_ctx);
 void wqe_sync_for_cpu(struct sx_dq *dq, int idx);

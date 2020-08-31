@@ -239,6 +239,14 @@ int sx_core_get_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 *oper_state_p)
 int sx_core_get_ptp_clock_index(struct sx_dev *dev, uint8_t *ptp_clock_index_p);
 int sx_core_get_ptp_state(struct sx_dev *dev, uint8_t *is_ptp_enable);
 int sx_core_ptp_tx_handler(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag);
+int sx_core_ptp_tx_control_to_data(struct sx_dev   *dev,
+                                   struct sk_buff **orig_skb,
+                                   struct isx_meta *meta,
+                                   u16              port,
+                                   u8               is_lag,
+                                   u8              *is_tagged,
+                                   u8               hw_ts_required);
+
 int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint8_t lag_subport,
                       uint16_t *local);
 int sx_core_get_prio2tc(struct sx_dev *dev,
@@ -288,5 +296,7 @@ int sx_core_send_mad_sync(struct sx_dev *dev,
                           int            in_size,
                           void          *out_mad,
                           int            out_size);
+
+int sx_core_skb_add_vlan(struct sk_buff **untagged_skb, uint16_t vid, uint16_t pcp);
 
 #endif /* SX_DRIVER_H */

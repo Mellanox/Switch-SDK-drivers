@@ -88,16 +88,17 @@ struct sx_ptp_packet_metadata {
 /* external functions */
 int sx_core_ptp_init(struct sx_priv *priv, ptp_mode_t ptp_mode);
 int sx_core_ptp_cleanup(struct sx_priv *priv);
+
 int sx_core_ptp_rx_handler(struct sx_priv         *priv,
                            struct completion_info *ci,
                            int                     cqn);
-/* sx_core_ptp_tx_handler() is defined in driver.h for sx_netdev module */
 int sx_core_ptp_tx_ts_handler(struct sx_priv        *priv,
                               struct sk_buff        *skb,
                               const struct timespec *tx_ts);
 
 /* common functions */
 ptp_mode_t sx_ptp_get_mode(void);
+int sx_core_is_ptp_packet(struct sk_buff *skb, u8 *is_ptp_pkt);
 
 /* SPC1 functions */
 int sx_ptp_init_spc1(struct sx_priv *priv, ptp_mode_t ptp_mode);
@@ -125,5 +126,12 @@ int sx_ptp_tx_handler_spc2(struct sx_priv                      *priv,
 int sx_ptp_tx_ts_handler_spc2(struct sx_priv        *priv,
                               struct sk_buff        *skb,
                               const struct timespec *tx_ts);
+int sx_ptp_tx_control_to_data_spc2(struct sx_priv  *priv,
+                                   struct sk_buff **orig_skb,
+                                   struct isx_meta *meta,
+                                   u16              port,
+                                   u8               is_lag,
+                                   u8              *is_tagged,
+                                   u8               hw_ts_required);
 
 #endif  /* __PTP_H__ */

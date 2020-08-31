@@ -439,7 +439,7 @@ static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev, struct sk
     memcpy(&cqe_v0, skb->data, sizeof(cqe_v0));
     skb_pull(skb, sizeof(cqe_v0));
 
-    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL);
+    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL, sgmii_dev_get_id(sgmii_dev));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev0_handler_failed);
     } else {
@@ -466,7 +466,7 @@ static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev, struct sk
     memcpy(&cqe_v2, skb->data, sizeof(cqe_v2));
     skb_pull(skb, sizeof(cqe_v2));
 
-    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL);
+    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL, sgmii_dev_get_id(sgmii_dev));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev2_handler_failed);
     } else {

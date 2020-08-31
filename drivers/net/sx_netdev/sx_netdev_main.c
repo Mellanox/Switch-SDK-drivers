@@ -926,44 +926,6 @@ static int sx_netdev_override_icmp_ip(struct net_device *netdev, struct sk_buff 
     return 0;
 }
 
-static int sx_netdev_skb_add_vlan(struct sk_buff *old_skb, struct sk_buff **new_skb_p, uint16_t vlan)
-{
-    struct vlan_ethhdr *veth = NULL;
-    u8                 *p_skb_data;
-    u32                 vlan_tag;
-    struct sk_buff     *new_skb = NULL;
-
-    *new_skb_p = NULL;
-
-    /* If no vlan header - add empty vlan header */
-    veth = (struct vlan_ethhdr *)(old_skb->data);
-    if (ntohs(veth->h_vlan_proto) != ETH_P_8021Q) {
-        new_skb = alloc_skb(old_skb->len + 4 + ISX_HDR_SIZE, GFP_ATOMIC);
-        if (!new_skb) {
-            printk(KERN_ERR PFX "sx_netdev_skb_add_vlan new_skb alloc failed\n");
-            return -ENOMEM;
-        }
-
-        skb_reserve(new_skb, ISX_HDR_SIZE);
-
-        p_skb_data = skb_put(new_skb, old_skb->len + 4);
-        if (!p_skb_data) {
-            kfree_skb(new_skb);
-            return -ENOMEM;
-        }
-
-        vlan_tag = ETH_P_8021Q << 16;
-        vlan_tag |= (vlan & 0x3fff);
-        vlan_tag = cpu_to_be32(vlan_tag);
-        memcpy(p_skb_data, old_skb->data, 12);
-        memcpy(p_skb_data + 12, &vlan_tag, 4);
-        memcpy(p_skb_data + 16, old_skb->data + 12, old_skb->len - 12);
-        *new_skb_p = new_skb;
-    }
-
-    return 0;
-}
-
 
 /* change skb to hold 'control' traffic (rather than 'data' traffic) */
 static int __set_as_control_traffic(struct sk_buff *skb, struct net_device *netdev, struct isx_meta *meta)
@@ -1105,6 +1067,7 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
     u8                  is_ifc_rp = 0;
     u8                  tx_hw_timestamp = 0, tx_hw_timestamp_flags = 0;
     struct sock        *tx_hw_timestamp_sock = NULL;
+    u8                  is_tagged;
 
     if (net_priv->dev == NULL) {
         if (printk_ratelimit()) {
@@ -1115,6 +1078,9 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         kfree_skb(skb);
         return -ENXIO;
     }
+
+    veth = (struct vlan_ethhdr *)(skb->data);
+    is_tagged = (ntohs(veth->h_vlan_proto) == ETH_P_8021Q);
 
     sx_netdev_override_icmp_ip(netdev, skb);
 
@@ -1202,34 +1168,49 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         }
     }
 
-    if (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp) {
-        /* If it is a DATA packet and it is untagged, add prio tag (PCP according to skb->priority) */
-        veth = (struct vlan_ethhdr *)(skb->data);
-        if (ntohs(veth->h_vlan_proto) != ETH_P_8021Q) {
-            if (skb->priority > SX_VLAN_PRIO_MAX) {
-                if (sx_netdev_tx_debug) {
-                    printk(KERN_INFO PFX "%s: skb priority is to big. set max pcp %d\n", __func__, SX_VLAN_PRIO_MAX);
-                }
-                pcp = SX_VLAN_PRIO_MAX;
-            } else {
-                pcp = skb->priority;
-            }
+    /* *****************************************/
+    /* Apply SPC2/3 PTP WA                     */
 
-            err = sx_netdev_skb_add_vlan(skb, &tmp_skb, ifc_vlan);
-            if (err) {
-                if (printk_ratelimit()) {
-                    printk(KERN_ERR PFX "%s: Fail to alloc skb with vlan header\n", __func__);
-                }
-                kfree_skb(skb);
-                net_priv->stats.tx_dropped++;
-                return err;
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_ptp_tx_control_to_data,
+                               err,
+                               net_priv->dev,
+                               &skb,
+                               &meta,
+                               net_priv->port,
+                               net_priv->is_lag,
+                               &is_tagged,
+                               tx_hw_timestamp);
+
+    if (err) {
+        kfree_skb(skb);
+        return err;
+    }
+
+    /* *****************************************/
+
+    if (!is_tagged && (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp)) {
+        /* If it is a DATA packet and it is untagged, add prio tag (PCP according to skb->priority) */
+        if (skb->priority > SX_VLAN_PRIO_MAX) {
+            if (sx_netdev_tx_debug) {
+                printk(KERN_INFO PFX "%s: skb priority is to big. set max pcp %d\n", __func__, SX_VLAN_PRIO_MAX);
+            }
+            pcp = SX_VLAN_PRIO_MAX;
+        } else {
+            pcp = skb->priority;
+        }
+
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_skb_add_vlan, err, &skb, ifc_vlan, pcp); /* skb may change pointer here ... */
+        if (err) {
+            if (printk_ratelimit()) {
+                printk(KERN_ERR PFX "%s: Fail to alloc skb with vlan header\n", __func__);
             }
 
             kfree_skb(skb);
-            skb = tmp_skb;
-            veth = (struct vlan_ethhdr *)(skb->data);
-            veth->h_vlan_TCI = (veth->h_vlan_TCI & htons(~VLAN_PRIO_MASK)) | (htons(pcp << VLAN_PRIO_SHIFT));
+            net_priv->stats.tx_dropped++;
+            return err;
         }
+
+        is_tagged = 1;
     }
 
     /* If there's no place for the ISX header
@@ -2387,6 +2368,8 @@ static void sx_netdev_init_sx_core_interface(void)
     INIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_handler);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_lag_max);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_rp_mode);
+    INIT_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+    INIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
 
     sx_core_if.init_done = 1;
 }
@@ -2424,6 +2407,8 @@ static void sx_netdev_deinit_sx_core_interface(void)
     DEINIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_handler);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_lag_max);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_rp_mode);
+    DEINIT_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+    DEINIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
 }
 
 #define GET_ONE_SX_CORE_FUNC(func_name)               \
@@ -2893,6 +2878,8 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
     void          *sx_detach_interface_tmp = NULL;
     void          *sx_core_cleanup_dynamic_data_tmp = NULL;
     void          *sx_core_get_rp_mode_tmp = NULL;
+    void          *sx_core_skb_add_vlan_tmp = NULL;
+    void          *sx_core_ptp_tx_control_to_data_tmp = NULL;
 
     ret = kstrtoint(buf, 10, &value);
     if (ret) {
@@ -2937,6 +2924,8 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         GET_ONE_SX_CORE_FUNC(sx_unregister_interface);
         GET_ONE_SX_CORE_FUNC(sx_detach_interface);
         GET_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
+        GET_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+        GET_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
 
         if (!sx_core_if.sx_attach_interface) {
             sx_core_if.sx_attach_interface = __symbol_get("sx_attach_interface");
@@ -2975,6 +2964,9 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         ASSIGN_ONE_FUNC_PTR(sx_unregister_interface);
         ASSIGN_ONE_FUNC_PTR(sx_detach_interface);
         ASSIGN_ONE_FUNC_PTR(sx_core_cleanup_dynamic_data);
+        ASSIGN_ONE_FUNC_PTR(sx_core_skb_add_vlan);
+        ASSIGN_ONE_FUNC_PTR(sx_core_ptp_tx_control_to_data);
+
         if (dev) {
             g_sx_dev = dev;
         }
@@ -3039,6 +3031,9 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         EMPTY_ONE_FUNC_PTR(sx_unregister_interface);
         EMPTY_ONE_FUNC_PTR(sx_attach_interface);
         EMPTY_ONE_FUNC_PTR(sx_core_cleanup_dynamic_data);
+        EMPTY_ONE_FUNC_PTR(sx_core_skb_add_vlan);
+        EMPTY_ONE_FUNC_PTR(sx_core_ptp_tx_control_to_data);
+
         if (g_sx_dev) {
             g_sx_dev = NULL;
         }
@@ -3078,6 +3073,8 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         PUT_ONE_SX_CORE_FUNC(sx_unregister_interface);
         PUT_ONE_SX_CORE_FUNC(sx_attach_interface);
         PUT_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
+        PUT_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+        PUT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
     }
 
     return len;

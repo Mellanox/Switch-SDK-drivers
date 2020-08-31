@@ -44,6 +44,9 @@
 /************************************************
  *  Define
  ***********************************************/
+#define     SXD_GENERATE_ENUM(ENUM, VAL, STR)   ENUM VAL, /* VAL is optional, should be =<numer> */
+#define     SXD_GENERATE_STRING(ENUM, VAL, STR) [ENUM] = STR,
+#define     DBG_ALL_IRICS (255)
 
 /**
  * MPCIR enum is used for opcode in the MPCIR register parameters
@@ -395,9 +398,11 @@ enum {
 #define MAX_LAG_MEMBERS_NUM        64
 #define MAX_NUM_TRAPS_TO_REGISTER  256
 
-#define INVALID_HW_FID_ID   0xFFFF
-#define MAX_HW_FIDS_NUM     0x4000 /* 16k */
-#define MAX_FIDS_NUM        MAX_HW_FIDS_NUM
+#define INVALID_HW_FID_ID 0xFFFF
+#define MAX_FIDS_NUM      0x4000   /* 16K (PRM: CAP_FID) ==> it is the maximum allowed among all
+                                    *  spectrum devices but not on the specific spectrum device.
+                                    *  the actual chip-specific value is fid_manager_g.max_fid. */
+
 #define MAX_RIFS_NUM        4000
 #define MAX_MONITOR_RDQ_NUM 5
 
@@ -562,7 +567,6 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_PFCNT, /**< Run access register PFCNT command */
     CTRL_CMD_ACCESS_REG_PMCR, /**< Run access register PMCR command */
     CTRL_CMD_ACCESS_REG_PFSC, /**< Run access register PFSC command */
-    CTRL_CMD_ACCESS_REG_PMMP, /**< Run access register PMMP command */
     CTRL_CMD_ACCESS_REG_HTGT, /**< Run access register HTGT command */
     CTRL_CMD_ACCESS_REG_MFSC, /**< Run access register MFSC command */
     CTRL_CMD_ACCESS_REG_MFSM, /**< Run access register MFSM command */
@@ -581,7 +585,6 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_MTCAP, /**< Run access register MTCAP command */
     CTRL_CMD_ACCESS_REG_MTBR, /**< Run access register MTBR command */
     CTRL_CMD_ACCESS_REG_MTWE, /**< Run access register MTWE command */
-    CTRL_CMD_ACCESS_REG_PMAOS, /**< Run access register PMAOS command */
     CTRL_CMD_ACCESS_REG_MMDIO, /**< Run access register MMDIO command */
     CTRL_CMD_ACCESS_REG_MMIA, /**< Run access register MMIA command */
     CTRL_CMD_ACCESS_REG_MFPA, /**< Run access register MFPA command */
@@ -663,11 +666,11 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_MTPPTR, /**< Run access register MTPPTR command */
     CTRL_CMD_ACCESS_REG_QPSC, /**< Run access register QPSC command */
     CTRL_CMD_ACCESS_REG_MTPPPC, /**< Run access register MTPPPC command */
-    CTRL_CMD_ACCESS_REG_MCION, /**< Run access register MCION command */
     CTRL_CMD_ACCESS_REG_MONI,  /**< Run access register MONI command */
     CTRL_CMD_ACCESS_REG_QPCR, /**< Run access register QPCR command */
+    CTRL_CMD_ACCESS_REG_MFGD, /**< Run access register MFGD command */
     CTRL_CMD_ACCESS_REG_MIN = CTRL_CMD_ACCESS_REG_PSPA, /**< Minimum enum value */
-    CTRL_CMD_ACCESS_REG_MAX = CTRL_CMD_ACCESS_REG_QPCR  /**< Maximum enum value */
+    CTRL_CMD_ACCESS_REG_MAX = CTRL_CMD_ACCESS_REG_MFGD  /**< Maximum enum value */
 };
 
 /**
@@ -1194,6 +1197,7 @@ struct ku_read {
     uint16_t                                         mirror_cong;
     uint32_t                                         mirror_lantency;
     uint8_t                                          timestamp_type;
+    uint8_t                                          dev_id; /**< device id from which this was received */
 };
 
 /**
@@ -2020,6 +2024,9 @@ enum sfd_operation {
 enum sfd_policy {
     SFD_POLICY_STATIC = 0,
     SFD_POLICY_DYNAMIC_REMOTE = 1,
+    SFD_POLICY_DYNAMIC_LEARN = 1,   /**< Applicable for MC and MC tunnel records only, while it is equal to
+                                     *    SFD_POLICY_DYNAMIC_REMOTE, applibs does not require updates,
+                                     *    and POLICY_TO_MAC_TYPE can be used */
     SFD_POLICY_DYNAMIC_AGEABLE = 3,
     SFD_POLICY_INVALID = -1,
 };
@@ -2082,6 +2089,7 @@ struct sfd_unicast_lag_data {
  * sfd_multicast_data structure is used to store multicast data.
  */
 struct sfd_multicast_data {
+    enum sfd_policy      policy;
     struct sx_ether_addr mac;      /**< mac - Base MAC address */
     uint8_t              activity;
     uint16_t             pgi;
@@ -2102,6 +2110,8 @@ struct sfd_uc_tunnel_data {
     uint16_t             fid;
     uint8_t              action;
     uint8_t              protocol;
+    uint8_t              gen_enc;
+    uint16_t             ecmp_size;
     uint32_t             udip_lsb; /* if protocol is IPv4 - lsb of dest IP; if IPv6 - pointer to dest IP */
     sxd_counter_set_t    counter_set;
 };
@@ -2118,6 +2128,7 @@ enum sfd_uc_tunnel_protocol {
  * sfd_mc_tunnel_data structure is used to store multicast data.
  */
 struct sfd_mc_tunnel_data {
+    enum sfd_policy      policy;
     struct sx_ether_addr mac; /**< mac - Base MAC address */
     uint8_t              activity;
     uint16_t             mid;
@@ -5711,19 +5722,6 @@ struct ku_pmpr_reg {
     uint8_t attenuation12g; /**< Attenuation12G */
 };
 
-/**
- * ku_pmaos_reg structure is used to store the PMAOS register parameters
- */
-struct ku_pmaos_reg {
-    uint8_t module; /**< module - Module number */
-    uint8_t admin_status; /**< admin_status - Port administrative state (the desired state of the interface) */
-    uint8_t oper_status; /**< oper_status - Port operational state */
-    uint8_t ase; /**< ase - Admin State Update Enable */
-    uint8_t ee; /**< ee - Event Update Enable */
-    uint8_t error_type; /**< error_type - Module error details */
-    uint8_t e; /**< e - Event Generation on operational state change */
-    uint8_t rst; /**< rst - Module Reset Toggle */
-};
 
 /**
  * ku_pmtu_reg structure is used to store the PMTU register parameters
@@ -5759,28 +5757,6 @@ struct ku_pfsc_reg {
     uint8_t local_port; /**< local_port - local port number */
     uint8_t fwd_admin; /**< fwd_admin - Administratively configured of Forward switching for Egress */
     uint8_t fwd_oper; /**< fwd_oper - Operational Egress Forward switching */
-};
-
-/**
- * ku_pmmp_reg structure is used to store the PMMP register parameters
- */
-struct ku_pmmp_reg {
-    uint8_t  module; /**< module - Module number */
-    uint16_t eeprom_override; /**< eeprom_override - override EEPROM bitmask */
-    uint8_t  qsfp_cable_breakout;  /**< qsfp cable breakout. */
-    uint8_t  qsfp_ethernet_compliance_code; /**< Ethernet compliance code bitmask (10/40/100G). */
-    uint8_t  qsfp_ext_ethernet_compliance_code; /**< Extended specification compliance codes. */
-    uint8_t  qsfp_giga_ethernet_compliance_code; /**< Giga Ethernet compliance codes. */
-    uint8_t  sfp_bit_rate;               /**< sfp bitrate. */
-    uint8_t  sfp_cable_technology;       /**< sfp+ cable technology. */
-    uint8_t  sfp_tengig_ethernet_compliance_code; /**< 10G Ethernet compliance code */
-    uint8_t  sfp_ext_ethernet_compliance_code; /**< Extended specification compliance codes. */
-    uint8_t  sfp_ethernet_compliance_code; /**< Ethernet compliance codes. */
-    uint8_t  cable_length;    /**< Length of cable assembly, units of 1m. */
-    uint8_t  attenuation_12g; /**< total channel attenuation @ 12GHz in db. */
-    uint8_t  attenuation_7g;  /**< total channel attenuation @ 7GHz in db. */
-    uint8_t  attenuation_5g;  /**< total channel attenuation @ 5GHz in db. */
-    uint8_t  module_identifier; /**< module identifier (SFP, QSFP, etc)  **/
 };
 
 /**
@@ -6161,6 +6137,91 @@ struct ku_pmpe_reg {
     uint8_t module_id; /**< module_id - Port module number */
     uint8_t oper_status; /**< oper_status - Port operational state */
     uint8_t error_type;
+};
+
+/**
+ * MFGD enum is used for opcode in the MFGD register parameters
+ */
+typedef enum sxd_mfgd_fatal_mode {
+    SXD_MFGD_MODE_FW_NO_FATAL_CHECK_E = 0,
+    SXD_MFGD_MODE_FW_FATAL_N_CONTINUE_E = 1, /* If fatal cause is found by the FW MFDE event is sent and FW continue normally */
+    SXD_MFGD_MODE_FW_FATAL_N_HALT_E = 2,     /* If fatal cause is found by the FW MFDE event is sent and FW halt */
+} sxd_mfgd_mode_t;
+
+/**
+ * ku_mfgd_reg structure is used to store the MFGD register parameters
+ */
+struct ku_mfgd_reg {
+    sxd_boolean_t   fw_dci_rif_cache;       /* default 1 */
+    sxd_boolean_t   fw_dci_en;       /* default 1 */
+    sxd_boolean_t   fw_kvc_en;       /* default 1 */
+    sxd_boolean_t   tcr_dbg_en;       /* default 0 */
+    sxd_boolean_t   trigger_stack_overflow;       /* default 0 */
+    sxd_boolean_t   trigger_test;       /* default 0 */
+    sxd_boolean_t   trigger_test_storm;       /* default 0 */
+    sxd_mfgd_mode_t fw_fatal_mode;       /* default 0 */
+    sxd_boolean_t   atcam_bf_en;       /* default 1 */
+    uint16_t        egress_en;       /* default 1 */
+    uint16_t        fw_init_total_time;       /* R/O */
+    uint16_t        fw_init_open_ports_time;       /* R/O */
+};
+
+/**
+ * ku_access_mfgd_reg structure is used to store the access
+ * register MFGD command parameters
+ */
+struct ku_access_mfgd_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_mfgd_reg      reg; /**<  reg - register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * MFDE enum for command type
+ */
+#define SXD_FOREACH_OBJECT_COMMAND_TYPE(COMMAND_TYPE)      \
+    COMMAND_TYPE(SXD_COMMAND_TYPE_MAD, = 0, "MAD")         \
+    COMMAND_TYPE(SXD_COMMAND_TYPE_EMAD, = 1, "EMAD")       \
+    COMMAND_TYPE(SXD_COMMAND_TYPE_CMD_IFC, = 2, "CMD-IFC") \
+    COMMAND_TYPE(SXD_COMMAND_TYPE_CR_ACCESS, = 3, "CR")    \
+
+typedef enum sxd_mfde_command_type {
+    SXD_FOREACH_OBJECT_COMMAND_TYPE(SXD_GENERATE_ENUM)
+} sxd_command_type_t;
+
+/**
+ * MFDE enum is used for opcode in the MFDE register parameters
+ */
+#define SXD_FOREACH_OBJECT_EVENT_ID(EVENT_ID)                          \
+    EVENT_ID(SXD_MFDE_EVENT_ID_CR_TIMEOUT, = 1, "FW CR space timeout") \
+    EVENT_ID(SXD_MFDE_EVENT_ID_KVD_STOPPED, = 2, "FW KVD stopped")     \
+    EVENT_ID(SXD_MFDE_EVENT_ID_TEST, = 3, "FW test event")             \
+    EVENT_ID(SXD_MFDE_EVENT_ID_LAST, = 255, "FW last cause")           \
+
+typedef enum sxd_mfde_event_id {
+    SXD_FOREACH_OBJECT_EVENT_ID(SXD_GENERATE_ENUM)
+} sxd_mfde_event_id_t;
+
+/**
+ * ku_mfde_reg structure is used to store the MFDE register parameters
+ */
+struct ku_mfde_reg {
+    uint8_t  event_id;    /**< FW event id (sxd_mfde_event_id_t)*/
+    uint8_t  irisc_id;    /**< which IRISC triggered the event */
+    uint16_t reg_attrib_id;    /** < The ID of the generating register. EMAD - register id, MAD attribute id >*/
+    uint8_t  mgmt_class;    /**< reserved when EMAD */
+    uint8_t  command_type;    /**< 0-MAD, 1-EMAD, 2-CMDIF */
+    uint8_t  long_process;    /**< indicate if the command is in long_process mode in the FW */
+    uint8_t  methode;    /**< 0-Query, 1-Write */
+    union event_params {
+        struct kvm_stopped {
+            uint16_t pipes_mask;
+        } kvm_stopped;
+        struct cr_timeout {
+            uint32_t address;       /* cr space address accessed, which resulted in timeout */
+            uint8_t  log_id;           /* which IRISC triggered the timeout*/
+        } cr_timeout;
+    } event_params; /**< layout according to event_id (example sx_dbg_mfde_cr_timout_t)*/
 };
 
 /**
@@ -6815,14 +6876,6 @@ struct ku_access_pmpr_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-/**
- * ku_access_pmaos_reg structure is used to store the access register PMAOS command parameters
- */
-struct ku_access_pmaos_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pmaos_reg     pmaos_reg; /**< pmaos_reg - pmaos register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_access_pmtu_reg structure is used to store the access register PMTU command parameters
@@ -6869,14 +6922,6 @@ struct ku_access_pfsc_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-/**
- * ku_access_pmmp_reg structure is used to store the access register PMMP command parameters
- */
-struct ku_access_pmmp_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pmmp_reg      pmmp_reg; /**< pmmp_reg - pmmp register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_access_pplr_reg structure is used to store the access
@@ -8799,6 +8844,7 @@ typedef enum {
     STATUS_OPCODE_REMOTE_FAULT_RECEIVED = 14,
     STATUS_OPCODE_BAD_SIGNAL_INTEGRITY = 15,
     STATUS_OPCODE_CABLE_COMPLIANCE_CODE_MISMATCH = 16,
+    STATUS_OPCODE_LARGE_NUMBER_OF_PHYSICAL_ERRORS = 17,
     STATUS_OPCODE_STAMPING_OF_NON_MELLANOX_CABLE_MODULE = 20,
     STATUS_OPCODE_CALIBRATION_FAILURE = 23,
     STATUS_OPCODE_EDR_STAMPING = 24,
@@ -8826,7 +8872,8 @@ typedef enum {
     STATUS_OPCODE_SHORTED_CABLE = 1031,
     STATUS_OPCODE_POWER_BUDGET_EXCEEDED = 1032,
     STATUS_OPCODE_MGMT_FORCED_DOWN_THE_PORT = 1033,
-    STATUS_OPCODE_MODULE_DISABLED_BY_COMMAND = 1034
+    STATUS_OPCODE_MODULE_DISABLED_BY_COMMAND = 1034,
+    STATUS_OPCODE_MODULE_PMD_TYPE_IS_NOT_ENABLED = 1036
 } status_opcode_t;
 
 struct pddr_troubleshooting_info_resp {
@@ -9244,26 +9291,6 @@ struct ku_access_peabfe_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-/**
- * ku_mcion_reg structure is used to store the access
- * register MCION command parameters
- */
-struct ku_mcion_reg {
-    uint8_t  module;
-    uint16_t module_status_bits;
-    uint8_t  module_inputs;
-    uint8_t  module_inputs_mask;
-};
-
-/**
- * ku_access_mcion_reg structure is used to store the access
- * register MCION command parameters
- */
-struct ku_access_mcion_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mcion_reg     mcion_reg; /**< mcion_reg - mcion register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_moni_reg structure is used to store the access
@@ -9280,7 +9307,7 @@ struct ku_moni_reg {
  */
 struct ku_access_moni_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_moni_reg      moni_reg; /**< mcion_reg - mcion register tlv */
+    struct ku_moni_reg      moni_reg; /**< moni_reg - moni register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -9405,6 +9432,7 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_PPMBE = 0x101,           /* Keep for legacy */
     SXD_TRAP_ID_PPBME = 0x101,
     SXD_TRAP_ID_PACKET_RECEIVED = 0x103,
+    SXD_TRAP_ID_MFDE = 0x003,
 
     /* ETHERNET L2 */
     SXD_TRAP_ID_ETH_L2_STP = 0x10,
@@ -9667,6 +9695,7 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_BFD_TIMEOUT_EVENT = 0x20f,
     SXD_TRAP_ID_BFD_PACKET_EVENT = 0x210,
     SXD_TRAP_ID_OBJECT_DELETED_EVENT = 0x211,
+    SXD_TRAP_ID_SDK_HEALTH_EVENT = 0x212,
     SXD_TRAP_ID_PORT_ADDED = 0x231,
     SXD_TRAP_ID_PORT_DELETED = 0x232,
     SXD_TRAP_ID_PORT_ADDED_TO_LAG = 0x233,
@@ -9694,8 +9723,51 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_CONFT_SWITCH_DEC3 = 0x273,
 
     SXD_TRAP_ID_MIN = SXD_TRAP_ID_GENERAL_FDB,
-    SXD_TRAP_ID_MAX = SXD_TRAP_ID_TRANSACTION_ERROR,
+    SXD_TRAP_ID_MAX = SXD_TRAP_ID_CONFT_SWITCH_DEC3,
 } sxd_trap_id_t;
+
+/**
+ * Health severity
+ */
+#define SXD_FOREACH_OBJECT_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY) \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_CRIT, , "critical") \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_ERR, , "error")     \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_WARN, , "warning")  \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_NOTICE, , "notice") \
+
+/**
+ * sx_health_severity_t is used to distinguish between different SDK health event severities
+ */
+typedef enum sxd_health_severity {
+    SXD_FOREACH_OBJECT_HEALTH_SEVERITY(SXD_GENERATE_ENUM)
+} sxd_health_severity_t;
+
+#define SXD_FOREACH_OBJECT_HEALTH_CASUE(SXD_HEALTH_TYPE)                                             \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_NONE, , "none")                                                 \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW, , "FW health issue")                                        \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_GO_BIT, , "go bit not cleared")                                 \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_NO_CMDIFC_COMPLETION, , "command interface completion timeout") \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW_TIMEOUT, , "timeout in FW response")                         \
+
+/**
+ * sx_health_cause_t is used to distinguish between different SDK health event causes
+ */
+typedef enum sxd_health_event_cause {
+    SXD_FOREACH_OBJECT_HEALTH_CASUE(SXD_GENERATE_ENUM)
+} sxd_health_cause_t;
+
+/**
+ * This event is generated by the SDK to notify the user that an SDK monitored event has occurred
+ * Supported devices: Pelican, Eagle, Spectrum, Spectrum2, Quantum…
+ *
+ */
+typedef struct sxd_event_health_notification {
+    uint8_t               device_id;
+    sxd_health_severity_t severity;
+    sxd_health_cause_t    cause;
+    sxd_boolean_t         was_debug_started; /* according to policy, see: sx_api_dbg_policy */
+    uint8_t               irisc_id; /*< which IRISC triggered the event, in case the event is SDK and not FW should be DBG_ALL_IRICS  */
+} sxd_event_health_notification_t;
 
 /* Please, do not move this include.
  *  It includes auto generated code which uses data defined in this file. */

@@ -1086,71 +1086,6 @@ int sx_ACCESS_REG_PMPR(struct sx_dev *dev, struct ku_access_pmpr_reg *reg_data)
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_PMPR);
 
-
-/************************************************
- * PMAOS
- ***********************************************/
-#define REG_MODULE_OFFSET       0x15
-#define PMAOS_REG_LEN           0x05
-#define PMAOS_ERROR_TYPE_OFFSET 0x1A
-#define PMAOS_RST_OFFSET        0x14
-#define PMAOS_RST_BIT_N         7
-#define REG_ADMIN_STATUS_OFFSET 0x16
-#define REG_OPER_STATUS_OFFSET  0x17
-#define REG_ASE_OFFSET          0x18
-#define REG_ASE_BIT_N           7
-#define REG_EE_BIT_N            6
-#define REG_E_OFFSET            0x1B
-
-static int __PMAOS_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_pmaos_reg *pmaos_reg = (struct ku_pmaos_reg*)ku_reg;
-    u8                   tmp_val_u8 = 0;
-
-    tmp_val_u8 |= pmaos_reg->rst ? (1 << PMAOS_RST_BIT_N) : 0;
-    SX_PUT_REG_FIELD(inbox, tmp_val_u8, PMAOS_RST_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmaos_reg->module, REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmaos_reg->admin_status, REG_ADMIN_STATUS_OFFSET);
-
-    tmp_val_u8 = 0;
-    tmp_val_u8 |= pmaos_reg->ase ? (1 << REG_ASE_BIT_N) : 0;
-    tmp_val_u8 |= pmaos_reg->ee ? (1 << REG_EE_BIT_N) : 0;
-    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_ASE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmaos_reg->e, REG_E_OFFSET);
-    return 0;
-}
-
-static int __PMAOS_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_pmaos_reg *pmaos_reg = (struct ku_pmaos_reg*)ku_reg;
-    u8                   tmp_val_u8;
-
-    SX_GET_REG_FIELD(pmaos_reg->module, outbox, REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(pmaos_reg->admin_status, outbox, REG_ADMIN_STATUS_OFFSET);
-    SX_GET_REG_FIELD(pmaos_reg->oper_status, outbox, REG_OPER_STATUS_OFFSET);
-    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_ASE_OFFSET);
-    pmaos_reg->ase = tmp_val_u8 & (1 << REG_ASE_BIT_N) ? 1 : 0;
-    pmaos_reg->ee = tmp_val_u8 & (1 << REG_EE_BIT_N) ? 1 : 0;
-    SX_GET_REG_FIELD(pmaos_reg->error_type, outbox, PMAOS_ERROR_TYPE_OFFSET);
-    SX_GET_REG_FIELD(pmaos_reg->e, outbox, REG_E_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_PMAOS(struct sx_dev *dev, struct ku_access_pmaos_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __PMAOS_encode,
-                                  __PMAOS_decode,
-                                  PMAOS_REG_LEN,
-                                  &reg_data->pmaos_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_PMAOS);
-
-
 /************************************************
  * PMTU
  ***********************************************/
@@ -1421,7 +1356,7 @@ static int __HPKT_encode(u8 *inbox, void *ku_reg, void *context)
     trap_info = ((u32)(hpkt_reg->ack) & 0x1) << REG_ACK_BITN;
     trap_info |= ((u32)(hpkt_reg->action) & 0xF) << REG_ACTION_BITN;
     trap_info |= ((u32)(hpkt_reg->trap_group) & 0x3f) << REG_TRAP_GROUP_BITN;
-    trap_info |= (u32)(hpkt_reg->trap_id) & 0x1FF;
+    trap_info |= (u32)(hpkt_reg->trap_id) & 0x3FF;
     SX_PUT_REG_FIELD(inbox, trap_info, REG_TRAP_INFO_OFFSET);
     SX_PUT_REG_FIELD(inbox, hpkt_reg->control, REG_HPKT_CTRL_OFFSET);
     return 0;
@@ -1436,7 +1371,7 @@ static int __HPKT_decode(u8 *outbox, void *ku_reg, void *context)
     hpkt_reg->ack = (trap_info >> REG_ACK_BITN) & 0x1;
     hpkt_reg->action = (trap_info >> REG_ACTION_BITN) & 0xF;
     hpkt_reg->trap_group = (trap_info >> REG_TRAP_GROUP_BITN) & 0x3F;
-    hpkt_reg->trap_id = trap_info & 0x1FF;
+    hpkt_reg->trap_id = trap_info & 0x3FF;
     SX_GET_REG_FIELD(hpkt_reg->control, outbox, REG_HPKT_CTRL_OFFSET);
     return 0;
 }
@@ -4679,143 +4614,6 @@ int sx_ACCESS_REG_PDDR(struct sx_dev *dev, struct ku_access_pddr_reg *reg_data)
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_PDDR);
 
-
-/************************************************
- * MCION
- ***********************************************/
-#define REG_MODULE_OFFSET               0x15
-#define MCION_REG_LEN                   0x07
-#define MCION_MODULE_STATUS_BITS_OFFSET 0x1a
-#define MCION_MODULE_INPUTS_OFFSET      0x23
-#define MCION_MODULE_INPUTS_MASK_OFFSET 0x27
-
-static int __MCION_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_mcion_reg *mcion_reg = (struct ku_mcion_reg*)ku_reg;
-
-    SX_PUT_REG_FIELD(inbox, mcion_reg->module, REG_MODULE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, (mcion_reg->module_inputs & 0xF), MCION_MODULE_INPUTS_OFFSET);
-    SX_PUT_REG_FIELD(inbox, (mcion_reg->module_inputs_mask & 0xF), MCION_MODULE_INPUTS_MASK_OFFSET);
-    return 0;
-}
-
-static int __MCION_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_mcion_reg *mcion_reg = (struct ku_mcion_reg*)ku_reg;
-    u8                   tmp_u8;
-
-    SX_GET_REG_FIELD(mcion_reg->module_status_bits, outbox, MCION_MODULE_STATUS_BITS_OFFSET);
-    SX_GET_REG_FIELD(tmp_u8, outbox, MCION_MODULE_INPUTS_OFFSET);
-    mcion_reg->module_inputs = tmp_u8 & 0xF;
-    return 0;
-}
-
-int sx_ACCESS_REG_MCION(struct sx_dev *dev, struct ku_access_mcion_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __MCION_encode,
-                                  __MCION_decode,
-                                  MCION_REG_LEN,
-                                  &reg_data->mcion_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MCION);
-
-
-/************************************************
- * PMMP
- ***********************************************/
-#define REG_MODULE_OFFSET                               0x15
-#define PMMP_REG_LEN                                    0x0c
-#define PMMP_EEPROM_OVERRIDE_OFFSET                     0x1a
-#define PMMP_QSFP_CABLE_BREAKOUT_OFFSET                 0x1e
-#define PMMP_QSFP_ETHERNET_COMPLIANCE_CODE_OFFSET       0x1f
-#define PMMP_QSFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET   0x22
-#define PMMP_QSFP_GIGA_ETHERNET_COMPLIANCE_CODE_OFFSET  0x23
-#define PMMP_SFP_BIT_RATE_OFFSET                        0x29
-#define PMMP_SFP_CABLE_TECHNOLOGY_OFFSET                0x2a
-#define PMMP_SFP_TENGIG_ETHERNET_COMPLIANCE_CODE_OFFSET 0x2b
-#define PMMP_SFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET    0x2e
-#define PMMP_SFP_ETHERNET_COMPLIANCE_CODE_OFFSET        0x2f
-#define PMMP_CABLE_LENGTH_OFFSET                        0x37
-#define PMMP_ATTENUATION_12G_OFFSET                     0x39
-#define PMMP_ATTENUATION_7G_OFFSET                      0x3a
-#define PMMP_ATTENUATION_5G_OFFSET                      0x3b
-#define PMMP_MODULE_IDENTIFIER_OFFSET                   0x3f
-
-static int __PMMP_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_pmmp_reg *pmmp_reg = (struct ku_pmmp_reg*)ku_reg;
-
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->module, REG_MODULE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->eeprom_override, PMMP_EEPROM_OVERRIDE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->qsfp_cable_breakout, PMMP_QSFP_CABLE_BREAKOUT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->qsfp_ethernet_compliance_code, PMMP_QSFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->qsfp_ext_ethernet_compliance_code,
-                     PMMP_QSFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox,
-                     pmmp_reg->qsfp_giga_ethernet_compliance_code,
-                     PMMP_QSFP_GIGA_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_bit_rate, PMMP_SFP_BIT_RATE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_cable_technology, PMMP_SFP_CABLE_TECHNOLOGY_OFFSET);
-    SX_PUT_REG_FIELD(inbox,
-                     pmmp_reg->sfp_tengig_ethernet_compliance_code,
-                     PMMP_SFP_TENGIG_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_ext_ethernet_compliance_code, PMMP_SFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_ethernet_compliance_code, PMMP_SFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->cable_length, PMMP_CABLE_LENGTH_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->attenuation_12g, PMMP_ATTENUATION_12G_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->attenuation_7g, PMMP_ATTENUATION_7G_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->attenuation_5g, PMMP_ATTENUATION_5G_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->module_identifier, PMMP_MODULE_IDENTIFIER_OFFSET);
-    return 0;
-}
-
-static int __PMMP_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_pmmp_reg *pmmp_reg = (struct ku_pmmp_reg*)ku_reg;
-
-    SX_GET_REG_FIELD(pmmp_reg->eeprom_override, outbox, PMMP_EEPROM_OVERRIDE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_cable_breakout, outbox, PMMP_QSFP_CABLE_BREAKOUT_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_ethernet_compliance_code, outbox, PMMP_QSFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_ext_ethernet_compliance_code, outbox,
-                     PMMP_QSFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_giga_ethernet_compliance_code,
-                     outbox,
-                     PMMP_QSFP_GIGA_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_bit_rate, outbox, PMMP_SFP_BIT_RATE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_cable_technology, outbox, PMMP_SFP_CABLE_TECHNOLOGY_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_tengig_ethernet_compliance_code,
-                     outbox,
-                     PMMP_SFP_TENGIG_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_ext_ethernet_compliance_code, outbox, PMMP_SFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_ethernet_compliance_code, outbox, PMMP_SFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->cable_length, outbox, PMMP_CABLE_LENGTH_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->attenuation_12g, outbox, PMMP_ATTENUATION_12G_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->attenuation_7g, outbox, PMMP_ATTENUATION_7G_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->attenuation_5g, outbox, PMMP_ATTENUATION_5G_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->module_identifier, outbox, PMMP_MODULE_IDENTIFIER_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_PMMP(struct sx_dev *dev, struct ku_access_pmmp_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __PMMP_encode,
-                                  __PMMP_decode,
-                                  PMMP_REG_LEN,
-                                  &reg_data->pmmp_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_PMMP);
-
-
 /************************************************
  * QPCR
  ***********************************************/
@@ -4909,7 +4707,90 @@ int sx_ACCESS_REG_QPCR(struct sx_dev *dev, struct ku_access_qpcr_reg *reg_data)
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_QPCR);
 
+/************************************************
+ * MFGD
+ ***********************************************/
+#define REG_MFGD_OFF_B3            (0x3 + REG_START_OFFSET) /* Byte 3*/
+#define REG_MFGD_OFF_B2            (0x2 + REG_START_OFFSET) /* Byte 2*/
+#define REG_MFGD_OFF_B5            (0x5 + REG_START_OFFSET) /* Byte 5*/
+#define REG_MFGD_OFF_EGRESS_EN     (0x6 + REG_START_OFFSET) /* Byte 6&7*/
+#define REG_MFGD_OFF_FW_INIT_PORTS (0x8 + REG_START_OFFSET)  /* Byte 8&9*/
+#define REG_MFGD_OFF_FW_INIT_TOTAL (0xA + REG_START_OFFSET)  /* Byte 10&11*/
+#define MFGD_REG_LEN               (0x3) /* 3 dwords */
 
+static int __MFGD_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_mfgd_reg *reg = (struct ku_mfgd_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+
+    /* Byte 0 RSV */
+    /* Byte 1 RSV */
+    /* Byte 2  */
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (reg->trigger_stack_overflow & 1); /* bit 8 */
+    tmp_val_u8 |= (reg->fw_fatal_mode & 3) << 1; /* bits 9 & 10*/
+    tmp_val_u8 |= (reg->trigger_test & 1) << 3; /* bits 11*/
+    tmp_val_u8 |= (reg->trigger_test_storm & 1) << 4; /* bits 12*/
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B2);
+    /* Byte 3  */
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (reg->fw_dci_rif_cache & 1); /* bit 0 */
+    tmp_val_u8 |= (reg->fw_dci_en & 1) << 1; /* bit 1 */
+    tmp_val_u8 |= (reg->fw_kvc_en & 1) << 2; /* bit 2 */
+    tmp_val_u8 |= (reg->tcr_dbg_en & 1) << 3; /* bit 3 */
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B3);
+    /* Byte 4  RSV*/
+    /* Byte 5 */
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (reg->atcam_bf_en & 1) << 3; /* bit 19 */
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B5);
+
+    /* Byte 6&7 */
+    SX_PUT_REG_FIELD(inbox, reg->egress_en, REG_MFGD_OFF_EGRESS_EN);
+    return 0;
+}
+
+static int __MFGD_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_mfgd_reg *reg = (struct ku_mfgd_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B2);
+    reg->trigger_stack_overflow = (tmp_val_u8 >> 0) & 1;
+    reg->fw_fatal_mode = (tmp_val_u8 >> 1) & 3;
+    reg->trigger_test = (tmp_val_u8 >> 3) & 1;
+    reg->trigger_test_storm = (tmp_val_u8 >> 4) & 1;
+
+    tmp_val_u8 = 0;
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B3);
+    reg->fw_dci_rif_cache = (tmp_val_u8 >> 0) & 1;
+    reg->fw_dci_en = (tmp_val_u8 >> 1) & 1;
+    reg->fw_kvc_en = (tmp_val_u8 >> 2) & 1;
+    reg->tcr_dbg_en = (tmp_val_u8 >> 3) & 1;
+
+    tmp_val_u8 = 0;
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B5);
+    reg->atcam_bf_en = (tmp_val_u8 >> 3) & 1;
+
+    SX_GET_REG_FIELD(reg->egress_en, outbox, REG_MFGD_OFF_EGRESS_EN);
+    SX_GET_REG_FIELD(reg->fw_init_open_ports_time, outbox, REG_MFGD_OFF_FW_INIT_PORTS);
+    SX_GET_REG_FIELD(reg->fw_init_total_time, outbox, REG_MFGD_OFF_FW_INIT_TOTAL);
+    return 0;
+}
+
+int sx_ACCESS_REG_MFGD(struct sx_dev *dev, struct ku_access_mfgd_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __MFGD_encode,
+                                  __MFGD_decode,
+                                  MFGD_REG_LEN,
+                                  &reg_data->reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_MFGD);
 /************************************************
  * SBCM
  ***********************************************/
