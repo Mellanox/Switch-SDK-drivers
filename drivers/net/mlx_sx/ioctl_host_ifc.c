@@ -43,7 +43,6 @@
 #include "alloc.h"
 #include "ioctl_internal.h"
 
-#include "trace.h"
 #include "trace_func.h"
 
 extern int enable_monitor_rdq_trace_points;
@@ -119,9 +118,9 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     struct sx_dev     *sx_dev = comp_info->dev;
     struct sk_buff    *skb = comp_info->skb;
     struct event_data *head_edata_p = NULL;
-    int                dqn = file->bound_monitor_rdq->dqn;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    int           dqn = file->bound_monitor_rdq->dqn;
     int           should_drop = 0;
     unsigned long rdq_table_flags;
 #endif
@@ -183,22 +182,29 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
         } else {
             skb->mark = 0;
         }
-#endif
-        if (edata->rx_timestamp.ts_type != SXD_TS_TYPE_NONE) {
-            sx_core_call_rdq_agg_trace_point_func(dqn,
-                                                  skb,
-                                                  comp_info->hw_synd,
-                                                  comp_info->user_def_val,
-                                                  &edata->rx_timestamp.timestamp,
-                                                  comp_info->mirror_reason,
-                                                  AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
-                                                                 comp_info->sysport));
-        } else {
-            sx_core_call_rdq_agg_trace_point_func(dqn, skb, comp_info->hw_synd, comp_info->user_def_val, NULL,
-                                                  comp_info->mirror_reason,
-                                                  AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
-                                                                 comp_info->sysport));
+
+        if (sx_dev) {
+            spin_lock_irqsave(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
+            if (edata->rx_timestamp.ts_type != SXD_TS_TYPE_NONE) {
+                sx_core_call_rdq_agg_trace_point_func(sx_priv(sx_dev),
+                                                      dqn,
+                                                      skb,
+                                                      comp_info->hw_synd,
+                                                      comp_info->user_def_val,
+                                                      &edata->rx_timestamp.timestamp,
+                                                      comp_info->mirror_reason,
+                                                      AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
+                                                                     comp_info->sysport));
+            } else {
+                sx_core_call_rdq_agg_trace_point_func(sx_priv(
+                                                          sx_dev), dqn, skb, comp_info->hw_synd, comp_info->user_def_val, NULL,
+                                                      comp_info->mirror_reason,
+                                                      AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
+                                                                     comp_info->sysport));
+            }
+            spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
         }
+#endif
     } else {
         skb->mark = 0;
     }
@@ -1901,7 +1907,7 @@ long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsi
             bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq]);
         }
 
-        bpf_prog_p = bpf_prog_get_type(rdq_filter_ebpf_prog_params.ebpf_prog_fd, BPF_PROG_TYPE_TRACEPOINT);
+        bpf_prog_p = bpf_prog_get_type(rdq_filter_ebpf_prog_params.ebpf_prog_fd, BPF_PROG_TYPE_SCHED_CLS);
         if (IS_ERR(bpf_prog_p)) {
             printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: failed to get ebpf program\n");
             spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
@@ -1918,6 +1924,109 @@ long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsi
         }
         bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq]);
         sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq] = NULL;
+    }
+
+    spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+
+out:
+    return err;
+#else /* if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)) */
+    return -ENOTSUPP;
+#endif /* if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)) */
+}
+
+long ctrl_cmd_set_rdq_agg_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    struct ku_set_rdq_agg_ebpf_prog_params rdq_agg_ebpf_prog_params;
+    struct sx_dq                          *dq;
+    struct sx_dev                         *dev;
+    unsigned long                          flags;
+    int                                    err = 0;
+    struct bpf_prog                       *bpf_prog_p = NULL;
+    int                                    rdq = 0;
+    int                                    index = 0;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    if (!dev->pdev) {
+        printk(KERN_DEBUG PFX "will not set rdq aggregation ebpf program since there's no PCI device\n");
+        goto out;
+    }
+
+    err = copy_from_user(&rdq_agg_ebpf_prog_params, (void*)data, sizeof(rdq_agg_ebpf_prog_params));
+    if (err) {
+        goto out;
+    }
+
+    if ((rdq_agg_ebpf_prog_params.rdq >= dev->dev_cap.max_num_rdqs) ||
+        (rdq_agg_ebpf_prog_params.rdq < 0)) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d is out of range\n",
+               rdq_agg_ebpf_prog_params.rdq);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if ((rdq_agg_ebpf_prog_params.index >= SX_AGG_EBPF_PROG_NUM_PER_RDQ) ||
+        (rdq_agg_ebpf_prog_params.index < 0)) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: index %d is out of range\n",
+               rdq_agg_ebpf_prog_params.index);
+        err = -EINVAL;
+        goto out;
+    }
+
+    rdq = rdq_agg_ebpf_prog_params.rdq;
+    index = rdq_agg_ebpf_prog_params.index;
+
+
+    spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
+
+    /* check the rdq is valid */
+    dq = sx_priv(dev)->rdq_table.dq[rdq];
+    if (!dq) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d is not valid\n",
+               rdq);
+        spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (rdq_agg_ebpf_prog_params.is_attach) {
+        if (rdq_agg_ebpf_prog_params.ebpf_prog_fd < 0) {
+            printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: eBPF program file descriptor %d is invalid\n",
+                   rdq_agg_ebpf_prog_params.ebpf_prog_fd);
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            err = -EINVAL;
+            goto out;
+        }
+
+        if (sx_priv(dev)->agg_ebpf_progs[rdq][index] != NULL) {
+            printk(KERN_INFO PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d index %d already has an eBPF program attached, "
+                   "detach it and attach the new one.\n",
+                   rdq,
+                   index);
+            bpf_prog_put(sx_priv(dev)->agg_ebpf_progs[rdq][index]);
+        }
+
+        bpf_prog_p = bpf_prog_get_type(rdq_agg_ebpf_prog_params.ebpf_prog_fd, BPF_PROG_TYPE_SCHED_CLS);
+        if (IS_ERR(bpf_prog_p)) {
+            printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: failed to get ebpf program\n");
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            err = PTR_ERR(bpf_prog_p);
+            goto out;
+        }
+        sx_priv(dev)->agg_ebpf_progs[rdq][index] = bpf_prog_p;
+    } else {
+        if (sx_priv(dev)->agg_ebpf_progs[rdq][index] == NULL) {
+            printk(
+                KERN_INFO PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d index %d has no eBPF program attached to it.\n",
+                rdq,
+                index);
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            goto out;
+        }
+        bpf_prog_put(sx_priv(dev)->agg_ebpf_progs[rdq][index]);
+        sx_priv(dev)->agg_ebpf_progs[rdq][index] = NULL;
     }
 
     spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
@@ -2029,6 +2138,7 @@ long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long da
 
     if (ku.clear_after_read == true) {
         monitor_dq->mon_rx_start_total = monitor_dq->mon_rx_count;
+        monitor_dq->sw_dup_evlist_total_cnt = 0;
     }
 
     err = copy_to_user((void*)data, &ku, sizeof(ku));

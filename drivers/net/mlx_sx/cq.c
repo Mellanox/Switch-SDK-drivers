@@ -61,8 +61,6 @@
 #include "ptp.h"
 #include "sgmii.h"
 
-#define CREATE_TRACE_POINTS
-#include "trace.h"
 #include "trace_func.h"
 
 #include <linux/module.h>
@@ -830,13 +828,13 @@ out:
  * extracts the needed data from the cqe and from the packet, calls
  * the filter listeners with that info
  */
-int rx_skb(void                  *context,
-           struct sk_buff        *skb,
-           union sx_cqe          *u_cqe,
+int rx_skb(void                         *context,
+           struct sk_buff               *skb,
+           union sx_cqe                 *u_cqe,
            const struct sx_rx_timestamp *rx_timestamp,
-           int                    is_from_monitor_rdq,
-           struct listener_entry* force_listener,
-           u8                     dev_id)
+           int                           is_from_monitor_rdq,
+           struct listener_entry       * force_listener,
+           u8                            dev_id)
 {
     struct completion_info *ci = NULL;
     struct sx_priv         *priv = sx_priv((struct sx_dev *)context);
@@ -1736,13 +1734,18 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
          */
         if (dq->is_monitor) {
             if (enable_monitor_rdq_trace_points) {
-                sx_core_call_rdq_agg_trace_point_func(dqn,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+                spin_lock_irqsave(&priv->rdq_table.lock, flags);
+                sx_core_call_rdq_agg_trace_point_func(priv,
+                                                      dqn,
                                                       skb,
                                                       trap_id,
                                                       user_def_val_orig_pkt_len,
                                                       &rx_timestamp.timestamp,
                                                       mirror_reason,
                                                       AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
+                spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+#endif
             }
             goto skip;
         }
@@ -2122,10 +2125,11 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     u8                     lag_subport = 0;
     u16                    sysport_lag_id = 0;
     u8                     mirror_reason = 0;
-    struct sx_rx_timestamp cqe_ts, rx_ts;
+    struct sx_rx_timestamp cqe_ts;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
-    int should_drop = 0;
+    struct sx_rx_timestamp rx_ts;
+    int                    should_drop = 0;
 #endif
 
     spin_lock_irqsave(&priv->rdq_table.lock, flags);
@@ -2213,23 +2217,24 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
             } else {
                 skb->mark = 0;
             }
-            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+
             if (should_drop != 0) {
+                spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
                 continue;
             }
-#endif
-
             if (cq_ts_enabled) {
                 set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[i % cq->nent].timestamp, &cqe_ts, &rx_ts);
-                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len,
+                sx_core_call_rdq_agg_trace_point_func(priv, dqn, skb, trap_id, user_def_val_orig_pkt_len,
                                                       &rx_ts.timestamp, mirror_reason,
                                                       AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
             } else {
-                sx_core_call_rdq_agg_trace_point_func(dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL,
+                sx_core_call_rdq_agg_trace_point_func(priv, dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL,
                                                       mirror_reason, AGG_TP_HW_PORT(is_lag,
                                                                                     lag_subport,
                                                                                     sysport_lag_id));
             }
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+#endif
         } else {
             skb->mark = 0;
         }
@@ -2290,12 +2295,12 @@ static int __monitor_cq_handler_thread(void *arg)
                                                   sx_priv(dev)->monitor_rdqs_arr[i]);
             if (ret > 0) {
                 should_continue_polling++;
+                usleep_range(mon_cq_thread_delay_time_usec,
+                             mon_cq_thread_delay_time_usec + 5);
             }
         }
 
         if (should_continue_polling) {
-            usleep_range(mon_cq_thread_delay_time_usec,
-                         mon_cq_thread_delay_time_usec + 5);
             up(&cpu_traffic_prio->monitor_cq_thread_sem); /* re-arm thread loop */
         }
     }

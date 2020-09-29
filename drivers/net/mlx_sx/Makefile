@@ -63,5 +63,5 @@ sx_core-y := sx_core_main.o      \
              sgmii_transaction.o \
              sgmii_transport.o   \
              map.o               \
-             trace.o
+             trace_func.o
 

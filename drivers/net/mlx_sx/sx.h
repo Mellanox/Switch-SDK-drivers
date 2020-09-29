@@ -181,6 +181,11 @@ extern int sx_debug_level;
 #define FROM_BITS_TO_U64(bits) \
     (((bits) %                 \
       64) ? ((bits) / 64) + 1 : ((bits) / 64))
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+#define SX_AGG_EBPF_PROG_NUM_PER_RDQ 7
+#endif
+
 /************************************************
  *  Enums
  ***********************************************/
@@ -755,6 +760,7 @@ struct sx_priv {
     u32                   warm_boot_mode;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     struct bpf_prog* filter_ebpf_progs[NUMBER_OF_RDQS];
+    struct bpf_prog* agg_ebpf_progs[NUMBER_OF_RDQS][SX_AGG_EBPF_PROG_NUM_PER_RDQ];
 #endif
 #ifdef SW_PUDE_EMULATION
     /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */

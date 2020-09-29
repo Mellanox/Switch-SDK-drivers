@@ -177,6 +177,7 @@ long ctrl_cmd_set_truncate_params(struct file *file, unsigned int cmd, unsigned 
 long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_rdq_agg_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_read_multi(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_skb_offload_fwd_mark_en(struct file *file, unsigned int cmd, unsigned long data);

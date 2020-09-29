@@ -525,6 +525,7 @@ enum ku_ctrl_cmd {
     CTRL_CMD_FLUSH_EVLIST, /**< Flush the evlist associated with a file descriptor */
     CTRL_CMD_SET_SW_IB_NODE_DESC, /**< set SW IB node description */
     CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG, /**< Attach/detach the filter eBPF program to/from an RDQ */
+    CTRL_CMD_SET_RDQ_AGG_EBPF_PROG, /**< Attach/detach the aggregation eBPF program to/from an RDQ */
     CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE, /**< update psample-port-sample-rate info to sx-netdev module */
     CTRL_CMD_SET_SW_IB_SWID_UP_DOWN, /**< IB swid went up or down */
     CTRL_CMD_SET_WARM_BOOT_MODE, /**< set sdk boot mode : normal, issu , ... */
@@ -1454,6 +1455,16 @@ struct ku_set_monitor_rdq_params {
 struct ku_set_rdq_filter_ebpf_prog_params {
     int     rdq; /**< rdq - the RDQ */
     int     ebpf_prog_fd; /**< ebpf_prog_fd - The filter eBPF program file descriptor */
+    uint8_t is_attach; /** is_attach: 1 - attach the program to RDQ, 0 - detach the program from RDQ */
+};
+
+/**
+ * ku_set_rdq_agg_ebpf_prog_params is used to attach/detach the aggregation ebpf program to/from an RDQ
+ */
+struct ku_set_rdq_agg_ebpf_prog_params {
+    int     rdq; /**< rdq - the RDQ */
+    int     index; /**< index - the ebpf program index */
+    int     ebpf_prog_fd; /**< ebpf_prog_fd - The aggregation eBPF program file descriptor */
     uint8_t is_attach; /** is_attach: 1 - attach the program to RDQ, 0 - detach the program from RDQ */
 };
 
@@ -2977,7 +2988,11 @@ typedef enum sxd_flex_acl_action_type {
     SXD_ACTION_TYPE_MIRROR_SAMPLER_E = 19,
     SXD_ACTION_TYPE_UNDEFINDED_E = 20,
     SXD_ACTION_TYPE_PORT_FILTER_EXT_E = 21,
-    SXD_ACTION_TYPE_LAST_E = 22
+    SXD_ACTION_TYPE_CUSTOM_BYTES_ALU_IMM_E = 24,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_ALU_REG_E = 25,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_ALU_FIELD_E = 26,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_MOVE_E = 27,
+    SXD_ACTION_TYPE_LAST_E = 28
 } sxd_flex_acl_action_type_t;
 
 /**
@@ -3685,6 +3700,9 @@ typedef enum sxd_hash_flex_action_hash_fields {
     SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_63_32_E = 9,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_95_64_E = 10,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_127_96_E = 11,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_IP_PROTO_E = 14,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_L4_SPORT_DPORT_E = 15,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_L4_DPORT_SPORT_E = 16,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_SPI_E = 17,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_31_0_E = 18,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_63_32_E = 19,
@@ -3693,7 +3711,16 @@ typedef enum sxd_hash_flex_action_hash_fields {
     SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_31_0_E = 22,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_63_32_E = 23,
     SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_95_64_E = 24,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_127_96_E = 25
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_127_96_E = 25,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_IP_PROTO_E = 28,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_L4_SPORT_DPORT_E = 29,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_L4_DPORT_SPORT_E = 30,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_1_0_E = 31,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_3_2_E = 32,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_5_4_E = 33,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_7_6_E = 34,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_HASH_VALUE_E = 35,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_LAST_E,
 } sxd_hash_flex_action_hash_fields_t;
 
 typedef struct sxd_hash_flex_action {
@@ -3818,27 +3845,149 @@ typedef struct sxd_l4_port_flex_action {
     uint16_t                            l4_port;
 } sxd_l4_port_flex_action_t;
 
+typedef enum sxd_custom_bytes_alu_imm_action_opcode {
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_SET_E = 0,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_ADD_E = 1,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_AND_E = 2,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_OR_E = 3,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_alu_imm_action_opcode_t;
+
+typedef struct sxd_custom_bytes_alu_imm_flex_action {
+    sxd_custom_bytes_alu_imm_action_opcode_t opcode;
+    uint8_t                                  dest_cbset;
+    uint16_t                                 imm;
+    uint16_t                                 mask;
+} sxd_custom_bytes_alu_imm_flex_action_t;
+
+typedef enum sxd_custom_bytes_alu_reg_action_opcode {
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_SET_E = 0,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_ADD_E = 1,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_AND_E = 2,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_OR_E = 3,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_SUB_E = 4,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_XOR_E = 5,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_ADDC_E = 6,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_SUBC_E = 7,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_alu_reg_action_opcode_t;
+
+typedef struct sxd_custom_bytes_alu_reg_flex_action {
+    sxd_custom_bytes_alu_reg_action_opcode_t opcode;
+    uint8_t                                  dest_cbset;
+    uint8_t                                  src_cbset;
+    uint16_t                                 mask;
+    uint8_t                                  shr;
+} sxd_custom_bytes_alu_reg_flex_action_t;
+
+typedef enum sxd_custom_bytes_flex_action_field_select {
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_ECMP_HASH_E = 1,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_LAG_HASH_E = 2,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_RANDOM_E = 3,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_IP_LENGTH_E = 4,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VID_E = 6,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_USER_TOKEN_E = 7,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_TTL_E = 24,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DMAC_15_0_E = 25,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DMAC_31_16_E = 26,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DMAC_47_32_E = 27,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SMAC_15_0_E = 28,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SMAC_31_16_E = 29,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SMAC_47_32_E = 30,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_15_0_E = 31,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_31_16_E = 32,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_47_32_E = 33,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_63_48_E = 34,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_79_64_E = 35,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_95_80_E = 36,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_111_96_E = 37,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_127_112_E = 38,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_15_0_E = 39,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_31_16_E = 40,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_47_32_E = 41,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_63_48_E = 42,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_79_64_E = 43,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_95_80_E = 44,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_111_96_E = 45,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_127_112_E = 46,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_L4_SOURCE_PORT_E = 47,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_L4_DESTINATION_PORT_E = 48,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VNI_15_0_E = 49,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VNI_31_16_E = 50,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_FID_E = 51,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VRID_E = 52,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_TYPE_LAST_E,
+} sxd_custom_bytes_flex_action_field_select_t;
+
+typedef enum sxd_custom_bytes_alu_field_action_opcode {
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_SET_E = 0,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_ADD_E = 1,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_AND_E = 2,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_OR_E = 3,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_SUB_E = 4,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_XOR_E = 5,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_ADDC_E = 6,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_SUBC_E = 7,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_alu_field_action_opcode_t;
+
+typedef struct sxd_custom_bytes_alu_field_flex_action {
+    sxd_custom_bytes_alu_field_action_opcode_t  opcode;
+    uint8_t                                     cbset;
+    sxd_custom_bytes_flex_action_field_select_t field_select;
+    uint16_t                                    mask;
+    uint8_t                                     shr;
+} sxd_custom_bytes_alu_field_flex_action_t;
+
+typedef enum sxd_custom_bytes_move_action_opcode {
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_MOVE_E = 0,
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_LOAD_E = 1,
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_STORE_E = 2,
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_move_action_opcode_t;
+
+typedef struct sxd_custom_bytes_move_flex_action {
+    sxd_flex_defer_t                            defer;
+    sxd_custom_bytes_move_action_opcode_t       opcode;
+    uint8_t                                     size;
+    uint8_t                                     dest_cbset;
+    uint8_t                                     src_cbset;
+    sxd_custom_bytes_flex_action_field_select_t field_select;
+} sxd_custom_bytes_move_flex_action_t;
+
 typedef struct sxd_action_slot {
     sxd_flex_acl_action_type_t type;
     union {
-        sxd_mac_flex_action_t                 action_mac;
-        sxd_vlan_flex_action_t                action_vlan;
-        sxd_trap_flex_action_t                action_trap;          /** Used for trap and trap_w_user_def_val */
-        sxd_port_filter_flex_action_t         action_port_filter;
-        sxd_qos_flex_action_t                 action_qos;
-        sxd_forward_flex_action_t             action_forward;
-        sxd_policing_monitoring_flex_action_t action_policing_monitoring;
-        sxd_metadata_flex_action_t            action_metadata;
-        sxd_uc_router_flex_action_t           action_uc_router;
-        sxd_vni_flex_action_t                 action_vni;
-        sxd_mpls_flex_action_t                action_mpls;
-        sxd_hash_flex_action_t                action_hash;
-        sxd_virtual_forward_flax_action_t     action_virtual_forward;
-        sxd_ignore_flex_action_t              action_ignore;
-        sxd_mc_flex_action_t                  action_mc;
-        sxd_sip_dip_flex_action_t             action_sip_dip;
-        sxd_l4_port_flex_action_t             action_l4_port;
-        sxd_port_filter_ext_flex_action_t     action_port_filter_ext;
+        sxd_mac_flex_action_t                    action_mac;
+        sxd_vlan_flex_action_t                   action_vlan;
+        sxd_trap_flex_action_t                   action_trap;          /** Used for trap and trap_w_user_def_val */
+        sxd_port_filter_flex_action_t            action_port_filter;
+        sxd_qos_flex_action_t                    action_qos;
+        sxd_forward_flex_action_t                action_forward;
+        sxd_policing_monitoring_flex_action_t    action_policing_monitoring;
+        sxd_metadata_flex_action_t               action_metadata;
+        sxd_uc_router_flex_action_t              action_uc_router;
+        sxd_vni_flex_action_t                    action_vni;
+        sxd_mpls_flex_action_t                   action_mpls;
+        sxd_hash_flex_action_t                   action_hash;
+        sxd_virtual_forward_flax_action_t        action_virtual_forward;
+        sxd_ignore_flex_action_t                 action_ignore;
+        sxd_mc_flex_action_t                     action_mc;
+        sxd_sip_dip_flex_action_t                action_sip_dip;
+        sxd_l4_port_flex_action_t                action_l4_port;
+        sxd_port_filter_ext_flex_action_t        action_port_filter_ext;
+        sxd_custom_bytes_alu_imm_flex_action_t   action_custom_bytes_alu_imm;
+        sxd_custom_bytes_alu_reg_flex_action_t   action_custom_bytes_alu_reg;
+        sxd_custom_bytes_alu_field_flex_action_t action_custom_bytes_alu_field;
+        sxd_custom_bytes_move_flex_action_t      action_custom_bytes_move;
     } fields;
 } sxd_action_slot_t;
 

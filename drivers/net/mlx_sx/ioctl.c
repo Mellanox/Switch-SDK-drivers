@@ -115,6 +115,7 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PTP_MODE)] = ctrl_cmd_set_ptp_mode,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_MONITOR_RDQ)] = ctrl_cmd_set_monitor_rdq,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG)] = ctrl_cmd_set_rdq_filter_ebpf_prog,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_RDQ_AGG_EBPF_PROG)] = ctrl_cmd_set_rdq_agg_ebpf_prog,
     [IOCTL_CMD_INDEX(CTRL_CMD_READ_MULTI)] = ctrl_cmd_read_multi,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_RDQ_STAT)] = ctrl_cmd_get_rdq_stat,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SKB_OFFLOAD_FWD_MARK_EN)] = ctrl_cmd_set_skb_offload_fwd_mark_en,
