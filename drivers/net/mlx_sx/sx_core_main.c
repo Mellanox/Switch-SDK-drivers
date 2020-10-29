@@ -2395,7 +2395,7 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
     int                  i;
     int                  err = 0;
     u8                   dqn;
-    u32                  dq_bitmap = 0;
+    u64                  dq_bitmap = 0;
     struct sx_dq        *dq;
     union sx_event_data *event_data = NULL;
     unsigned long        flags;
@@ -2427,9 +2427,9 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
                 goto out;
             }
 
-            dq_bitmap |= (1 << dqn);
+            dq_bitmap |= (1ULL << dqn);
             /* We only want to increase the refcount if the dq is in use in another swid */
-        } else if (!(dq_bitmap & (1 << dqn))) {
+        } else if (!(dq_bitmap & (1ULL << dqn))) {
             atomic_inc(&dq->refcount);
         }
     }
@@ -2448,8 +2448,8 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
                 goto out;
             }
 
-            dq_bitmap |= (1 << dqn);
-        } else if (!(dq_bitmap & (1 << dqn))) {
+            dq_bitmap |= (1ULL << dqn);
+        } else if (!(dq_bitmap & (1ULL << dqn))) {
             atomic_inc(&dq->refcount);
         }
     }

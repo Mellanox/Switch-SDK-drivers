@@ -1185,11 +1185,11 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         break;
 
     case SX_KU_USER_CHANNEL_TYPE_FD:
-        if ((ku.type == SX_KU_L2_TYPE_ETH) &&
+        if ((ku.swid != SWID_NUM_DONT_CARE) && (ku.type == SX_KU_L2_TYPE_ETH) &&
             ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
              (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT))) {
             ku.swid = SWID_NUM_DONT_CARE;
-        } else if ((ku.type == SX_KU_L2_TYPE_DONT_CARE) &&
+        } else if ((ku.swid != SWID_NUM_DONT_CARE) && (ku.type == SX_KU_L2_TYPE_DONT_CARE) &&
                    (ku.critireas.dont_care.sysport == SYSPORT_DONT_CARE_VALUE)) {
             if ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
                 (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT)) {
