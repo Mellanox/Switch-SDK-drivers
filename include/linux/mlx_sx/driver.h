@@ -90,9 +90,6 @@ enum sx_dev_event {
 #define FDB_TRAP_ID               0x06
 #define ARP_REQUEST_TRAP_ID       0x50
 #define ARP_RESPONSE_TRAP_ID      0x51
-#define ETH_L3_MTUERROR_TRAP_ID   0x52
-#define ETH_L3_TTLERROR_TRAP_ID   0x53
-#define ETH_L3_LBERROR_TRAP_ID    0x54
 #define MIN_IPTRAP_TRAP_ID        0x1C0 /* TODO define which one will be used */
 
 typedef enum l3_synd_type {

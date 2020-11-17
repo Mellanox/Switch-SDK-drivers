@@ -1128,10 +1128,22 @@ int rx_skb(void                         *context,
         }
         break;
 
-    case PKT_TYPE_IB_Raw: /* TODO: Extract qpn from IB Raw pkts */
     case PKT_TYPE_IB_non_Raw:
     case PKT_TYPE_FCoIB:
     case PKT_TYPE_ETHoIB:
+        ci->info.ib.qpn = get_qpn(hw_synd, skb);
+        if (ci->info.ib.qpn == 0xffffffff) {
+            if (printk_ratelimit()) {
+                printk(KERN_WARNING PFX "Received IB packet "
+                       "is not valid. Dropping the packet\n");
+            }
+            err = -EINVAL;
+            goto out;
+        }
+
+    /* fall-through */
+
+    case PKT_TYPE_IB_Raw:
         if (is_sgmii_supported()) {
             err = sgmii_get_mad_header_info(skb->data,
                                             skb->len,
@@ -1141,16 +1153,6 @@ int rx_skb(void                         *context,
             if (!err) {
                 ci->info.ib.is_oob_originated_mad = ((ci->info.ib.mad_tid >> 32) == SGMII_TR_ID_PREFIX);
             }
-        }
-
-        ci->info.ib.qpn = get_qpn(hw_synd, skb);
-        if (ci->info.ib.qpn == 0xffffffff) {
-            if (printk_ratelimit()) {
-                printk(KERN_WARNING PFX "Received IB packet "
-                       "is not valid. Dropping the packet\n");
-            }
-            err = -EINVAL;
-            goto out;
         }
 
         /* Extract the IB port from the sysport */
@@ -1387,95 +1389,68 @@ out:
     return err;
 }
 
-void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe           *u_cqe,
-                                         u16                    *trap_id,
-                                         u8                     *is_err,
-                                         u8                     *is_send,
-                                         u8                     *dqn,
-                                         u16                    *wqe_counter,
-                                         u16                    *byte_count,
-                                         u32                    *user_def_val_orig_pkt_len,
-                                         u8                     *is_lag,
-                                         u8                     *lag_subport,
-                                         u16                    *sysport_lag_id,
-                                         u8                     *mirror_reason,
-                                         struct sx_rx_timestamp *cqe_ts)
+void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe, struct sx_cqe_params *cqe_params)
 {
-    *dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
+    cqe_params->dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
     if (be16_to_cpu(u_cqe->v0->dqn5_byte_count) & SX_CQE_DQN_MSB_MASK) {
-        *dqn |= (1 << SX_CQE_DQN_MSB_SHIFT);
+        cqe_params->dqn |= (1 << SX_CQE_DQN_MSB_SHIFT);
     }
-    *is_err = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_ERR_MASK);
-    *is_send = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_SEND_MASK);
-    *wqe_counter = be16_to_cpu(u_cqe->v0->wqe_counter);
-    *trap_id = u_cqe->v0->trap_id & 0xFF;
-    *byte_count = be16_to_cpu(u_cqe->v0->dqn5_byte_count) & 0x3FFF;
-    *user_def_val_orig_pkt_len = 0;
-    *is_lag = (u_cqe->v0->lag >> 7) & 0x1;
-    *lag_subport = u_cqe->v0->vlan2_lag_subport & 0x1F;
-    *sysport_lag_id = be16_to_cpu(u_cqe->v0->system_port_lag_id);
-    *mirror_reason = 0;
-    SX_RX_TIMESTAMP_INIT(cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
+    cqe_params->is_err = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_ERR_MASK);
+    cqe_params->is_send = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_SEND_MASK);
+    cqe_params->wqe_counter = be16_to_cpu(u_cqe->v0->wqe_counter);
+    cqe_params->trap_id = u_cqe->v0->trap_id & 0xFF;
+    cqe_params->byte_count = be16_to_cpu(u_cqe->v0->dqn5_byte_count) & 0x3FFF;
+    cqe_params->user_def_val_orig_pkt_len = 0;
+    cqe_params->is_lag = (u_cqe->v0->lag >> 7) & 0x1;
+    cqe_params->lag_subport = u_cqe->v0->vlan2_lag_subport & 0x1F;
+    cqe_params->sysport_lag_id = be16_to_cpu(u_cqe->v0->system_port_lag_id);
+    cqe_params->mirror_reason = 0;
+    SX_RX_TIMESTAMP_INIT(&cqe_params->cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
 }
 
-void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe           *u_cqe,
-                                         u16                    *trap_id,
-                                         u8                     *is_err,
-                                         u8                     *is_send,
-                                         u8                     *dqn,
-                                         u16                    *wqe_counter,
-                                         u16                    *byte_count,
-                                         u32                    *user_def_val_orig_pkt_len,
-                                         u8                     *is_lag,
-                                         u8                     *lag_subport,
-                                         u16                    *sysport_lag_id,
-                                         u8                     *mirror_reason,
-                                         struct sx_rx_timestamp *cqe_ts)
+void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe, struct sx_cqe_params *cqe_params)
 {
-    *dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
-    *is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
-    *is_send = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x4);
-    *wqe_counter = be16_to_cpu(u_cqe->v1->wqe_counter);
-    *trap_id = be16_to_cpu(u_cqe->v1->sma_check_id_trap_id) & 0x3FF;
-    *byte_count = be16_to_cpu(u_cqe->v1->isx_ulp_crc_byte_count) & 0x3FFF;
-    *user_def_val_orig_pkt_len = 0;
-    *is_lag = u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x1;
-    *lag_subport = u_cqe->v1->rp_lag_subport & 0xFF;
-    *sysport_lag_id = be16_to_cpu(u_cqe->v1->rp_system_port_lag_id);
-    *mirror_reason = 0;
-    SX_RX_TIMESTAMP_INIT(cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
+    cqe_params->dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
+    cqe_params->is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
+    cqe_params->is_send = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x4);
+    cqe_params->wqe_counter = be16_to_cpu(u_cqe->v1->wqe_counter);
+    cqe_params->trap_id = be16_to_cpu(u_cqe->v1->sma_check_id_trap_id) & 0x3FF;
+    cqe_params->byte_count = be16_to_cpu(u_cqe->v1->isx_ulp_crc_byte_count) & 0x3FFF;
+    cqe_params->user_def_val_orig_pkt_len = 0;
+    cqe_params->is_lag = u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x1;
+    cqe_params->lag_subport = u_cqe->v1->rp_lag_subport & 0xFF;
+    cqe_params->sysport_lag_id = be16_to_cpu(u_cqe->v1->rp_system_port_lag_id);
+    cqe_params->mirror_reason = 0;
+    SX_RX_TIMESTAMP_INIT(&cqe_params->cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
 }
 
-void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe           *u_cqe,
-                                         u16                    *trap_id,
-                                         u8                     *is_err,
-                                         u8                     *is_send,
-                                         u8                     *dqn,
-                                         u16                    *wqe_counter,
-                                         u16                    *byte_count,
-                                         u32                    *user_def_val_orig_pkt_len,
-                                         u8                     *is_lag,
-                                         u8                     *lag_subport,
-                                         u16                    *sysport_lag_id,
-                                         u8                     *mirror_reason,
-                                         struct sx_rx_timestamp *cqe_ts)
+void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe, struct sx_cqe_params *cqe_params)
 {
-    *dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
-    *is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
-    *is_send = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x4);
-    *wqe_counter = be16_to_cpu(u_cqe->v2->wqe_counter);
-    *trap_id = be16_to_cpu(u_cqe->v2->sma_check_id_trap_id) & 0x3FF;
-    *byte_count = be16_to_cpu(u_cqe->v2->isx_ulp_crc_byte_count) & 0x3FFF;
-    *user_def_val_orig_pkt_len = be32_to_cpu(
+    cqe_params->dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
+    cqe_params->is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
+    cqe_params->is_send = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x4);
+    cqe_params->wqe_counter = be16_to_cpu(u_cqe->v2->wqe_counter);
+    cqe_params->trap_id = be16_to_cpu(u_cqe->v2->sma_check_id_trap_id) & 0x3FF;
+    cqe_params->byte_count = be16_to_cpu(u_cqe->v2->isx_ulp_crc_byte_count) & 0x3FFF;
+    cqe_params->user_def_val_orig_pkt_len = be32_to_cpu(
         u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) & 0xFFFFF;
-    *is_lag = u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x1;
-    *lag_subport = u_cqe->v2->rp_lag_subport & 0xFF;
-    *sysport_lag_id = be16_to_cpu(u_cqe->v2->rp_system_port_lag_id);
-    *mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
-    cqe_ts->timestamp.tv_sec = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 14) & 0xFF;
-    cqe_ts->timestamp.tv_nsec = ((be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) & 0x3FFF) << 16) |
-                                be16_to_cpu(u_cqe->v2->time_stamp1);
-    cqe_ts->ts_type = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 22) & 0x3;
+    cqe_params->is_lag = u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x1;
+    cqe_params->lag_subport = u_cqe->v2->rp_lag_subport & 0xFF;
+    cqe_params->sysport_lag_id = be16_to_cpu(u_cqe->v2->rp_system_port_lag_id);
+    cqe_params->mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
+    cqe_params->mirror_tclass = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 3) & 0x1F;
+    cqe_params->mirror_cong = ((be16_to_cpu(u_cqe->v2->vlan_mirror_cong2) & 0xF) << 12) |
+                              ((be32_to_cpu(u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) & 0xFFF00000) >> 20);
+    cqe_params->mirror_lantency = (be16_to_cpu(u_cqe->v2->mirror_latency2) << 8) | u_cqe->v2->mirror_latency1;
+    cqe_params->dest_is_lag = u_cqe->v2->mirror_tclass_mirror_elph_ep_lag & 0x1;
+    cqe_params->dest_lag_subport = u_cqe->v2->ep_lag_subport;
+    cqe_params->dest_sysport_lag_id = be16_to_cpu(u_cqe->v2->ep_system_port_lag_id);
+    cqe_params->cqe_ts.timestamp.tv_sec =
+        (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 14) & 0xFF;
+    cqe_params->cqe_ts.timestamp.tv_nsec =
+        ((be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) & 0x3FFF) << 16) |
+        be16_to_cpu(u_cqe->v2->time_stamp1);
+    cqe_params->cqe_ts.ts_type = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 22) & 0x3;
 }
 
 
@@ -1509,26 +1484,16 @@ void set_timestamp_of_rx_packet(struct sx_cq                 *cq,
 static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
 {
     union sx_cqe           u_cqe = {.v0 = NULL, .v1 = NULL, .v2 = NULL};
-    u8                     dqn = 0;
-    u8                     is_send = 0;
-    u8                     is_err = 0;
     struct sx_dq          *dq;
     struct sk_buff        *skb;
     int                    err = 0;
     struct sx_priv        *priv = sx_priv(cq->sx_dev);
     u16                    wqe_ctr = 0;
     u16                    idx = 0;
-    u16                    wqe_counter = 0;
-    u16                    trap_id = 0;
-    u16                    byte_count = 0;
+    struct sx_cqe_params   cqe_params = {0};
     unsigned long          flags;
     uint8_t                rdq_num = 0;
-    u32                    user_def_val_orig_pkt_len = 0;
-    u8                     is_lag = 0;
-    u8                     lag_subport = 0;
-    u16                    sysport_lag_id = 0;
-    u8                     mirror_reason = 0;
-    struct sx_rx_timestamp cqe_ts, rx_timestamp;
+    struct sx_rx_timestamp rx_timestamp;
     struct sx_pkt         *curr_pkt;
     struct list_head      *pos, *q;
     u8                     found = 0;
@@ -1553,24 +1518,12 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
      */
     rmb();
 
-    cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe,
-                                            &trap_id,
-                                            &is_err,
-                                            &is_send,
-                                            &dqn,
-                                            &wqe_counter,
-                                            &byte_count,
-                                            &user_def_val_orig_pkt_len,
-                                            &is_lag,
-                                            &lag_subport,
-                                            &sysport_lag_id,
-                                            &mirror_reason,
-                                            &cqe_ts);
+    cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
 
-    if (is_send) {
-        if (dqn >= NUMBER_OF_SDQS) {
+    if (cqe_params.is_send) {
+        if (cqe_params.dqn >= NUMBER_OF_SDQS) {
             sx_warn(cq->sx_dev, "dqn %d is larger than max SDQ %d.\n",
-                    dqn, NUMBER_OF_SDQS);
+                    cqe_params.dqn, NUMBER_OF_SDQS);
             return 0;
         }
     } else {
@@ -1580,13 +1533,13 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
             return err;
         }
 
-        if (dqn >= rdq_num) {
+        if (cqe_params.dqn >= rdq_num) {
             sx_warn(cq->sx_dev, "dqn %d is larger than max RDQ %d.\n",
-                    dqn, rdq_num);
+                    cqe_params.dqn, rdq_num);
             return 0;
         }
     }
-    dq = is_send ? priv->sdq_table.dq[dqn] : priv->rdq_table.dq[dqn];
+    dq = cqe_params.is_send ? priv->sdq_table.dq[cqe_params.dqn] : priv->rdq_table.dq[cqe_params.dqn];
 
 #ifdef SX_DEBUG
     printk(KERN_DEBUG PFX "sx_poll_one: dqn = %d, is_err = %d, "
@@ -1597,19 +1550,19 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
         if (printk_ratelimit()) {
             sx_warn(cq->sx_dev, "could not find dq context for %s "
                     "dqn = %d\n",
-                    is_send ? "send" : "recv", dqn);
+                    cqe_params.is_send ? "send" : "recv", cqe_params.dqn);
         }
 
         return 0;
     }
 
-    wqe_ctr = wqe_counter & (dq->wqe_cnt - 1);
-    if (is_err && !dq->is_flushing) {
+    wqe_ctr = cqe_params.wqe_counter & (dq->wqe_cnt - 1);
+    if (cqe_params.is_err && !dq->is_flushing) {
         sx_warn(cq->sx_dev, "got %s completion with error, "
                 "syndrom=0x%x\n",
-                is_send ? "send" : "recv", trap_id);
+                cqe_params.is_send ? "send" : "recv", cqe_params.trap_id);
 
-        if (!is_send) {
+        if (!cqe_params.is_send) {
             idx = dq->tail++ & (dq->wqe_cnt - 1);
             dq->last_completion = jiffies;
             wqe_sync_for_cpu(dq, idx);
@@ -1621,7 +1574,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
         goto skip;
     }
 
-    if (is_send) {
+    if (cqe_params.is_send) {
         spin_lock_bh(&dq->lock);
 
         /* find the wqe and unmap the DMA buffer.
@@ -1635,11 +1588,11 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
             wqe_sync_for_cpu(dq, idx);
 
             /* if it is a TX PTP packet, put the timestamp skb */
-            if ((cqe_ts.ts_type != SXD_TS_TYPE_NONE) &&
+            if ((cqe_params.cqe_ts.ts_type != SXD_TS_TYPE_NONE) &&
                 (dq->sge[idx].skb != NULL) &&
                 (skb_shinfo(dq->sge[idx].skb)->tx_flags & SKBTX_IN_PROGRESS)) {
-                sx_core_clock_cqe_ts_to_utc(priv, &cqe_ts.timestamp, &cqe_ts.timestamp);
-                sx_core_ptp_tx_ts_handler(priv, dq->sge[idx].skb, &cqe_ts.timestamp);
+                sx_core_clock_cqe_ts_to_utc(priv, &cqe_params.cqe_ts.timestamp, &cqe_params.cqe_ts.timestamp);
+                sx_core_ptp_tx_ts_handler(priv, dq->sge[idx].skb, &cqe_params.cqe_ts.timestamp);
             }
 
             list_for_each_safe(pos, q, &dq->pkts_comp_list.list_wait_for_completion) {
@@ -1658,7 +1611,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
             if (found == 0) {
                 if (printk_ratelimit()) {
                     sx_err(cq->sx_dev, "Receive late completion for dqn (%d) idx (%d)\n",
-                           dqn, idx);
+                           cqe_params.dqn, idx);
                 }
                 atomic64_inc(&dq->pkts_late_completion);
             }
@@ -1707,16 +1660,16 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
         skb = dq->sge[idx].skb;
 
         /* Put timestamp on RX packet */
-        set_timestamp_of_rx_packet(cq, ts_linux, &cqe_ts, &rx_timestamp);
+        set_timestamp_of_rx_packet(cq, ts_linux, &cqe_params.cqe_ts, &rx_timestamp);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
         if (enable_monitor_rdq_trace_points) {
             should_drop = 0;
             spin_lock_irqsave(&priv->rdq_table.lock, flags);
-            if (priv->filter_ebpf_progs[dqn]) {
-                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn], skb,
-                                                                       FILTER_TP_HW_PORT(is_lag, sysport_lag_id),
-                                                                       trap_id, user_def_val_orig_pkt_len);
+            if (priv->filter_ebpf_progs[cqe_params.dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[cqe_params.dqn],
+                                                                       skb,
+                                                                       &cqe_params);
             }
             spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             if (should_drop != 0) {
@@ -1737,30 +1690,27 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
                 spin_lock_irqsave(&priv->rdq_table.lock, flags);
                 sx_core_call_rdq_agg_trace_point_func(priv,
-                                                      dqn,
+                                                      cqe_params.dqn,
                                                       skb,
-                                                      trap_id,
-                                                      user_def_val_orig_pkt_len,
-                                                      &rx_timestamp.timestamp,
-                                                      mirror_reason,
-                                                      AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
+                                                      &cqe_params,
+                                                      &rx_timestamp.timestamp);
                 spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
 #endif
             }
             goto skip;
         }
 
-        if (!is_err) {
+        if (!cqe_params.is_err) {
             /* if packet length is less than 2K, let's reallocate it and reassign lower skb->truesize.
              * current skb->truesize is 10K and IP stack accounts for truesize and not for actual buffer size.
              */
-            if (byte_count <= 2048) {
+            if (cqe_params.byte_count <= 2048) {
                 struct sk_buff *new_skb;
 
                 new_skb = skb_clone(skb, GFP_ATOMIC);
                 if (new_skb) {
-                    new_skb->len = byte_count;
-                    new_skb->truesize = roundup_pow_of_two(byte_count);
+                    new_skb->len = cqe_params.byte_count;
+                    new_skb->truesize = roundup_pow_of_two(cqe_params.byte_count);
 
                     sx_skb_free(skb); /* free original 10K buffer */
                     skb = new_skb; /* use the new buffer that is much lower in size */
@@ -1776,7 +1726,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
     }
 skip:
     sx_cq_set_ci(cq);
-    if (!is_send && !dq->is_flushing) {
+    if (!cqe_params.is_send && !dq->is_flushing) {
         if (!dq->is_monitor) {
             err = post_skb(dq);
         } else {
@@ -1789,7 +1739,7 @@ skip:
         }
     }
 
-    if (is_send) {
+    if (cqe_params.is_send) {
         wake_up_interruptible(&dq->tx_full_wait);
     }
 
@@ -2101,31 +2051,20 @@ int iterate_active_cqs(struct sx_dev *dev, struct sx_bitmap *active_cq_bitmap)
 
 int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
 {
-    int                    err;
-    struct ku_query_cq     cq_context;
-    static __be16          rx_cnt = 0;
-    unsigned long          flags;
-    struct sx_cq          *cq;
-    struct sx_dq          *rdq;
-    int                    cqn;
-    struct sx_priv        *priv = sx_priv(dev);
-    int                    i;
-    u32                    cq_ts_enabled = 0;
-    union sx_cqe           u_cqe;
-    u8                     dqn1 = 0;
-    u8                     is_send = 0;
-    u8                     is_err = 0;
-    u16                    trap_id = 0;
-    u16                    byte_count = 0;
-    u16                    wqe_counter = 0;
-    int                    idx;
-    struct sk_buff        *skb;
-    u32                    user_def_val_orig_pkt_len = 0;
-    u8                     is_lag = 0;
-    u8                     lag_subport = 0;
-    u16                    sysport_lag_id = 0;
-    u8                     mirror_reason = 0;
-    struct sx_rx_timestamp cqe_ts;
+    int                  err;
+    struct ku_query_cq   cq_context;
+    static __be16        rx_cnt = 0;
+    unsigned long        flags;
+    struct sx_cq        *cq;
+    struct sx_dq        *rdq;
+    int                  cqn;
+    struct sx_priv      *priv = sx_priv(dev);
+    int                  i;
+    u32                  cq_ts_enabled = 0;
+    union sx_cqe         u_cqe;
+    struct sx_cqe_params cqe_params = {0};
+    int                  idx;
+    struct sk_buff      *skb;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
     struct sx_rx_timestamp rx_ts;
@@ -2195,12 +2134,9 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
         if (u_cqe.v2 == NULL) {
             continue;
         }
-        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-                                                &is_send, &dqn1, &wqe_counter, &byte_count,
-                                                &user_def_val_orig_pkt_len, &is_lag, &lag_subport,
-                                                &sysport_lag_id, &mirror_reason, &cqe_ts);
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
 
-        if (is_send) {
+        if (cqe_params.is_send) {
             continue;
         }
         idx = i % rdq->wqe_cnt;
@@ -2211,9 +2147,7 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
             should_drop = 0;
             spin_lock_irqsave(&priv->rdq_table.lock, flags);
             if (priv->filter_ebpf_progs[dqn]) {
-                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn], skb,
-                                                                       FILTER_TP_HW_PORT(is_lag, sysport_lag_id),
-                                                                       trap_id, user_def_val_orig_pkt_len);
+                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn], skb, &cqe_params);
             } else {
                 skb->mark = 0;
             }
@@ -2223,15 +2157,14 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
                 continue;
             }
             if (cq_ts_enabled) {
-                set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[i % cq->nent].timestamp, &cqe_ts, &rx_ts);
-                sx_core_call_rdq_agg_trace_point_func(priv, dqn, skb, trap_id, user_def_val_orig_pkt_len,
-                                                      &rx_ts.timestamp, mirror_reason,
-                                                      AGG_TP_HW_PORT(is_lag, lag_subport, sysport_lag_id));
+                set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[i % cq->nent].timestamp, &cqe_params.cqe_ts, &rx_ts);
+                sx_core_call_rdq_agg_trace_point_func(priv,
+                                                      dqn,
+                                                      skb,
+                                                      &cqe_params,
+                                                      &rx_ts.timestamp);
             } else {
-                sx_core_call_rdq_agg_trace_point_func(priv, dqn, skb, trap_id, user_def_val_orig_pkt_len, NULL,
-                                                      mirror_reason, AGG_TP_HW_PORT(is_lag,
-                                                                                    lag_subport,
-                                                                                    sysport_lag_id));
+                sx_core_call_rdq_agg_trace_point_func(priv, dqn, skb, &cqe_params, NULL);
             }
             spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
 #endif

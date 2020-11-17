@@ -37,25 +37,34 @@
 void sx_core_call_rdq_agg_trace_point_func(struct sx_priv        *priv,
                                            int                    dqn,
                                            struct sk_buff        *skb,
-                                           uint16_t               trap_id,
-                                           uint32_t               acl_user_id,
-                                           const struct timespec *timestamp,
-                                           uint8_t                mirror_reason,
-                                           uint32_t               port)
+                                           const struct sx_cqe_params  *cqe_params_p,
+                                           const struct timespec *timestamp)
 {
     int                      i = 0;
     u32                     *cb_data = (u32*)(bpf_skb_cb(skb));
     u32                      cb_data_orig[5];
+    u32                      hash_orig = skb->hash;
+    u32                      iif_orig = skb->skb_iif;
     struct bpf_skb_data_end *cb = (struct bpf_skb_data_end *)skb->cb;
 
     memcpy(cb_data_orig, cb_data, sizeof(cb_data_orig));
     cb->data_end = skb->data + SX_MAX_MSG_SIZE;
 
-    cb_data[0] = (((uint32_t)trap_id) << 16) | mirror_reason;
-    cb_data[1] = acl_user_id;
+    /* maximum 12 uint32 cb data */
+    /* 0: trap_id (10 bits) + mirror congestion (16 bits) */
+    /* 1: user def val (20 bits) + mirror reason (8 bits) */
+    /* 2: tv_sec (32 bits) */
+    /* 3: tv nsec (32 bits) */
+    /* 4: hw port (25 bits) */
+    /* hash: mirror tclass (8 bits) + mirror latency (24 bits) */
+    /* iif: dest hw port (25 bits) */
+    cb_data[0] = (((uint32_t)cqe_params_p->trap_id) << 16) | cqe_params_p->mirror_cong;
+    cb_data[1] = (cqe_params_p->user_def_val_orig_pkt_len << 8) | cqe_params_p->mirror_reason;
     cb_data[2] = timestamp->tv_sec;
     cb_data[3] = timestamp->tv_nsec;
-    cb_data[4] = port;
+    cb_data[4] = AGG_TP_HW_PORT(cqe_params_p->is_lag, cqe_params_p->lag_subport, cqe_params_p->sysport_lag_id);
+    skb->hash = (cqe_params_p->mirror_tclass << 24) | cqe_params_p->mirror_lantency;
+    skb->skb_iif = AGG_TP_HW_PORT(cqe_params_p->dest_is_lag, cqe_params_p->dest_lag_subport, cqe_params_p->dest_sysport_lag_id);
 
     for (i = 0; i < SX_AGG_EBPF_PROG_NUM_PER_RDQ; i++) {
         if (priv->agg_ebpf_progs[dqn][i] != NULL) {
@@ -66,25 +75,26 @@ void sx_core_call_rdq_agg_trace_point_func(struct sx_priv        *priv,
     }
 
     memcpy(cb_data, cb_data_orig, sizeof(cb_data_orig));
+    skb->hash = hash_orig;
+    skb->skb_iif = iif_orig;
 }
 
-int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog* bpf_prog_p,
-                                             struct sk_buff  *skb,
-                                             uint32_t         port,
-                                             uint16_t         trap_id,
-                                             uint32_t         acl_user_id)
+int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog      *bpf_prog_p,
+                                             struct sk_buff       *skb,
+                                             const struct sx_cqe_params *cqe_params_p)
 {
     int                      err = 0;
     u32                     *cb_data = (u32*)(bpf_skb_cb(skb));
-    u32                      cb_data_orig[3];
+    u32                      cb_data_orig[4];
     struct bpf_skb_data_end *cb = (struct bpf_skb_data_end *)skb->cb;
 
     if (bpf_prog_p != NULL) {
         memcpy(cb_data_orig, cb_data, sizeof(cb_data_orig));
         cb->data_end = skb->data + SX_MAX_MSG_SIZE;
-        cb_data[0] = port;
-        cb_data[1] = trap_id;
-        cb_data[2] = acl_user_id;
+        cb_data[0] = FILTER_TP_HW_PORT(cqe_params_p->is_lag, cqe_params_p->sysport_lag_id);
+        cb_data[1] = cqe_params_p->trap_id;
+        cb_data[2] = cqe_params_p->user_def_val_orig_pkt_len;
+        cb_data[3] = cqe_params_p->mirror_reason;
 
         rcu_read_lock();
         err = BPF_PROG_RUN(bpf_prog_p, skb);

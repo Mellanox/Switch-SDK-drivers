@@ -158,10 +158,6 @@ static void __sgmii_emad_transaction_completion(struct sk_buff                  
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_timeout);
         break;
 
-    case SGMII_TR_COMP_ST_TERMINATED:
-        SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_terminated);
-        break;
-
     default:
         break;
     }

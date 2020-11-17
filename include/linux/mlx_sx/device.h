@@ -45,13 +45,13 @@
 
 /* According to CQe */
 enum sx_packet_type {
-    PKT_TYPE_IB_Raw = 0,
-    PKT_TYPE_IB_non_Raw = 1,
-    PKT_TYPE_ETH = 2,
-    PKT_TYPE_FC = 3,
-    PKT_TYPE_FCoIB = 4,
-    PKT_TYPE_FCoETH = 5,
-    PKT_TYPE_ETHoIB = 6,
+    PKT_TYPE_IB_Raw      = 0,
+    PKT_TYPE_IB_non_Raw  = 1,
+    PKT_TYPE_ETH         = 2,
+    PKT_TYPE_FC          = 3,
+    PKT_TYPE_FCoIB       = 4,
+    PKT_TYPE_FCoETH      = 5,
+    PKT_TYPE_ETHoIB      = 6,
     PKT_TYPE_OOB_CR_RESP = 7,
     PKT_TYPE_NUM
 };
@@ -69,13 +69,13 @@ static const int   sx_cqe_packet_type_str_len =
     sizeof(sx_cqe_packet_type_str) / sizeof(char *);
 enum l2_type {
     L2_TYPE_DONT_CARE = -1,
-    L2_TYPE_IB = 0,
-    L2_TYPE_ETH = 1,
-    L2_TYPE_FC = 2
+    L2_TYPE_IB        = 0,
+    L2_TYPE_ETH       = 1,
+    L2_TYPE_FC        = 2
 };
 enum sx_event {
-    SX_EVENT_TYPE_COMP = 0x00,
-    SX_EVENT_TYPE_CMD = 0x0a,
+    SX_EVENT_TYPE_COMP           = 0x00,
+    SX_EVENT_TYPE_CMD            = 0x0a,
     SX_EVENT_TYPE_INTERNAL_ERROR = 0x08
 };
 
@@ -92,9 +92,9 @@ static const char *port_vlan_match_str[] = {
 static const int   port_vlan_match_str_len =
     sizeof(port_vlan_match_str) / sizeof(char *);
 enum port_vlan_match {
-    PORT_VLAN_MATCH_GLOBAL = 0,
+    PORT_VLAN_MATCH_GLOBAL     = 0,
     PORT_VLAN_MATCH_PORT_VALID = 1,
-    PORT_VLAN_MATCH_LAG_VALID = 2,
+    PORT_VLAN_MATCH_LAG_VALID  = 2,
     PORT_VLAN_MATCH_VLAN_VALID = 3
 };
 struct sx_rx_timestamp {
@@ -204,52 +204,52 @@ struct sx_dev {
 
 enum {
     /* Register IDs for auto generated registers are defined in include/linux/mlx_sx/auto_registers/reg.h */
-    PPBT_REG_ID = 0x3003,
-    QSPTC_REG_ID = 0x4009,
-    QSTCT_REG_ID = 0x400b,
-    PMLP_REG_ID = 0x5002,
-    PMTU_REG_ID = 0x5003,
-    PTYS_REG_ID = 0x5004,
-    PPAD_REG_ID = 0x5005,
-    PUDE_REG_ID = 0x5009,
-    PLIB_REG_ID = 0x500a,
-    PPTB_REG_ID = 0x500B,
-    PSPA_REG_ID = 0x500d,
-    PELC_REG_ID = 0x500e,
-    PVLC_REG_ID = 0x500f,
-    PMPR_REG_ID = 0x5013,
-    SPZR_REG_ID = 0x6002,
-    HCAP_REG_ID = 0x7001,
-    HTGT_REG_ID = 0x7002,
-    HPKT_REG_ID = 0x7003,
-    HDRT_REG_ID = 0x7004,
-    HOPF_REG_ID = 0x7081,
-    MFCR_REG_ID = 0x9001,
-    MFSC_REG_ID = 0x9002,
-    MFSM_REG_ID = 0x9003,
-    MFSL_REG_ID = 0x9004,
-    MTCAP_REG_ID = 0x9009,
-    MTBR_REG_ID = 0x900f,
-    MFPA_REG_ID = 0x9010,
-    MFBA_REG_ID = 0x9011,
-    MFBE_REG_ID = 0x9012,
-    MCIA_REG_ID = 0x9014,
-    MGIR_REG_ID = 0x9020,
-    MRSR_REG_ID = 0x9023,
-    PMAOS_REG_ID = 0x5012,
-    MFM_REG_ID = 0x901d,
-    MJTAG_REG_ID = 0x901F,
-    PMPC_REG_ID = 0x501F,
-    MPSC_REG_ID = 0x9080,
+    PPBT_REG_ID   = 0x3003,
+    QSPTC_REG_ID  = 0x4009,
+    QSTCT_REG_ID  = 0x400b,
+    PMLP_REG_ID   = 0x5002,
+    PMTU_REG_ID   = 0x5003,
+    PTYS_REG_ID   = 0x5004,
+    PPAD_REG_ID   = 0x5005,
+    PUDE_REG_ID   = 0x5009,
+    PLIB_REG_ID   = 0x500a,
+    PPTB_REG_ID   = 0x500B,
+    PSPA_REG_ID   = 0x500d,
+    PELC_REG_ID   = 0x500e,
+    PVLC_REG_ID   = 0x500f,
+    PMPR_REG_ID   = 0x5013,
+    SPZR_REG_ID   = 0x6002,
+    HCAP_REG_ID   = 0x7001,
+    HTGT_REG_ID   = 0x7002,
+    HPKT_REG_ID   = 0x7003,
+    HDRT_REG_ID   = 0x7004,
+    HOPF_REG_ID   = 0x7081,
+    MFCR_REG_ID   = 0x9001,
+    MFSC_REG_ID   = 0x9002,
+    MFSM_REG_ID   = 0x9003,
+    MFSL_REG_ID   = 0x9004,
+    MTCAP_REG_ID  = 0x9009,
+    MTBR_REG_ID   = 0x900f,
+    MFPA_REG_ID   = 0x9010,
+    MFBA_REG_ID   = 0x9011,
+    MFBE_REG_ID   = 0x9012,
+    MCIA_REG_ID   = 0x9014,
+    MGIR_REG_ID   = 0x9020,
+    MRSR_REG_ID   = 0x9023,
+    PMAOS_REG_ID  = 0x5012,
+    MFM_REG_ID    = 0x901d,
+    MJTAG_REG_ID  = 0x901F,
+    PMPC_REG_ID   = 0x501F,
+    MPSC_REG_ID   = 0x9080,
     MTPPPC_REG_ID = 0x9090,
     MTPPTR_REG_ID = 0x9091,
     MTPTPT_REG_ID = 0x9092,
     MTPCPC_REG_ID = 0x9093,
-    MTPPS_REG_ID = 0x9053,
-    MTUTC_REG_ID = 0x9055,
-    PPBMC_REG_ID = 0x5052,
-    PPMBE_REG_ID = 0x5053,
-    SBCTR_REG_ID = 0xB00D,
+    MTPPS_REG_ID  = 0x9053,
+    MTUTC_REG_ID  = 0x9055,
+    PPBMC_REG_ID  = 0x5052,
+    PPMBE_REG_ID  = 0x5053,
+    SBCTR_REG_ID  = 0xB00D,
 };
 
 enum {
@@ -263,13 +263,13 @@ enum {
 enum {
     EMAD_METHOD_QUERY = 1,
     EMAD_METHOD_WRITE = 2,
-    EMAD_METHOD_SEND = 3,
+    EMAD_METHOD_SEND  = 3,
     EMAD_METHOD_EVENT = 5,
 };
 
 enum {
-    PORT_OPER_STATUS_UP = 1,
-    PORT_OPER_STATUS_DOWN = 2,
+    PORT_OPER_STATUS_UP      = 1,
+    PORT_OPER_STATUS_DOWN    = 2,
     PORT_OPER_STATUS_FAILURE = 4,
 };
 
@@ -385,25 +385,25 @@ void * sx_get_dev_context(void);
 /** This enum defines bitmask values for combinations of port types */
 enum sx_port_type {
     SX_PORT_TYPE_NETWORK = 0,
-    SX_PORT_TYPE_LAG = 1,
-    SX_PORT_TYPE_VPORT = 2,
-    SX_PORT_TYPE_NVE = 8,
-    SX_PORT_TYPE_MIN = SX_PORT_TYPE_NETWORK,
-    SX_PORT_TYPE_MAX = SX_PORT_TYPE_NVE,
+    SX_PORT_TYPE_LAG     = 1,
+    SX_PORT_TYPE_VPORT   = 2,
+    SX_PORT_TYPE_NVE     = 8,
+    SX_PORT_TYPE_MIN     = SX_PORT_TYPE_NETWORK,
+    SX_PORT_TYPE_MAX     = SX_PORT_TYPE_NVE,
 };
 
 /* Length of TLV in DWORDs*/
 #define TLV_LEN 4
 
 enum {
-    TLV_REQUEST = 0,
+    TLV_REQUEST  = 0,
     TLV_RESPONSE = 1,
 };
 
 enum {
-    EMAD_CLASS_RESERVED = 0x00,
+    EMAD_CLASS_RESERVED   = 0x00,
     EMAD_CLASS_REG_ACCESS = 0x01,
-    EMAD_CLASS_IPC = 0x02,
+    EMAD_CLASS_IPC        = 0x02,
 };
 
 #endif /* SX_DEVICE_H */

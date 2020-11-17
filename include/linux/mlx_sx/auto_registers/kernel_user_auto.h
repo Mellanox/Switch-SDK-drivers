@@ -78,6 +78,52 @@ struct ku_access_iicr_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
+#define SXD_FPUMS_PORT_MASK_NUM 16
+
+/**
+ * ku_fpums_reg structure is used to store the FPUMS register parameters
+ */
+struct ku_fpums_reg {
+    uint8_t global;
+    uint8_t local_port;
+    uint8_t mask;
+    uint8_t port_user_mem;
+    uint32_t port_mask[SXD_FPUMS_PORT_MASK_NUM];
+};
+
+/**
+ * ku_access_fpums_reg structure is used to store the access register FPUMS command parameters
+ */
+struct ku_access_fpums_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_fpums_reg     fpums_reg; /**< fpums_reg - fpums register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+
+typedef enum sxd_spevet_et_vlan {
+    SXD_SPEVET_ET_VLAN_ETHER_TYPE0_E = 0x0,
+    SXD_SPEVET_ET_VLAN_ETHER_TYPE1_E = 0x1,
+    SXD_SPEVET_ET_VLAN_ETHER_TYPE2_E = 0x2
+} sxd_spevet_et_vlan_t;
+
+/**
+ * ku_spevet_reg structure is used to store the SPEVET register parameters
+ */
+struct ku_spevet_reg {
+    uint8_t local_port;
+    sxd_spevet_et_vlan_t et_vlan;
+};
+
+/**
+ * ku_access_spevet_reg structure is used to store the access register SPEVET command parameters
+ */
+struct ku_access_spevet_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_spevet_reg    spevet_reg; /**< spevet_reg - spevet register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
 /**
  * ku_igcr_reg structure is used to store the IGCR register parameters
  */
@@ -466,6 +512,7 @@ typedef struct sxd_mgpir_hw_info {
     uint8_t device_type;
     uint8_t devices_per_flash;
     uint8_t num_of_devices;
+    uint8_t num_of_slots;
     uint8_t num_of_modules;
 } sxd_mgpir_hw_info_t;
 
@@ -725,6 +772,27 @@ struct ku_pecnre_reg {
 struct ku_access_pecnre_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_pecnre_reg    pecnre_reg; /**< pecnre_reg - pecnre register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_mofs_reg structure is used to store the MOFS register parameters
+ */
+struct ku_mofs_reg {
+    uint8_t type;
+    uint16_t register_id;
+    uint8_t section_id;
+    uint8_t en;
+    uint8_t action;
+    uint8_t reg_status;
+};
+
+/**
+ * ku_access_mofs_reg structure is used to store the access register MOFS command parameters
+ */
+struct ku_access_mofs_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_mofs_reg      mofs_reg; /**< mofs_reg - mofs register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -2168,9 +2236,37 @@ struct ku_access_ppad_reg {
 
 #define SXD_RLCMLE_DIP_NUM 4
 
-#define SXD_RLCMLE_DIP_MASK_NUM 4
 
-#define SXD_RLCMLE_ACTION_NUM 5
+typedef enum sxd_rlcmle_action_type {
+    SXD_RLCMLE_ACTION_TYPE_REMOTE_E = 0x0,
+    SXD_RLCMLE_ACTION_TYPE_LOCAL_E = 0x1,
+    SXD_RLCMLE_ACTION_TYPE_IP2ME_E = 0x2
+} sxd_rlcmle_action_type_t;
+
+typedef struct sxd_rlcmle_remote_action {
+    uint8_t trap_action;
+    uint16_t trap_id;
+    uint32_t adjacency_index;
+    uint16_t ecmp_size;
+} sxd_rlcmle_remote_action_t;
+
+typedef struct sxd_rlcmle_local_action {
+    uint8_t trap_action;
+    uint16_t trap_id;
+    uint16_t local_erif;
+} sxd_rlcmle_local_action_t;
+
+typedef struct sxd_rlcmle_ip2me {
+    uint8_t trap_action;
+    uint8_t v;
+    uint32_t tunnel_ptr;
+} sxd_rlcmle_ip2me_t;
+
+union rlcmle_action {
+    sxd_rlcmle_remote_action_t remote_action;
+    sxd_rlcmle_local_action_t local_action;
+    sxd_rlcmle_ip2me_t ip2me;
+};
 
 /**
  * ku_rlcmle_reg structure is used to store the RLCMLE register parameters
@@ -2182,9 +2278,8 @@ struct ku_rlcmle_reg {
     uint16_t virtual_router;
     uint8_t l_value;
     uint32_t dip[SXD_RLCMLE_DIP_NUM];
-    uint32_t dip_mask[SXD_RLCMLE_DIP_MASK_NUM];
-    uint8_t action_type;
-    uint32_t action[SXD_RLCMLE_ACTION_NUM];
+    sxd_rlcmle_action_type_t action_type;
+    union rlcmle_action action;
     uint8_t counter_set_type;
     uint32_t counter_index;
 };
@@ -2583,6 +2678,26 @@ struct ku_access_tncr_v2_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
+#define SXD_PCSR_PORT_STATUS_MASK_NUM 4
+
+/**
+ * ku_pcsr_reg structure is used to store the PCSR register parameters
+ */
+struct ku_pcsr_reg {
+    uint8_t gs;
+    uint8_t offset;
+    uint32_t port_status_mask[SXD_PCSR_PORT_STATUS_MASK_NUM];
+};
+
+/**
+ * ku_access_pcsr_reg structure is used to store the access register PCSR command parameters
+ */
+struct ku_access_pcsr_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_pcsr_reg      pcsr_reg; /**< pcsr_reg - pcsr register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
 #define SXD_XRALST_BIN_NUM 128
 
 /**
@@ -2944,7 +3059,8 @@ typedef enum sxd_mcc_instruction {
     SXD_MCC_INSTRUCTION_CANCEL_E = 0x8,
     SXD_MCC_INSTRUCTION_CHECK_UPDATE_HANDLE_E = 0x9,
     SXD_MCC_INSTRUCTION_FORCE_HANDLE_RELEASE_E = 0xa,
-    SXD_MCC_INSTRUCTION_READ_PENDING_COMPONENT_E = 0xb
+    SXD_MCC_INSTRUCTION_READ_PENDING_COMPONENT_E = 0xb,
+    SXD_MCC_INSTRUCTION_DOWNSRTEAM_DEVICE_TRANSFER_E = 0xc
 } sxd_mcc_instruction_t;
 
 
@@ -2957,7 +3073,8 @@ typedef enum sxd_mcc_control_state {
     SXD_MCC_CONTROL_STATE_APPLY_E = 0x5,
     SXD_MCC_CONTROL_STATE_ACTIVATE_E = 0x6,
     SXD_MCC_CONTROL_STATE_UPLOAD_E = 0x7,
-    SXD_MCC_CONTROL_STATE_UPLOAD_PENDING_E = 0x8
+    SXD_MCC_CONTROL_STATE_UPLOAD_PENDING_E = 0x8,
+    SXD_MCC_CONTROL_STATE_DOWNSRTEAM_DEVICE_TRANSFER_E = 0x9
 } sxd_mcc_control_state_t;
 
 /**
@@ -2967,6 +3084,7 @@ struct ku_mcc_reg {
     uint16_t time_elapsed_since_last_cmd;
     sxd_mcc_instruction_t instruction;
     uint16_t component_index;
+    uint8_t auto_update;
     uint32_t update_handle;
     uint8_t handle_owner_type;
     uint8_t handle_owner_host_id;
@@ -2976,6 +3094,8 @@ struct ku_mcc_reg {
     uint32_t component_size;
     uint16_t device_index;
     uint8_t device_type;
+    uint16_t rejected_device_index;
+    uint16_t device_index_size;
 };
 
 /**
@@ -2991,6 +3111,7 @@ struct ku_access_mcc_reg {
  * ku_sfdb_reg structure is used to store the SFDB register parameters
  */
 struct ku_sfdb_reg {
+    uint8_t policy;
     uint8_t update_type;
     uint8_t gfid;
     uint16_t entry_fid;
@@ -3062,6 +3183,23 @@ struct ku_rxltcc_reg {
 struct ku_access_rxltcc_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_rxltcc_reg    rxltcc_reg; /**< rxltcc_reg - rxltcc register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_sbhpc_reg structure is used to store the SBHPC register parameters
+ */
+struct ku_sbhpc_reg {
+    uint32_t max_buff;
+    uint32_t buff_occupancy;
+};
+
+/**
+ * ku_access_sbhpc_reg structure is used to store the access register SBHPC command parameters
+ */
+struct ku_access_sbhpc_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_sbhpc_reg     sbhpc_reg; /**< sbhpc_reg - sbhpc register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 

@@ -292,6 +292,7 @@ static int __MGPIR_decode(u8 *outbox, void *ku_reg, void *context)
     mgpir_reg->hw_info.device_type = mlxsw_reg_mgpir_device_type_get(outbox);
     mgpir_reg->hw_info.devices_per_flash = mlxsw_reg_mgpir_devices_per_flash_get(outbox);
     mgpir_reg->hw_info.num_of_devices = mlxsw_reg_mgpir_num_of_devices_get(outbox);
+    mgpir_reg->hw_info.num_of_slots = mlxsw_reg_mgpir_num_of_slots_get(outbox);
     mgpir_reg->hw_info.num_of_modules = mlxsw_reg_mgpir_num_of_modules_get(outbox);
 
 
@@ -1052,6 +1053,54 @@ int sx_ACCESS_REG_MCION(struct sx_dev *dev, struct ku_access_mcion_reg *reg_data
 EXPORT_SYMBOL(sx_ACCESS_REG_MCION);
 
 /************************************************
+* PCSR
+***********************************************/
+static int __PCSR_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_pcsr_reg *pcsr_reg = (struct ku_pcsr_reg*)ku_reg;
+    
+    mlxsw_reg_pcsr_offset_set(inbox, pcsr_reg->offset);
+
+
+    return 0;
+}
+
+static int __PCSR_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_pcsr_reg *pcsr_reg = (struct ku_pcsr_reg*)ku_reg;
+        uint32_t index = 0;
+
+    pcsr_reg->gs = mlxsw_reg_pcsr_gs_get(outbox);
+    pcsr_reg->offset = mlxsw_reg_pcsr_offset_get(outbox);
+    for (index = 0; index < SXD_PCSR_PORT_STATUS_MASK_NUM; index++) {
+        pcsr_reg->port_status_mask[index] = mlxsw_reg_pcsr_port_status_mask_get(outbox, index);
+    }
+
+
+    return 0;
+}
+
+int sx_ACCESS_REG_PCSR(struct sx_dev *dev, struct ku_access_pcsr_reg *reg_data)
+{
+    u16 reg_len_dword = (MLXSW_PCSR_LEN >> 2) + 1;
+
+    if (MLXSW_PCSR_LEN % 4 > 0) {
+        reg_len_dword++;
+    }
+
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __PCSR_encode,
+                                  __PCSR_decode,
+                                  reg_len_dword,
+                                  &reg_data->pcsr_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_PCSR);
+
+/************************************************
 * IDDD
 ***********************************************/
 static int __IDDD_encode(u8 *inbox, void *ku_reg, void *context)
@@ -1161,10 +1210,12 @@ static int __MCC_encode(u8 *inbox, void *ku_reg, void *context)
     
     mlxsw_reg_mcc_instruction_set(inbox, mcc_reg->instruction);
     mlxsw_reg_mcc_component_index_set(inbox, mcc_reg->component_index);
+    mlxsw_reg_mcc_auto_update_set(inbox, mcc_reg->auto_update);
     mlxsw_reg_mcc_update_handle_set(inbox, mcc_reg->update_handle);
     mlxsw_reg_mcc_component_size_set(inbox, mcc_reg->component_size);
     mlxsw_reg_mcc_device_index_set(inbox, mcc_reg->device_index);
     mlxsw_reg_mcc_device_type_set(inbox, mcc_reg->device_type);
+    mlxsw_reg_mcc_device_index_size_set(inbox, mcc_reg->device_index_size);
 
 
     return 0;
@@ -1185,6 +1236,8 @@ static int __MCC_decode(u8 *outbox, void *ku_reg, void *context)
     mcc_reg->control_state = mlxsw_reg_mcc_control_state_get(outbox);
     mcc_reg->device_index = mlxsw_reg_mcc_device_index_get(outbox);
     mcc_reg->device_type = mlxsw_reg_mcc_device_type_get(outbox);
+    mcc_reg->rejected_device_index = mlxsw_reg_mcc_rejected_device_index_get(outbox);
+    mcc_reg->device_index_size = mlxsw_reg_mcc_device_index_size_get(outbox);
 
 
     return 0;

@@ -456,10 +456,6 @@ static void __sgmii_mad_transaction_completion(struct sk_buff                   
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_timeout);
         break;
 
-    case SGMII_TR_COMP_ST_TERMINATED:
-        SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_terminated);
-        break;
-
     default:
         break;
     }

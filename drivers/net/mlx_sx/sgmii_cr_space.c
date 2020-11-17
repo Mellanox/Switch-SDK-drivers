@@ -306,12 +306,9 @@ static int __sgmii_send_cr_space_one(struct sgmii_dev                   *sgmii_d
 
     atomic_inc(&__sgmii_cr_space_transactions_in_progress);
 
-    ret = wait_for_completion_interruptible(&(context->completion));
-    if (ret == -ERESTARTSYS) {
-        /* this will synchronously terminate the transaction and fill 'context' */
-        sgmii_transaction_terminate(&__cr_space_tr_db, __cr_space_token);
-        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_interrupted);
-    }
+    do {
+        ret = wait_for_completion_interruptible(&(context->completion));
+    } while (ret == -ERESTARTSYS);
 
     ret = context->ret_val;
     __cr_space_token++;
@@ -515,10 +512,6 @@ static void __sgmii_cr_space_transaction_completion(struct sk_buff              
 
     case SGMII_TR_COMP_ST_TIMEDOUT:
         tx_ctx->ret_val = -ETIMEDOUT;
-        break;
-
-    case SGMII_TR_COMP_ST_TERMINATED:
-        tx_ctx->ret_val = -ERESTARTSYS;
         break;
     }
 

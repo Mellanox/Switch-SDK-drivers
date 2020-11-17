@@ -95,6 +95,11 @@
 /* Spectrum3 in flash recovery mode */
 #define SPECTRUM3_FLASH_MODE_PCI_DEV_ID 0x0250
 
+/* Spectrum4 PCI device ID */
+#define SPECTRUM4_PCI_DEV_ID 0xcf80
+/* Spectrum4 in flash recovery mode */
+#define SPECTRUM4_FLASH_MODE_PCI_DEV_ID 0x0254
+
 /* SwitchIB PCI device ID */
 #define SWITCH_IB_PCI_DEV_ID 0xcb20
 /* SwitchIB in flash recovery mode */
@@ -111,6 +116,12 @@
 
 /* Quantum in flash recovery mode */
 #define QUANTUM_FLASH_MODE_PCI_DEV_ID 0x024D
+
+/* Quantum2 PCI device ID */
+#define QUANTUM2_PCI_DEV_ID 0xd2f2
+
+/* Quantum2 in flash recovery mode */
+#define QUANTUM2_FLASH_MODE_PCI_DEV_ID 0x251
 
 #define TO_FIELD(mask, shift, value) \
     (value & mask) << shift;
@@ -264,6 +275,7 @@ struct event_data {
     u8                     mirror_tclass;
     u16                    mirror_cong;
     u32                    mirror_lantency;
+    u8                     channel_experienced_drop;
 };
 struct sx_rsc { /* sx  resource */
     struct event_data evlist;           /* event list           */
@@ -275,6 +287,8 @@ struct sx_rsc { /* sx  resource */
     struct semaphore  write_sem;
     struct sx_dq     *bound_monitor_rdq;
     struct file     * owner;
+    int               queue_type;
+    int               channel_experienced_drop;
 };
 struct tx_base_header_v0 {
     u8  ctl_mc;
@@ -350,6 +364,26 @@ struct sx_cq_bkp_poll {
     int      last_interval_cons_index;
     atomic_t cq_bkp_poll_mode;
 };
+struct sx_cqe_params {
+    u16                    trap_id;
+    u8                     is_err;
+    u8                     is_send;
+    u8                     dqn;
+    u16                    wqe_counter;
+    u16                    byte_count;
+    u32                    user_def_val_orig_pkt_len;
+    u8                     is_lag;
+    u8                     lag_subport;
+    u16                    sysport_lag_id;
+    u8                     mirror_reason;
+    u16                    dest_sysport_lag_id;
+    u8                     dest_is_lag;
+    u8                     dest_lag_subport;
+    u8                     mirror_tclass;
+    u16                    mirror_cong;
+    u32                    mirror_lantency;
+    struct sx_rx_timestamp cqe_ts;
+};
 struct sx_cq {
     u32                   cons_index;
     u32                   cons_index_snapshot;
@@ -367,11 +401,8 @@ struct sx_cq {
     u8                    cqe_version;
     size_t                cqe_sizeof;
     void                  (*sx_next_cqe_cb)(struct sx_cq *cq, union sx_cqe *cqe_p);
-    void                  (*sx_fill_poll_one_params_from_cqe_cb)(union sx_cqe *u_cqe, u16 *trap_id, u8 *is_err,
-                                                                 u8 *is_send, u8 *dqn, u16 *wqe_counter,
-                                                                 u16 *byte_count, u32 *user_def_val_orig_pkt_len,
-                                                                 u8 *is_lag, u8 *lag_subport, u16 *sysport_lag_id,
-                                                                 u8 *mirror_reason, struct sx_rx_timestamp *cqe_ts);
+    void                  (*sx_fill_poll_one_params_from_cqe_cb)(union sx_cqe         *u_cqe,
+                                                                 struct sx_cqe_params *cqe_params);
     u8                      (*sx_get_cqe_owner_cb)(struct sx_cq *cq, int n);
     void                    (*sx_cqe_owner_init_cb)(struct sx_cq *cq);
     struct sx_rx_timestamp* cqe_ts_arr;
@@ -674,6 +705,7 @@ struct dev_specific_cb {
                                       const struct timespec *cqe_ts,
                                       struct timespec       *utc);
     int (*sx_clock_dump)(struct seq_file *m, void *v);
+    u16 (*cap_max_mtu_get_cb)(void);
 };
 struct sx_priv {
     struct sx_dev              dev;
@@ -922,7 +954,7 @@ int sx_build_isx_header(struct isx_meta *meta, struct sk_buff *skb, u8 stclass);
 int sx_build_isx_header_v0(struct isx_meta *meta, struct sk_buff *skb, u8 stclass,  u8 hw_etclass);
 int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclass,  u8 hw_etclass);
 int sx_get_sdq(struct isx_meta *meta, struct sx_dev *dev, enum ku_pkt_type type, u8 swid,
-               u8 etclass, u8 *stclass, u8 *sdq, u8 *max_cpu_etclass_for_unlimited_mtu);
+               u8 etclass, u8 *stclass, u8 *sdq, u8 *max_cpu_etclass_for_unlimited_mtu, u16 *cap_max_mtu);
 
 /**
  * The following function is a wrapper for chip-specific

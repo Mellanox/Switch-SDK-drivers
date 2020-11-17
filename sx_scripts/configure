@@ -234,11 +234,13 @@ if [ ! -e ${kernel_patching_marker_file} ]; then
   	    	4.15.*)
                     	MODULES_DIR=/lib/modules/${KVERSION}/update
                     	apply_backporting_patches "4.9.0"
+                    	apply_backporting_patches "4.11.9"
                     	apply_backporting_patches "4.15.15"
             	;;
   	    	4.19.*)
                     	MODULES_DIR=/lib/modules/${KVERSION}/update
                     	apply_backporting_patches "4.9.0"
+                    	apply_backporting_patches "4.11.9"
                     	apply_backporting_patches "4.15.15"
                     	apply_backporting_patches "4.19.0"
             	;;

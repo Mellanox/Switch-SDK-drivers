@@ -142,6 +142,7 @@ struct sx_icm * sx_alloc_icm(struct sx_dev *dev, int npages, gfp_t gfp_mask, int
     INIT_LIST_HEAD(&icm->chunk_list);
 
     cur_order = get_order(SX_ICM_ALLOC_SIZE);
+    dma_set_max_seg_size(&dev->pdev->dev, PAGE_SIZE << cur_order);
 
     while (npages > 0) {
         if (!chunk) {

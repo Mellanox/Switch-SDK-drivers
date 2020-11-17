@@ -185,6 +185,9 @@ long ctrl_cmd_flush_evlist(struct file *file, unsigned int cmd, unsigned long da
 long ctrl_cmd_trap_filter_add(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_trap_filter_remove(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_trap_filter_remove_all(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_fd_attributes(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_get_fd_attributes(struct file *file, unsigned int cmd, unsigned long data);
+
 
 /* ioctl_misc.c */
 long ctrl_cmd_get_capabilities(struct file *file, unsigned int cmd, unsigned long data);

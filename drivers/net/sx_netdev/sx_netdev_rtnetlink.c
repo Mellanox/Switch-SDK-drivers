@@ -354,15 +354,6 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
     g_netdev_resources->port_allocated[port_type][net_priv->port]++;
     spin_unlock(&g_netdev_resources->rsc_lock);
 
-    /* Get operational state */
-    err = sx_netdev_oper_state_get(net_priv->dev, logical_port, &oper_state);
-    if (err) {
-        printk(KERN_INFO PFX "%s: Unable to get port state, port = %d,"
-               " is_lag = %d, err = %d\n", __func__, net_priv->port, net_priv->is_lag, err);
-        oper_state = 0;
-    }
-    net_priv->is_oper_state_up = oper_state;
-
     /* Get MAC address */
     err = sx_netdev_port_mac_get(net_priv->dev, logical_port, &mac);
     if (err) {
@@ -404,7 +395,7 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
         spin_lock(&g_netdev_resources->rsc_lock);
         g_netdev_resources->port_allocated[port_type][net_priv->port]--;
         spin_unlock(&g_netdev_resources->rsc_lock);
-        return ENXIO;
+        return -ENXIO;
     }
 
     /* Add netdev to resources db */
@@ -415,6 +406,15 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
             break;
         }
     }
+
+    /* Get operational state */
+    err = sx_netdev_oper_state_get(net_priv->dev, logical_port, &oper_state);
+    if (err) {
+        printk(KERN_INFO PFX "%s: Unable to get port state, port = %d,"
+               " is_lag = %d, err = %d\n", __func__, net_priv->port, net_priv->is_lag, err);
+        oper_state = 0;
+    }
+    net_priv->is_oper_state_up = oper_state;
 
     printk(KERN_INFO PFX "%s: exit\n", __func__);
 

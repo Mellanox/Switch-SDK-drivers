@@ -39,6 +39,8 @@
 
 CTRL_CMD_ACCESS_REG_ICSR, /**< Run access register ICSR command */
 CTRL_CMD_ACCESS_REG_IICR, /**< Run access register IICR command */
+CTRL_CMD_ACCESS_REG_FPUMS, /**< Run access register FPUMS command */
+CTRL_CMD_ACCESS_REG_SPEVET, /**< Run access register SPEVET command */
 CTRL_CMD_ACCESS_REG_IGCR, /**< Run access register IGCR command */
 CTRL_CMD_ACCESS_REG_PEMRBT, /**< Run access register PEMRBT command */
 CTRL_CMD_ACCESS_REG_PECNEE, /**< Run access register PECNEE command */
@@ -63,6 +65,7 @@ CTRL_CMD_ACCESS_REG_PMMP, /**< Run access register PMMP command */
 CTRL_CMD_ACCESS_REG_PECNRR, /**< Run access register PECNRR command */
 CTRL_CMD_ACCESS_REG_TNPC, /**< Run access register TNPC command */
 CTRL_CMD_ACCESS_REG_PECNRE, /**< Run access register PECNRE command */
+CTRL_CMD_ACCESS_REG_MOFS, /**< Run access register MOFS command */
 CTRL_CMD_ACCESS_REG_RALCM, /**< Run access register RALCM command */
 CTRL_CMD_ACCESS_REG_MGIR, /**< Run access register MGIR command */
 CTRL_CMD_ACCESS_REG_TIDEM, /**< Run access register TIDEM command */
@@ -106,6 +109,7 @@ CTRL_CMD_ACCESS_REG_SFGC, /**< Run access register SFGC command */
 CTRL_CMD_ACCESS_REG_MCION, /**< Run access register MCION command */
 CTRL_CMD_ACCESS_REG_TIQCR, /**< Run access register TIQCR command */
 CTRL_CMD_ACCESS_REG_TNCR_V2, /**< Run access register TNCR_V2 command */
+CTRL_CMD_ACCESS_REG_PCSR, /**< Run access register PCSR command */
 CTRL_CMD_ACCESS_REG_XRALST, /**< Run access register XRALST command */
 CTRL_CMD_ACCESS_REG_IDDD, /**< Run access register IDDD command */
 CTRL_CMD_ACCESS_REG_IEDR, /**< Run access register IEDR command */
@@ -123,4 +127,5 @@ CTRL_CMD_ACCESS_REG_MCC, /**< Run access register MCC command */
 CTRL_CMD_ACCESS_REG_SFDB, /**< Run access register SFDB command */
 CTRL_CMD_ACCESS_REG_PMTPS, /**< Run access register PMTPS command */
 CTRL_CMD_ACCESS_REG_RXLTCC, /**< Run access register RXLTCC command */
+CTRL_CMD_ACCESS_REG_SBHPC, /**< Run access register SBHPC command */
 CTRL_CMD_ACCESS_REG_MCDA, /**< Run access register MCDA command */

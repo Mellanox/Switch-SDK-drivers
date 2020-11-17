@@ -34,10 +34,9 @@
 
 #include "sx_bfd_event.h"
 #include <linux/sx_bfd/sx_bfd_ctrl_cmds.h>
+#include <linux/mlx_sx/kernel_user.h>
 
 #define SX_BFD_USER_PORT             3786
-#define SX_TRAP_ID_BFD_TIMEOUT_EVENT 0x20f
-#define SX_TRAP_ID_BFD_PACKET_EVENT  0x210
 
 extern int send_trap(const void    *buf,
                      const uint32_t buf_size,
@@ -119,7 +118,7 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
 
     if (send_trap(event_msg,
                   event_msg_size,
-                  SX_TRAP_ID_BFD_PACKET_EVENT, 0, 1) != 0) {
+                  SXD_TRAP_ID_BFD_PACKET_EVENT, 0, 1) != 0) {
         printk(KERN_ERR "Failed to send data trap 0x210 for session (%d).\n", session ? session->session_id : -1);
     }
 
@@ -142,7 +141,7 @@ void sx_bfd_event_send_timeout(struct sx_bfd_rx_session *session)
     /*Send the trap */
     if (send_trap(&event,
                   sizeof(struct bfd_timeout_event),
-                  SX_TRAP_ID_BFD_TIMEOUT_EVENT, 0, 1) != 0) {
+                  SXD_TRAP_ID_BFD_TIMEOUT_EVENT, 0, 1) != 0) {
         printk(KERN_ERR "Failed to send timeout trap for session_id %d and VRF %d.\n",
                session->session_id, session->vrf_id);
     }

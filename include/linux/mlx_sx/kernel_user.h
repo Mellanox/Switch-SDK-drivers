@@ -398,13 +398,15 @@ enum {
 #define MAX_LAG_MEMBERS_NUM        64
 #define MAX_NUM_TRAPS_TO_REGISTER  256
 
-#define INVALID_HW_FID_ID 0xFFFF
-#define MAX_FIDS_NUM      0x4000   /* 16K (PRM: CAP_FID) ==> it is the maximum allowed among all
+#define INVALID_HW_FID_ID   0xFFFF
+#define MAX_FIDS_NUM        0x4000 /* 16K (PRM: CAP_FID) ==> it is the maximum allowed among all
                                     *  spectrum devices but not on the specific spectrum device.
                                     *  the actual chip-specific value is fid_manager_g.max_fid. */
-
-#define MAX_RIFS_NUM        4000
+#define MAX_RIFS_NUM        8000
 #define MAX_MONITOR_RDQ_NUM 5
+
+#define KU_CAP_MAX_MTU_SPECTRUM  (10240)
+#define KU_CAP_MAX_MTU_SWITCH_IB (4222)
 
 /************************************************
  *  Enum
@@ -529,8 +531,10 @@ enum ku_ctrl_cmd {
     CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE, /**< update psample-port-sample-rate info to sx-netdev module */
     CTRL_CMD_SET_SW_IB_SWID_UP_DOWN, /**< IB swid went up or down */
     CTRL_CMD_SET_WARM_BOOT_MODE, /**< set sdk boot mode : normal, issu , ... */
+    CTRL_CMD_SET_FD_ATTRIBUTES, /**< set FD attributes: head drop, tail drop */
+    CTRL_CMD_GET_FD_ATTRIBUTES, /**< set FD attributes: head drop, tail drop */
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
-    CTRL_CMD_MAX_VAL = CTRL_CMD_SET_WARM_BOOT_MODE /**< Maximum enum value */
+    CTRL_CMD_MAX_VAL = CTRL_CMD_GET_FD_ATTRIBUTES /**< Maximum enum value */
 #ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
                        CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
 #endif /* SW_PUDE_EMULATION */
@@ -938,6 +942,20 @@ typedef enum sxd_nve_tunnel_type {
     SXD_NVE_TUNNEL_TYPE_NVGRE = (1 << 3),
 } sxd_nve_tunnel_type_t;
 
+enum ku_queue_type {
+    KU_QUEUE_TYPE_TAIL_DROP = 0,    /**< Head Drop */
+    KU_QUEUE_TYPE_HEAD_DROP = 1,  /**< Tail Drop */
+    KU_QUEUE_TYPE_MIN = KU_QUEUE_TYPE_TAIL_DROP,         /**< Minimum enum value */
+    KU_QUEUE_TYPE_MAX = KU_QUEUE_TYPE_HEAD_DROP         /**< Maximum enum value */
+};
+
+/**
+ * ku_fd_attributes is used to store the data of the fd_attributes_set ioctl
+ */
+struct ku_fd_attributes_data {
+    enum ku_queue_type queue_type;
+};
+
 /**
  * Counter Set.
  */
@@ -1060,9 +1078,11 @@ typedef enum sxd_chip_types {
     SXD_CHIP_TYPE_SPECTRUM2 = 9,
     SXD_CHIP_TYPE_QUANTUM = 10,
     SXD_CHIP_TYPE_SPECTRUM3 = 11,
-    SXD_CHIP_TYPES_MAX,
+    SXD_CHIP_TYPE_QUANTUM2 = 12,
+    SXD_CHIP_TYPE_SPECTRUM4 = 13,
+    SXD_CHIP_TYPES_MAX = SXD_CHIP_TYPE_SPECTRUM4,        /*SPC4 does not support FW dump me */
     /* Do not change this value, it can break ISSU !*/
-    SXD_CHIP_TYPES_MAX_ISSU = SXD_CHIP_TYPE_SPECTRUM3
+    SXD_CHIP_TYPES_MAX_ISSU = SXD_CHIP_TYPE_SPECTRUM3 /* need to check this !!! */
 } sxd_chip_types_t;
 
 /**
@@ -1199,6 +1219,7 @@ struct ku_read {
     uint32_t                                         mirror_lantency;
     uint8_t                                          timestamp_type;
     uint8_t                                          dev_id; /**< device id from which this was received */
+    uint8_t                                          channel_experienced_drop; /**< The channel experienced a drop due to overflow */
 };
 
 /**
@@ -1756,6 +1777,7 @@ enum fdb_flush_type {
 struct ku_sfdf_reg {
     uint8_t             swid; /** swid - Switch partition ID */
     enum fdb_flush_type flush_type; /** flush_type - Flush type */
+    uint8_t             imdu; /** imdu - ignore multicast with uc dmac */
     uint8_t             iut; /** iut - ignore unicast tunnel */
     uint8_t             st; /** st - delete static entries */
     uint16_t            fid; /** fid - FDB ID */
@@ -3923,6 +3945,7 @@ typedef enum sxd_custom_bytes_flex_action_field_select {
 
     SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_FID_E = 51,
     SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VRID_E = 52,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_PORT_USER_MEM_E = 54,
 
     SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_TYPE_LAST_E,
 } sxd_custom_bytes_flex_action_field_select_t;
@@ -4114,14 +4137,18 @@ typedef struct ku_pefa_reg {
 #define SXD_ACL_EXTRACTION_POINT_MPLS_PAYLOAD       0x13
 #define SXD_ACL_EXTRACTION_POINT_ROCE_GRH_HEADER    0x14
 #define SXD_ACL_EXTRACTION_POINT_GRE_PAYLOLAD       0x1A
+#define SXD_ACL_EXTRACTION_POINT_UDP_HEADER         0x24
 #define SXD_ACL_EXTRACTION_POINT_UDP_PAYLOAD        0x25
+#define SXD_ACL_EXTRACTION_POINT_TCP_HEADER         0x26
 #define SXD_ACL_EXTRACTION_POINT_INNER_MAC_HEADER   0x27
 #define SXD_ACL_EXTRACTION_POINT_INNER_ETHER_TYPE   0x28
 #define SXD_ACL_EXTRACTION_POINT_INNER_IPV4_HEADER  0x29
 #define SXD_ACL_EXTRACTION_POINT_INNER_IPV4_PAYLOAD 0x2A
 #define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_HEADER  0x2D
 #define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_PAYLOAD 0x2E
+#define SXD_ACL_EXTRACTION_POINT_INNER_UDP_HEADER   0x39
 #define SXD_ACL_EXTRACTION_POINT_INNER_UDP_PAYLOAD  0x3A
+#define SXD_ACL_EXTRACTION_POINT_INNER_TCP_HEADER   0x3B
 
 typedef struct sxd_flex_extraction_point {
     uint8_t enable;
@@ -5683,8 +5710,10 @@ struct ku_pmlp_reg {
 #define SXD_MGIR_HW_DEV_ID_SPECTRUM    0xcb84
 #define SXD_MGIR_HW_DEV_ID_SWITCH_IB2  0xcf08
 #define SXD_MGIR_HW_DEV_ID_QUANTUM     0xd2f0
+#define SXD_MGIR_HW_DEV_ID_QUANTUM2    0xd2f2
 #define SXD_MGIR_HW_DEV_ID_SPECTRUM2   0xcf6c
 #define SXD_MGIR_HW_DEV_ID_SPECTRUM3   0xcf70
+#define SXD_MGIR_HW_DEV_ID_SPECTRUM4   0xcf80
 #define SXD_MGIR_HW_REV_ID_A0          0xA0
 #define SXD_MGIR_HW_REV_ID_A1          0xA1
 #define SXD_MGIR_HW_REV_ID_A2          0xA2
@@ -6297,6 +6326,15 @@ typedef enum sxd_mfgd_fatal_mode {
     SXD_MFGD_MODE_FW_FATAL_N_HALT_E = 2,     /* If fatal cause is found by the FW MFDE event is sent and FW halt */
 } sxd_mfgd_mode_t;
 
+typedef enum sxd_mfgd_test {
+    SXD_MFGD_TEST_NONE_E = 0,
+    SXD_MFGD_TEST_TRIGGER_TEST_E = 1,        /* trigger FW fatal event */
+    SXD_MFGD_TEST_TRIGGER_TEST_STORM_E = 2, /* trigger test storm */
+    SXD_MFGD_TEST_ASSERT_E = 4,             /* trigger FW assert */
+    SXD_MFGD_TEST_TILE_ASSERT_E = 8,             /* trigger FW assert */
+} sxd_mfgd_test_t;
+
+
 /**
  * ku_mfgd_reg structure is used to store the MFGD register parameters
  */
@@ -6306,8 +6344,7 @@ struct ku_mfgd_reg {
     sxd_boolean_t   fw_kvc_en;       /* default 1 */
     sxd_boolean_t   tcr_dbg_en;       /* default 0 */
     sxd_boolean_t   trigger_stack_overflow;       /* default 0 */
-    sxd_boolean_t   trigger_test;       /* default 0 */
-    sxd_boolean_t   trigger_test_storm;       /* default 0 */
+    sxd_mfgd_test_t fw_fatal_event_test;       /* default 0 */
     sxd_mfgd_mode_t fw_fatal_mode;       /* default 0 */
     sxd_boolean_t   atcam_bf_en;       /* default 1 */
     uint16_t        egress_en;       /* default 1 */
@@ -6345,6 +6382,7 @@ typedef enum sxd_mfde_command_type {
     EVENT_ID(SXD_MFDE_EVENT_ID_CR_TIMEOUT, = 1, "FW CR space timeout") \
     EVENT_ID(SXD_MFDE_EVENT_ID_KVD_STOPPED, = 2, "FW KVD stopped")     \
     EVENT_ID(SXD_MFDE_EVENT_ID_TEST, = 3, "FW test event")             \
+    EVENT_ID(SXD_MFDE_EVENT_ID_FW_ASSERT, = 4, "FW assert event")      \
     EVENT_ID(SXD_MFDE_EVENT_ID_LAST, = 255, "FW last cause")           \
 
 typedef enum sxd_mfde_event_id {
@@ -6370,6 +6408,17 @@ struct ku_mfde_reg {
             uint32_t address;       /* cr space address accessed, which resulted in timeout */
             uint8_t  log_id;           /* which IRISC triggered the timeout*/
         } cr_timeout;
+        struct fw_assert {
+            uint32_t assert_var0;
+            uint32_t assert_var1;
+            uint32_t assert_var2;
+            uint32_t assert_var3;
+            uint32_t assert_var4;
+            uint32_t assert_existptr;
+            uint32_t assert_callra;
+            uint8_t  tile;
+            uint16_t ext_synd;
+        } fw_assert;
     } event_params; /**< layout according to event_id (example sx_dbg_mfde_cr_timout_t)*/
 };
 
@@ -6678,6 +6727,7 @@ struct ku_pbmc_reg {
     uint16_t           xof_refresh; /**< xof_refresh - The time before a new Pause frame should be sent to refresh the Pause state. Using the same units as xof_timer_value above. */
     uint16_t           port_buffer_size; /**< port_buffer_size - Total packet buffer array available for the port. The sum of buffer array allocated to bufferX must not exceed port_buffer_size. */
     struct ku_pbrl_reg buffer[10]; /**< buffer - Configuring per-buffer parameters */
+    struct ku_pbrl_reg shared_headroom_pool; /**< shared_headroom_pool - Port's shared headroom pool usage */
     struct ku_pbrl_reg port_shared_buffer; /**< port_shared_buffer - Configuring port shared buffer parameters. Using the same layout as in BufferX */
 };
 
@@ -6698,6 +6748,7 @@ struct ku_pbsr_reg {
     uint8_t             clear_wm; /**< Clear watermark for all PGs */
     uint16_t            used_shared_headroom_buffer; /**< Number of currently used shared headroom buffer lines */
     struct ku_pbsr_stat stat_buffer[SXD_EMAD_PBSR_BUFFER_NUM]; /**< Status per buffer */
+    struct ku_pbsr_stat stat_shared_headroom_pool; /**< Status per Shared headroom pool */
 };
 
 /**
@@ -8262,6 +8313,8 @@ struct ku_get_counters {
     uint64_t __attribute__((aligned(8))) trap_id_packet[NUM_HW_SYNDROMES]; /**< number of packet received for a trap_id */
     uint64_t __attribute__((aligned(8))) trap_id_byte[NUM_HW_SYNDROMES];   /**< number of bytes received for a trap_id  */
     uint64_t __attribute__((aligned(8))) trap_id_events[NUM_HW_SYNDROMES]; /**< number of events received for a trap_id */
+    uint64_t __attribute__((aligned(8))) trap_id_drops[NUM_HW_SYNDROMES]; /**< number of drops for a trap_id */
+
 
     /* per-rdq counter */
     uint64_t __attribute__((aligned(8))) trap_group_packet[NUMBER_OF_RDQS]; /**< number of packet received for a trap group */
@@ -9605,6 +9658,7 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V2_LEAVE = 0x33,
     SXD_TRAP_ID_ETH_L2_UDLD = 0x18,
     SXD_TRAP_ID_ETH_L2_DHCP = 0x19,
+    SXD_TRAP_ID_ETH_L2_DHCPV6 = 0x1A,
     SXD_TRAP_ID_ETH_CONF_TYPE0 = 0x35,
     SXD_TRAP_ID_ETH_CONF_TYPE1 = 0x36,
     SXD_TRAP_ID_ETH_L2_PKT_SAMPLE = 0x38,
@@ -9825,31 +9879,6 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_DISCARD_MC_SCOPE_IPV6_0 = 0x1B0,
     SXD_TRAP_ID_DISCARD_MC_SCOPE_IPV6_1 = 0x1B1,
 
-    /* SW Generated Events */
-    SXD_TRAP_ID_SIGNAL = 0x200,
-    SXD_TRAP_ID_NEW_DEVICE_ADD = 0x201,                  /**< device add event */
-    SXD_TRAP_ID_MAC_LEARNING_EVENT = 0x202,              /**< mac learning event */
-    SXD_TRAP_ID_MAC_AGING_EVENT = 0x203,                 /**< mac aging event */
-    SXD_TRAP_ID_NEED_TO_RESOLVE_ARP = 0x204,             /**< need to resolve ARP  */
-    SXD_TRAP_ID_NO_NEED_TO_RESOLVE_ARP = 0x205,          /**< no need to resolve ARP  */
-    SXD_TRAP_ID_FDB_EVENT = 0x206,                       /**< FDB event */
-    SXD_TRAP_ID_RM_SDK_TABLE_THRESHOLD_EVENT = 0x207,
-    SXD_TRAP_ID_RM_HW_TABLE_THRESHOLD_EVENT = 0x208,
-    SXD_TRAP_ID_FDB_SRC_MISS = 0x209,                    /**< FDB SRC MISS trap */
-    SXD_TRAP_ID_ROUTER_NEIGH_ACTIVITY = 0x20a,
-    SXD_TRAP_ID_ASYNC_API_COMPLETE_EVENT = 0x20b,
-    SXD_TRAP_ID_ROUTER_MC_ACTIVITY = 0x20c,              /**< router mc activity */
-    SXD_TRAP_ID_FDB_IP_ADDR_ACTIVITY = 0x20d,
-    SXD_TRAP_ID_TRANSACTION_ERROR = 0x20e,
-    SXD_TRAP_ID_BFD_TIMEOUT_EVENT = 0x20f,
-    SXD_TRAP_ID_BFD_PACKET_EVENT = 0x210,
-    SXD_TRAP_ID_OBJECT_DELETED_EVENT = 0x211,
-    SXD_TRAP_ID_SDK_HEALTH_EVENT = 0x212,
-    SXD_TRAP_ID_PORT_ADDED = 0x231,
-    SXD_TRAP_ID_PORT_DELETED = 0x232,
-    SXD_TRAP_ID_PORT_ADDED_TO_LAG = 0x233,
-    SXD_TRAP_ID_PORT_REMOVED_FROM_LAG = 0x234,
-
     /* User defined trap ID */
     SXD_TRAP_ID_IP2ME_CUSTOM0 = 0xc0,
     SXD_TRAP_ID_IP2ME_CUSTOM1 = 0xc1,
@@ -9871,8 +9900,35 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_CONFT_SWITCH_DEC2 = 0x272,
     SXD_TRAP_ID_CONFT_SWITCH_DEC3 = 0x273,
 
+
+    /* SW Generated Events */
+    SXD_TRAP_ID_SIGNAL = 0x400,
+    SXD_TRAP_ID_NEW_DEVICE_ADD = 0x401,                  /**< device add event */
+    SXD_TRAP_ID_MAC_LEARNING_EVENT = 0x402,              /**< mac learning event */
+    SXD_TRAP_ID_MAC_AGING_EVENT = 0x403,                 /**< mac aging event */
+    SXD_TRAP_ID_NEED_TO_RESOLVE_ARP = 0x404,             /**< need to resolve ARP  */
+    SXD_TRAP_ID_NO_NEED_TO_RESOLVE_ARP = 0x405,          /**< no need to resolve ARP  */
+    SXD_TRAP_ID_FDB_EVENT = 0x406,                       /**< FDB event */
+    SXD_TRAP_ID_RM_SDK_TABLE_THRESHOLD_EVENT = 0x407,
+    SXD_TRAP_ID_RM_HW_TABLE_THRESHOLD_EVENT = 0x408,
+    SXD_TRAP_ID_FDB_SRC_MISS = 0x409,                    /**< FDB SRC MISS trap */
+    SXD_TRAP_ID_ROUTER_NEIGH_ACTIVITY = 0x40a,
+    SXD_TRAP_ID_ASYNC_API_COMPLETE_EVENT = 0x40b,
+    SXD_TRAP_ID_ROUTER_MC_ACTIVITY = 0x40c,              /**< router mc activity */
+    SXD_TRAP_ID_FDB_IP_ADDR_ACTIVITY = 0x40d,
+    SXD_TRAP_ID_TRANSACTION_ERROR = 0x40e,
+    SXD_TRAP_ID_BFD_TIMEOUT_EVENT = 0x40f,
+    SXD_TRAP_ID_BFD_PACKET_EVENT = 0x410,
+    SXD_TRAP_ID_OBJECT_DELETED_EVENT = 0x411,
+    SXD_TRAP_ID_SDK_HEALTH_EVENT = 0x412,
+    SXD_TRAP_ID_API_LOGGER_EVENT = 0x413,
+    SXD_TRAP_ID_PORT_ADDED = 0x431,
+    SXD_TRAP_ID_PORT_DELETED = 0x432,
+    SXD_TRAP_ID_PORT_ADDED_TO_LAG = 0x433,
+    SXD_TRAP_ID_PORT_REMOVED_FROM_LAG = 0x434,
+
     SXD_TRAP_ID_MIN = SXD_TRAP_ID_GENERAL_FDB,
-    SXD_TRAP_ID_MAX = SXD_TRAP_ID_CONFT_SWITCH_DEC3,
+    SXD_TRAP_ID_MAX = SXD_TRAP_ID_PORT_REMOVED_FROM_LAG,
 } sxd_trap_id_t;
 
 /**
@@ -9896,8 +9952,8 @@ typedef enum sxd_health_severity {
     SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW, , "FW health issue")                                        \
     SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_GO_BIT, , "go bit not cleared")                                 \
     SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_NO_CMDIFC_COMPLETION, , "command interface completion timeout") \
-    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW_TIMEOUT, , "timeout in FW response")                         \
-
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_EMAD_TIMEOUT, , "EMAD completion timeout")                      \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_CATAS, , "HW catastrophic event")                               \
 /**
  * sx_health_cause_t is used to distinguish between different SDK health event causes
  */
@@ -9907,7 +9963,7 @@ typedef enum sxd_health_event_cause {
 
 /**
  * This event is generated by the SDK to notify the user that an SDK monitored event has occurred
- * Supported devices: Pelican, Eagle, Spectrum, Spectrum2, Quantum…
+ * Supported devices: Pelican, Eagle, Spectrum, Spectrum2, Quantum
  *
  */
 typedef struct sxd_event_health_notification {

@@ -1143,7 +1143,8 @@ int sx_get_sdq(struct isx_meta *meta,
                u8               etclass,
                u8              *stclass,
                u8              *sdq,
-               u8              *max_cpu_etclass_for_unlimited_mtu)
+               u8              *max_cpu_etclass_for_unlimited_mtu,
+               u16             *cap_max_mtu_p)
 {
     u8  hw_etclass = 0;
     int ret = 0;
@@ -1172,14 +1173,24 @@ int sx_get_sdq(struct isx_meta *meta,
         *max_cpu_etclass_for_unlimited_mtu = 1; /* default */
     }
 
+    if (sx_priv(dev)->dev_specific_cb.cap_max_mtu_get_cb != NULL) {
+        *cap_max_mtu_p = sx_priv(dev)->dev_specific_cb.cap_max_mtu_get_cb();
+    } else {
+        PRINTK_ERR("Error retrieving cap_max_mtu_get_cb callback structure!\n");
+        ret = -EINVAL;
+        goto out;
+    }
+
     if (sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb(dev, type, swid,
                                                     etclass, stclass, sdq);
     } else {
         PRINTK_ERR("Error retrieving sx_get_sdq_cb callback structure!\n");
         ret = -EINVAL;
+        goto out;
     }
 
+out:
     __sx_core_dev_specific_cb_release_reference(dev);
 
     return ret;
@@ -2186,6 +2197,7 @@ static int __cr_pcie_access(int              dev_id,
         }
         break;
 
+    /* coverity[dead_error_begin] */
     default:
         printk(KERN_ERR PFX "__cr_pcie_access: Can't access CR space "
                "of device %u because access method %d is invalid\n", dev_id, access_method);

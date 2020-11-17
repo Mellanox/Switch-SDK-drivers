@@ -101,6 +101,7 @@ static const char sx_version[] =
 
 #define SX_CORE_PHY_PORT_NUM_MAX                64
 #define SX_CORE_PHY_PORT_NUM_QUANTUM_MAX        80
+#define SX_CORE_PHY_PORT_NUM_QUANTUM2_MAX       128
 #define SX_CORE_PHY_PORT_NUM_SPECTRUM2_MAX      128
 #define SX_CORE_LAG_NUM_MAX                     64
 #define SX_CORE_LAG_NUM_SPECTRUM2_MAX           128
@@ -396,6 +397,14 @@ static inline void SX_CORE_REGISTER_FILTER_BITMASK_SET(u64 *arr, u32 num, int se
     } else {
         (arr)[idx] &= ~(bit);
     }
+}
+
+static inline int SX_CORE_REGISTER_FILTER_BIT_IS_SET(u64 *arr, u32 num)
+{
+    int idx = (num) / 64;
+    u64 bit = (1ULL << ((num) % 64));
+
+    return ((arr)[idx] & (bit));
 }
 
 static inline void SX_CORE_REGISTER_FILTER_BITMASK_SET_ALL_ZERO(
@@ -1656,6 +1665,7 @@ void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p, struct event_data 
     metadata_p->mirror_lantency = edata_p->mirror_lantency;
     metadata_p->mirror_tclass = edata_p->mirror_tclass;
     metadata_p->dev_id = edata_p->dev_id;
+    metadata_p->channel_experienced_drop = edata_p->channel_experienced_drop;
 }
 
 
@@ -2034,6 +2044,55 @@ static void listener_register_filter_entry_update(u8                            
     }
 }
 
+static int __sx_core_port_vlan_listener_exist(struct ku_port_vlan_params *port_vlan,
+                                              struct listener_entry      *listener,
+                                              u8                          is_register)
+{
+    if (is_register) {
+        switch (port_vlan->port_vlan_type) {
+        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+            return listener->listener_register_filter.is_global_register;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.ports_registers,
+                                                      port_vlan->sysport);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.vlans_registers,
+                                                      port_vlan->vlan);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.lags_registers,
+                                                      port_vlan->lag_id);
+
+        default:
+            break;
+        }
+    } else { /* filter */
+        switch (port_vlan->port_vlan_type) {
+        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+            return listener->listener_register_filter.is_global_filter;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.ports_filters,
+                                                      port_vlan->sysport);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.vlans_filters,
+                                                      port_vlan->vlan);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.lags_filters,
+                                                      port_vlan->lag_id);
+
+        default:
+            break;
+        }
+    }
+
+    return 0;
+}
+
 /**
  * Create new listener with the given swid,type,critireas and add it to an entry
  * in sx device listeners data-base when the entry is according to the hw_synd
@@ -2070,7 +2129,7 @@ int sx_core_add_synd(u8                          swid,
     unsigned long               flags;
     struct listener_entry      *listener = NULL;
     struct listener_entry      *new_listener = NULL;
-    unsigned int                found_same_listener = 0;
+    unsigned int                found_same_listener = 0, found_same_port_vlan_listener = 0;
     struct list_head           *pos;
     struct ku_port_vlan_params  tmp_port_vlan;
     struct ku_port_vlan_params *port_vlan_p;
@@ -2112,7 +2171,15 @@ int sx_core_add_synd(u8                          swid,
         list_for_each(pos, &sx_glb.listeners_rf_db[hw_synd].list) {
             listener = list_entry(pos, struct listener_entry, list);
             if (is_same_listener(swid, type, is_default, crit, context, listener,
-                                 handler) && (check_dup == CHECK_DUP_ENABLED_E)) {
+                                 handler)) {
+                found_same_port_vlan_listener = __sx_core_port_vlan_listener_exist(port_vlan,
+                                                                                   listener,
+                                                                                   is_register);
+                if ((check_dup == CHECK_DUP_ENABLED_E) &&
+                    found_same_port_vlan_listener) {
+                    kfree(new_listener);
+                    goto out;
+                }
                 found_same_listener = 1;
                 kfree(new_listener);
                 break;
@@ -2129,7 +2196,9 @@ int sx_core_add_synd(u8                          swid,
         }
         listener = new_listener;
     }
+    /* TODO : if found same listener and same port vlan listener register twice */
     listener_register_filter_entry_update(is_register, port_vlan_p, &(listener->listener_register_filter), 1);
+out:
     spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
 
     return 0;
@@ -2806,6 +2875,16 @@ static u8 max_cpu_etclass_for_unlimited_mtu_spectrum(void)
     return 3; /* PRM 2.8.1 "Egress Traffic Class Allocation" */
 }
 
+static u16 cap_max_mtu_get_sib(void)
+{
+    return KU_CAP_MAX_MTU_SWITCH_IB;
+}
+
+static u16 cap_max_mtu_get_spectrum(void)
+{
+    return KU_CAP_MAX_MTU_SPECTRUM;
+}
+
 static void sx_set_device_profile_update_cqe_v0(struct ku_profile           * profile,
                                                 struct profile_driver_params *driver_params)
 {
@@ -2854,6 +2933,16 @@ static int sx_get_phy_port_max_quantum(uint16_t *port)
     return 0;
 }
 
+static int sx_get_phy_port_max_quantum2(uint16_t *port)
+{
+    if (port) {
+        *port = SX_CORE_PHY_PORT_NUM_QUANTUM2_MAX;  /* maximum number of physical ports for Quantum2 per PRM */
+    } else {
+        printk(KERN_ERR PFX "port is NULL\n");
+        return -EINVAL;
+    }
+    return 0;
+}
 static int sx_get_phy_port_max_spectrum2(uint16_t *port)
 {
     if (port) {
@@ -2987,6 +3076,7 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .sx_clock_cleanup = NULL,
     .sx_clock_cqe_ts_to_utc = NULL,
     .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_sx_a2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl,
@@ -3020,7 +3110,8 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .sx_clock_init = NULL,
     .sx_clock_cleanup = NULL,
     .sx_clock_cqe_ts_to_utc = NULL,
-    .sx_clock_dump = NULL
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_pelican = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3054,7 +3145,8 @@ struct dev_specific_cb spec_cb_pelican = {
     .sx_clock_init = NULL,
     .sx_clock_cleanup = NULL,
     .sx_clock_cqe_ts_to_utc = NULL,
-    .sx_clock_dump = NULL
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_sib,
 };
 struct dev_specific_cb spec_cb_quantum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3088,7 +3180,42 @@ struct dev_specific_cb spec_cb_quantum = {
     .sx_clock_init = NULL,
     .sx_clock_cleanup = NULL,
     .sx_clock_cqe_ts_to_utc = NULL,
-    .sx_clock_dump = NULL
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_sib,
+};
+struct dev_specific_cb spec_cb_quantum2 = {
+    .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
+    .sx_build_isx_header_cb = sx_build_isx_header_v0,
+    .max_cpu_etclass_for_unlimited_mtu = NULL,
+    .sx_get_sdq_cb = sx_get_sdq_from_profile,
+    .sx_get_sdq_num_cb = sx_get_sdq_num_from_profile,
+    .get_send_to_port_as_data_supported_cb = sx_core_get_send_to_port_as_data_supported,
+    .get_rp_vid_cb = get_rp_vid_from_db,
+    .get_swid_cb = get_swid_from_db,
+    .get_lag_mid_cb = NULL,
+    .get_ib_system_port_mid = get_ib_system_port_mid,
+    .sx_ptp_init = NULL,
+    .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
+    .sx_init_cq_db_cb = sx_init_cq_db_v0,
+    .sx_printk_cqe_cb = sx_printk_cqe_v0,
+    .is_sw_rate_limiter_supported = sw_rate_limiter_supported,
+    .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v0,
+    .sx_fill_params_from_cqe_cb = sx_fill_params_from_cqe_v0,
+    .sx_disconnect_all_trap_groups_cb = NULL,
+    .sx_get_phy_port_max_cb = sx_get_phy_port_max_quantum2,
+    .sx_get_lag_max_cb = sx_get_lag_max,
+    .sx_get_rdq_max_cb = sx_get_rdq_max,
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_sib,
 };
 struct dev_specific_cb spec_cb_spectrum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3122,7 +3249,8 @@ struct dev_specific_cb spec_cb_spectrum = {
     .sx_clock_init = sx_clock_init_spc1,
     .sx_clock_cleanup = sx_clock_cleanup_spc1,
     .sx_clock_cqe_ts_to_utc = NULL,
-    .sx_clock_dump = sx_clock_dump_spc1
+    .sx_clock_dump = sx_clock_dump_spc1,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_spectrum2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3156,7 +3284,8 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .sx_clock_init = sx_clock_init_spc2,
     .sx_clock_cleanup = sx_clock_cleanup_spc2,
     .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
-    .sx_clock_dump = sx_clock_dump_spc2
+    .sx_clock_dump = sx_clock_dump_spc2,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_spectrum3 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3190,7 +3319,42 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .sx_clock_init = sx_clock_init_spc2,
     .sx_clock_cleanup = sx_clock_cleanup_spc2,
     .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
-    .sx_clock_dump = sx_clock_dump_spc2
+    .sx_clock_dump = sx_clock_dump_spc2,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
+};
+struct dev_specific_cb spec_cb_spectrum4 = {
+    .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
+    .sx_build_isx_header_cb = sx_build_isx_header_v1,
+    .max_cpu_etclass_for_unlimited_mtu = max_cpu_etclass_for_unlimited_mtu_spectrum,
+    .sx_get_sdq_cb = sx_get_sdq_per_traffic_type,
+    .sx_get_sdq_num_cb = sx_get_sdq_num_per_etclasss,
+    .get_send_to_port_as_data_supported_cb = sx_core_get_send_to_port_as_data_supported_spectrum,
+    .get_rp_vid_cb = get_rp_vid_from_ci,
+    .get_swid_cb = get_swid_from_ci,
+    .get_lag_mid_cb = sdk_get_lag_mid,
+    .get_ib_system_port_mid = NULL,
+    .sx_ptp_init = sx_ptp_init_spc2,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc2,
+    .sx_ptp_dump = sx_ptp_dump_spc2,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
+    .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
+    .sx_init_cq_db_cb = sx_init_cq_db_v2,
+    .sx_printk_cqe_cb = sx_printk_cqe_v2,
+    .is_sw_rate_limiter_supported = NULL,
+    .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
+    .sx_fill_params_from_cqe_cb = sx_fill_params_from_cqe_v2,
+    .sx_disconnect_all_trap_groups_cb = sx_disconnect_all_trap_groups_spectrum,
+    .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
+    .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
+    .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_cleanup = sx_clock_cleanup_spc2,
+    .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
+    .sx_clock_dump = sx_clock_dump_spc2,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 
 int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_type, bool force)
@@ -3236,6 +3400,11 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
         sx_priv(dev)->dev_specific_cb = spec_cb_quantum;
         break;
 
+    case SXD_CHIP_TYPE_QUANTUM2:
+        /* for quantum2 add specific cb */
+        sx_priv(dev)->dev_specific_cb = spec_cb_quantum2;
+        break;
+
     case SXD_CHIP_TYPE_SPECTRUM:
     case SXD_CHIP_TYPE_SPECTRUM_A1:
         /* for condor add specific cb */
@@ -3250,6 +3419,11 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
     case SXD_CHIP_TYPE_SPECTRUM3:
         /* for spectrum3 add specific cb */
         sx_priv(dev)->dev_specific_cb = spec_cb_spectrum3;
+        break;
+
+    case SXD_CHIP_TYPE_SPECTRUM4:
+        /* for spectrum4 add specific cb */
+        sx_priv(dev)->dev_specific_cb = spec_cb_spectrum4;
         break;
 
     default:
@@ -3453,6 +3627,8 @@ static int sx_core_open(struct inode *inode, struct file *filp)
     init_waitqueue_head(&file->poll_wait);
     atomic_set(&file->multi_packet_read_enable, false);
     atomic_set(&file->read_blocking_state, true);
+    file->queue_type = KU_QUEUE_TYPE_TAIL_DROP;
+    file->channel_experienced_drop = false;
     sema_init(&file->write_sem, SX_WRITE_LIMIT);
     file->owner = filp;
     filp->private_data = file; /* connect the fd with its resources */
@@ -4030,12 +4206,20 @@ static int sx_core_init_cb(struct sx_dev *dev, uint16_t device_id, uint16_t devi
         chip_type = SXD_CHIP_TYPE_QUANTUM;
         break;
 
+    case SXD_MGIR_HW_DEV_ID_QUANTUM2:
+        chip_type = SXD_CHIP_TYPE_QUANTUM2;
+        break;
+
     case SXD_MGIR_HW_DEV_ID_SPECTRUM2:
         chip_type = SXD_CHIP_TYPE_SPECTRUM2;
         break;
 
     case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
         chip_type = SXD_CHIP_TYPE_SPECTRUM3;
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_SPECTRUM4:
+        chip_type = SXD_CHIP_TYPE_SPECTRUM4;
         break;
 
     default:
@@ -4892,6 +5076,9 @@ struct pci_device_id sx_pci_table[] = {
     /* Spectrum3 PCI device ID */
     { PCI_VDEVICE(MELLANOX, SPECTRUM3_PCI_DEV_ID) },
 
+    /* Spectrum4 PCI device ID */
+    { PCI_VDEVICE(MELLANOX, SPECTRUM4_PCI_DEV_ID) },
+
     /* SwitchIB PCI device ID */
     { PCI_VDEVICE(MELLANOX, SWITCH_IB_PCI_DEV_ID) },
 
@@ -4900,6 +5087,9 @@ struct pci_device_id sx_pci_table[] = {
 
     /* Quantum PCI device ID */
     { PCI_VDEVICE(MELLANOX, QUANTUM_PCI_DEV_ID) },
+
+    /* Quantum2 PCI device ID */
+    { PCI_VDEVICE(MELLANOX, QUANTUM2_PCI_DEV_ID) },
 
     { 0, }
 };

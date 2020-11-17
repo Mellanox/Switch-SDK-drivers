@@ -51,7 +51,11 @@
 
 #define SX_FULL_DQ_TOUT_MSECS       300000
 #define WAIT_FOR_COMPLETION_GC_TIME (5 * HZ)
+#ifdef INCREASED_TIMEOUT
+#define WAIT_FOR_COMPLETION_TIMEOUT (2 * WAIT_FOR_COMPLETION_GC_TIME) * 1000
+#else
 #define WAIT_FOR_COMPLETION_TIMEOUT (2 * WAIT_FOR_COMPLETION_GC_TIME)
+#endif
 
 extern struct sx_globals sx_glb;
 
@@ -417,6 +421,7 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     u8             sdqn;
     u8             stclass;
     u8             max_cpu_etclass_for_unlimited_mtu;
+    u16            cap_max_mtu = 0;
 
     if (!dev || !dev->profile_set) {
         printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
@@ -443,7 +448,8 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     }
 
     err = sx_get_sdq(meta, dev, meta->type, meta->swid,
-                     meta->etclass, &stclass, &sdqn, &max_cpu_etclass_for_unlimited_mtu);
+                     meta->etclass, &stclass, &sdqn, &max_cpu_etclass_for_unlimited_mtu,
+                     &cap_max_mtu);
 
     if (err) {
         if (printk_ratelimit()) {
@@ -481,6 +487,15 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
         }
         sx_skb_free(skb);
         return 0;
+    }
+
+    if (skb->len > cap_max_mtu) {
+        if (printk_ratelimit()) {
+            printk(KERN_WARNING PFX "%s: cannot send packet of size %u, "
+                   "larger than max MTU %u\n", __func__, skb->len, cap_max_mtu);
+        }
+        sx_skb_free(skb);
+        return -EFAULT;
     }
 
     err = sx_build_isx_header(meta, skb, stclass);

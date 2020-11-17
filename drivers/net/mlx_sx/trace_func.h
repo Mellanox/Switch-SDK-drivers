@@ -51,17 +51,12 @@
 void sx_core_call_rdq_agg_trace_point_func(struct sx_priv        *priv,
                                            int                    dqn,
                                            struct sk_buff        *skb,
-                                           uint16_t               trap_id,
-                                           uint32_t               acl_user_id,
-                                           const struct timespec *timestamp,
-                                           uint8_t                mirror_reason,
-                                           uint32_t               port);
+                                           const struct sx_cqe_params  *cqe_params_p,
+                                           const struct timespec *timestamp);
 /* filter trace point */
-int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog* bpf_prog_p,
-                                             struct sk_buff  *skb,
-                                             uint32_t         port,
-                                             uint16_t         trap_id,
-                                             uint32_t         acl_user_id);
+int sx_core_call_rdq_filter_trace_point_func(struct bpf_prog      *bpf_prog_p,
+                                             struct sk_buff       *skb,
+                                             const struct sx_cqe_params *cqe_params_p);
 #endif
 
 #endif /* SX_TRACE_FUNC_H */

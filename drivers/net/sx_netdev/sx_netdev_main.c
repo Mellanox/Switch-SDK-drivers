@@ -64,6 +64,15 @@
 #include "sx_netdev.h"
 #include "sx_psample.h"
 
+/*
+ * Local define in order to allocate skb IP aligned.
+ * In header asm/processor.h NET_IP_ALIGN is defined as 0.
+ */
+#ifdef NET_IP_ALIGN
+#undef NET_IP_ALIGN
+#endif
+#define NET_IP_ALIGN (2)
+
 MODULE_AUTHOR("Amos Hersch");
 MODULE_DESCRIPTION("Mellanox SwitchX Network Device Driver");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -177,12 +186,18 @@ static int sx_netdev_rx_apply_vlan_logic(u8               vlan_child_exist,
     struct sk_buff  *new_skb = NULL;
 
     skb_get(old_skb);
+    /*
+     * We copy old_skb to new_skb and add / edit vlan header if necessary.
+     * The new_skb is IP align.
+     */
     if ((is_tagged == VLAN_UNTAGGED_E) && vlan_child_exist) {
-        new_skb = alloc_skb(old_skb->len + 4, GFP_ATOMIC);
+        new_skb = netdev_alloc_skb(NULL, old_skb->len + 4 + NET_IP_ALIGN);
         if (!new_skb) {
             err = -ENOMEM;
             goto out;
         }
+
+        skb_reserve(new_skb, NET_IP_ALIGN);
 
         p_skb_data = skb_put(new_skb, old_skb->len + 4);
         if (!p_skb_data) {
@@ -202,11 +217,13 @@ static int sx_netdev_rx_apply_vlan_logic(u8               vlan_child_exist,
             vhdr = (struct vlan_hdr *)(old_skb->data + ETH_HLEN);
             vhdr->h_vlan_TCI = (vhdr->h_vlan_TCI & htons(~VLAN_VID_MASK)) | htons(pvid);
         }
-        new_skb = skb_copy(old_skb, GFP_ATOMIC);
+        new_skb = netdev_alloc_skb(NULL, old_skb->len + NET_IP_ALIGN);
         if (!new_skb) {
             err = -ENOMEM;
             goto out;
         }
+        skb_reserve(new_skb, NET_IP_ALIGN);
+        memcpy(skb_put(new_skb, old_skb->len), old_skb->data, old_skb->len);
     }
 
     *new_skb_p = new_skb;
@@ -221,7 +238,7 @@ static void sx_netdev_fix_sx_skb(struct completion_info *comp_info, struct sk_bu
     struct ethhdr *eth_h = (struct ethhdr *)(skb->data);
 
 
-    if (comp_info->hw_synd == ETH_L3_MTUERROR_TRAP_ID) {
+    if (comp_info->hw_synd == SXD_TRAP_ID_ETH_L3_MTUERROR) {
         struct iphdr *ipptr;
         u32           new_checksum;
         u16           old_frag_off;
@@ -232,17 +249,19 @@ static void sx_netdev_fix_sx_skb(struct completion_info *comp_info, struct sk_bu
             ipptr = (struct iphdr *)(skb->data + ETH_HLEN);
         }
 
-        /* RFC 1624 describes how to recalculate the checksum via incremental update */
-        old_frag_off = be16_to_cpu(ipptr->frag_off); /* save old flags */
-        if (!(old_frag_off & 0x4000)) { /* If don't fragment bit is not set */
-            ipptr->frag_off = cpu_to_be16(old_frag_off | 0x4000); /* set Don't-Fragment bit */
-            /* calculate the new checksum */
-            new_checksum = (~old_frag_off & 0xffff) + (be16_to_cpu(ipptr->frag_off) & 0xffff); /* checksum' = ~m+m' */
-            new_checksum += (~be16_to_cpu(ipptr->check) & 0xffff); /* checksum' += ~checksum */
-            new_checksum = (new_checksum & 0xffff) + (new_checksum >> 16); /* Add carry if such exists */
-            ipptr->check = cpu_to_be16(~(new_checksum + (new_checksum >> 16))); /* checksum' = ~checksum' */
+        if (ipptr->version == IPVERSION) {
+            /* RFC 1624 describes how to recalculate the checksum via incremental update */
+            old_frag_off = be16_to_cpu(ipptr->frag_off); /* save old flags */
+            if (!(old_frag_off & 0x4000)) { /* If don't fragment bit is not set */
+                ipptr->frag_off = cpu_to_be16(old_frag_off | 0x4000); /* set Don't-Fragment bit */
+                /* calculate the new checksum */
+                new_checksum = (~old_frag_off & 0xffff) + (be16_to_cpu(ipptr->frag_off) & 0xffff); /* checksum' = ~m+m' */
+                new_checksum += (~be16_to_cpu(ipptr->check) & 0xffff); /* checksum' += ~checksum */
+                new_checksum = (new_checksum & 0xffff) + (new_checksum >> 16); /* Add carry if such exists */
+                ipptr->check = cpu_to_be16(~(new_checksum + (new_checksum >> 16))); /* checksum' = ~checksum' */
+            }
         }
-    } else if (comp_info->hw_synd == ETH_L3_LBERROR_TRAP_ID) {
+    } else if (comp_info->hw_synd == SXD_TRAP_ID_ETH_L3_LBERROR) {
         memcpy(eth_h->h_dest, netdev->dev_addr, netdev->addr_len);
     }
 
@@ -270,9 +289,6 @@ static void sx_netdev_handle_rx(struct completion_info *comp_info, struct net_de
     struct skb_shared_hwtstamps hwts = *skb_hwtstamps(comp_info->skb);
 
     if (!netdev) {
-        if (sx_netdev_rx_debug) {
-            printk(KERN_ERR "%s: netdev is NULL! dropping packet!\n", __func__);
-        }
         return;
     }
 
@@ -319,7 +335,16 @@ static void sx_netdev_log_port_rx_pkt(struct completion_info *comp_info, void *c
 
     port_type = comp_info->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
     for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-        sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[port_type][comp_info->sysport][i]);
+        if (g_netdev_resources->port_netdev[port_type][comp_info->sysport][i] != NULL) {
+            sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[port_type][comp_info->sysport][i]);
+        } else {
+            if (sx_netdev_rx_debug) {
+                printk(KERN_ERR "%s: %s %d index %d netdev is NULL! dropping packet!\n",
+                       __func__,
+                       comp_info->is_lag ? "lag" : "port",
+                       comp_info->sysport, i);
+            }
+        }
     }
 }
 
@@ -347,7 +372,14 @@ static void sx_netdev_phy_port_rx_pkt(struct completion_info *comp_info, void *c
     }
 
     for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
-        sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][local][i]);
+        if (g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][local][i] != NULL) {
+            sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][local][i]);
+        } else {
+            if (sx_netdev_rx_debug) {
+                printk(KERN_ERR "%s: port %d index %d netdev is NULL! dropping packet!\n",
+                       __func__, local, i);
+            }
+        }
     }
 }
 
@@ -356,7 +388,13 @@ static void sx_netdev_handle_rx_pkt(struct completion_info *comp_info, void *con
 {
     struct net_device *netdev = context;
 
-    sx_netdev_handle_rx(comp_info, netdev);
+    if (netdev != NULL) {
+        sx_netdev_handle_rx(comp_info, netdev);
+    } else {
+        if (sx_netdev_rx_debug) {
+            printk(KERN_ERR "%s: netdev is NULL! dropping packet!\n", __func__);
+        }
+    }
 }
 
 void sx_netdev_dwork_func(struct work_struct *pude_dwork)
@@ -1721,6 +1759,7 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
     int                       err = 0, i = 0;
     union ku_filter_critireas crit;
     cq_handler                netdev_callback = 0;
+    int                       synd_added = 0;
 
     if (net_priv->num_of_traps[uc_type] == MAX_NUM_TRAPS_TO_REGISTER) {
         printk(KERN_ERR PFX "%s: swid %s Too many traps\n",
@@ -1735,18 +1774,19 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
     for (i = 0; i < net_priv->num_of_traps[uc_type]; i++) {
         if (net_priv->trap_ids[uc_type][i].synd == synd) {
             printk(KERN_INFO PFX "The synd 0x%x is already added.\n", synd);
-            err = 0;
-            goto out;
+            synd_added = 1;
         }
     }
 
-    /* add trap to traps_db */
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].synd = synd;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].info_type = port_vlan->port_vlan_type;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].sysport = port_vlan->sysport;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].lag_id = port_vlan->lag_id;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].vlan = port_vlan->vlan;
-    net_priv->num_of_traps[uc_type]++;
+    if (!synd_added) {
+        /* add trap to traps_db */
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].synd = synd;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].info_type = port_vlan->port_vlan_type;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].sysport = port_vlan->sysport;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].lag_id = port_vlan->lag_id;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].vlan = port_vlan->vlan;
+        net_priv->num_of_traps[uc_type]++;
+    }
 
     /* if netdev is active (opened) than config the synd, else the synd will be added after dev open */
     if (netdev->flags & IFF_UP) {
@@ -1760,7 +1800,7 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
         /* register the listener according to the swid */
         CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0,
                                    crit, netdev_callback, netdev,
-                                   CHECK_DUP_DISABLED_E, net_priv->dev, port_vlan, is_register);
+                                   CHECK_DUP_ENABLED_E, net_priv->dev, port_vlan, is_register);
 
         if (err) {
             printk(KERN_ERR PFX "error %s, Failed registering on "
@@ -1772,7 +1812,6 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
 out:
     return err;
 }
-
 
 static int __sx_netdev_dev_synd_remove(struct net_device               *netdev,
                                        enum sx_netdev_user_channel_type uc_type,
@@ -1974,17 +2013,17 @@ static void sx_netdev_set_synd_l2(struct sx_dev       *dev,
         break;
 
     case L3_SYND_TYPE_PORT:
-        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_PORT;
         port_vlan.sysport = event_data->eth_l3_synd.port;
         break;
 
     case L3_SYND_TYPE_LAG:
-        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_LAG;
         port_vlan.lag_id = event_data->eth_l3_synd.port;
         break;
 
     case L3_SYND_TYPE_VLAN:
-        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_VLAN;
         port_vlan.vlan = event_data->eth_l3_synd.vlan;
         break;
     }

@@ -178,33 +178,6 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
 }
 
 
-int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db, sgmii_transaction_id_t tr_id)
-{
-    struct sx_core_map_info        *map_info;
-    struct sgmii_transaction_entry *entry;
-    int                             err;
-
-    spin_lock_bh(&tr_db->db_lock);
-
-    err = sx_core_map_remove(&tr_db->db_map, &tr_id, &map_info);
-    if (err) { /* transaction not found */
-        goto out;
-    }
-
-    /* if we get here, the transaction was in the map - so we know that the entry is scheduled
-     * for retransmission by __sgmii_transaction_task(). the entry will not be deallocated here.
-     * it will be marked as 'completed' and the worker thread will delete it eventually.
-     */
-    entry = container_of(map_info, struct sgmii_transaction_entry, map_info);
-    __sgmii_transaction_complete(NULL, entry, SGMII_TR_COMP_ST_TERMINATED, NULL);
-    entry->completed = 1;
-
-out:
-    spin_unlock_bh(&tr_db->db_lock);
-    return err;
-}
-
-
 int sgmii_send_transaction(struct sgmii_transaction_meta *tr_meta,
                            struct sgmii_dev              *sgmii_dev,
                            const struct isx_meta         *isx_meta,
@@ -293,12 +266,9 @@ int sgmii_send_transaction_sync(int                            dev_id,
         return err;
     }
 
-    err = wait_for_completion_interruptible(&context.completion);
-    if (err == -ERESTARTSYS) {
-        /* this will synchronously terminate the transaction and fill 'context.status'
-         *  to SGMII_TR_COMP_ST_TERMINATED */
-        sgmii_transaction_terminate(context.tr_db, context.tr_id);
-    }
+    do {
+        err = wait_for_completion_interruptible(&context.completion);
+    } while (err == -ERESTARTSYS);
 
     switch (context.status) {
     case SGMII_TR_COMP_ST_COMPLETED:
@@ -314,10 +284,6 @@ int sgmii_send_transaction_sync(int                            dev_id,
 
     case SGMII_TR_COMP_ST_TIMEDOUT:
         err = -ETIMEDOUT;
-        break;
-
-    case SGMII_TR_COMP_ST_TERMINATED:
-        err = -ERESTARTSYS;
         break;
 
     default:

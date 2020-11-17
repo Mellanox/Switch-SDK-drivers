@@ -280,7 +280,7 @@ int sgmii_send(struct sgmii_dev               *sgmii_dev,
         return -ENONET;
     }
 
-    if (tx_debug) {
+    if (tx_debug && meta) {
         printk(KERN_DEBUG PFX
                "%s: Sending pkt with meta: "
                "et: %d , swid: %d , sysport:0x%x, rdq: %d,"

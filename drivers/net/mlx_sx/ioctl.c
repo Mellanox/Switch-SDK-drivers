@@ -129,6 +129,8 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE)] = ctrl_cmd_psample_port_sample_rate_update,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_SWID_UP_DOWN)] = ctrl_cmd_set_sw_ib_up_down,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_WARM_BOOT_MODE)] = ctrl_cmd_set_warm_boot_mode,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_FD_ATTRIBUTES)] = ctrl_cmd_set_fd_attributes,
+    [IOCTL_CMD_INDEX(CTRL_CMD_GET_FD_ATTRIBUTES)] = ctrl_cmd_get_fd_attributes,
 #ifdef SW_PUDE_EMULATION
     /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
@@ -155,6 +157,7 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
     long               err = -ENOTTY;
     u8                 handler_uses_pci_restart_lock = 0;
 
+    /* coverity[unsigned_compare] */
     if ((cmd >= CTRL_CMD_MIN_VAL) && (cmd <= CTRL_CMD_MAX_VAL)) {
         handler = __ioctl_handler_table[IOCTL_CMD_INDEX(cmd)];
     } else if ((cmd >= CTRL_CMD_ACCESS_REG_MIN) && (cmd <= CTRL_CMD_ACCESS_REG_MAX)) {

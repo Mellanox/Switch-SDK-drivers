@@ -1125,6 +1125,10 @@ int sx_cmd_use_events(struct sx_dev *dev)
         return 0;
     }
 
+#if defined(PD_BU) && defined(QUANTUM2_BU)
+    return 0;
+#endif
+
     priv->cmd.context = kmalloc(priv->cmd.max_cmds *
                                 sizeof(struct sx_cmd_context), GFP_KERNEL);
     if (!priv->cmd.context) {

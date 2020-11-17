@@ -108,7 +108,7 @@ extern unsigned int       credit_thread_vals[100];
 extern unsigned long long arr_count;
 extern atomic_t           cq_backup_polling_enabled;
 extern int                debug_cq_backup_poll_cqn;
-static const char        *ku_pkt_type_str[] = {
+const char               *ku_pkt_type_str[] = {
     "SX_PKT_TYPE_ETH_CTL_UC", /**< Eth control unicast */
     "SX_PKT_TYPE_ETH_CTL_MC", /**< Eth control multicast */
     "SX_PKT_TYPE_ETH_DATA", /**< Eth data */

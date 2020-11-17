@@ -120,9 +120,10 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     struct event_data *head_edata_p = NULL;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
-    int           dqn = file->bound_monitor_rdq->dqn;
-    int           should_drop = 0;
-    unsigned long rdq_table_flags;
+    struct sx_cqe_params cqe_params = {0};
+    int                  dqn = file->bound_monitor_rdq->dqn;
+    int                  should_drop = 0;
+    unsigned long        rdq_table_flags;
 #endif
 
     skb_get(skb);
@@ -164,15 +165,20 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
 
     if (enable_monitor_rdq_trace_points) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+        cqe_params.is_lag = comp_info->is_lag;
+        cqe_params.sysport_lag_id = comp_info->sysport;
+        cqe_params.lag_subport = comp_info->lag_subport;
+        cqe_params.trap_id = comp_info->hw_synd;
+        cqe_params.mirror_reason = comp_info->mirror_reason;
+        cqe_params.user_def_val_orig_pkt_len = comp_info->user_def_val;
+
         should_drop = 0;
         if (sx_dev) {
             spin_lock_irqsave(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
             if (sx_priv(sx_dev)->filter_ebpf_progs[dqn]) {
                 should_drop = sx_core_call_rdq_filter_trace_point_func(sx_priv(sx_dev)->filter_ebpf_progs[dqn],
                                                                        skb,
-                                                                       FILTER_TP_HW_PORT(comp_info->is_lag,
-                                                                                         comp_info->sysport),
-                                                                       comp_info->hw_synd, comp_info->user_def_val);
+                                                                       &cqe_params);
             }
             spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
         }
@@ -189,18 +195,10 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
                 sx_core_call_rdq_agg_trace_point_func(sx_priv(sx_dev),
                                                       dqn,
                                                       skb,
-                                                      comp_info->hw_synd,
-                                                      comp_info->user_def_val,
-                                                      &edata->rx_timestamp.timestamp,
-                                                      comp_info->mirror_reason,
-                                                      AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
-                                                                     comp_info->sysport));
+                                                      &cqe_params,
+                                                      &edata->rx_timestamp.timestamp);
             } else {
-                sx_core_call_rdq_agg_trace_point_func(sx_priv(
-                                                          sx_dev), dqn, skb, comp_info->hw_synd, comp_info->user_def_val, NULL,
-                                                      comp_info->mirror_reason,
-                                                      AGG_TP_HW_PORT(comp_info->is_lag, comp_info->lag_subport,
-                                                                     comp_info->sysport));
+                sx_core_call_rdq_agg_trace_point_func(sx_priv(sx_dev), dqn, skb, &cqe_params, NULL);
             }
             spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
         }
@@ -471,6 +469,8 @@ static void sx_cq_handler(struct completion_info *comp_info, void *context)
     struct sx_rsc     *file = ((struct file *)(context))->private_data;
     struct sx_dev     *sx_dev = comp_info->dev;
     struct sk_buff    *skb = comp_info->skb;
+    struct event_data *head_edata = NULL;
+    unsigned short     head_trap_id;
 
     skb_get(skb);
     edata = kmalloc(sizeof(*edata), GFP_ATOMIC);
@@ -486,6 +486,7 @@ static void sx_cq_handler(struct completion_info *comp_info, void *context)
 
     /* update edata params - prepare edata according to the retrieved Completion Info */
     sx_cq_handle_event_data_prepare(edata, skb, comp_info);
+    edata->channel_experienced_drop = file->channel_experienced_drop;
 
     spin_lock_irqsave(&file->lock, flags);
 
@@ -494,17 +495,43 @@ static void sx_cq_handler(struct completion_info *comp_info, void *context)
         file->evlist_size++;
         wake_up_interruptible(&file->poll_wait);
         spin_unlock_irqrestore(&file->lock, flags);
+        file->channel_experienced_drop = false;
         goto out_ok;
-    }
+    } else {
+        if (file->queue_type == KU_QUEUE_TYPE_HEAD_DROP) {
+            list_add_tail(&edata->list, &file->evlist.list);
+            head_edata = list_first_entry(&file->evlist.list, struct event_data, list);
+            head_trap_id = head_edata->trap_id;
+            list_del(&head_edata->list);
+            kfree_skb(head_edata->skb);
+            kfree(head_edata);
+            wake_up_interruptible(&file->poll_wait);
+            spin_unlock_irqrestore(&file->lock, flags);
 
-    spin_unlock_irqrestore(&file->lock, flags);
+            if ((sx_dev != NULL) && (!sx_dev->eventlist_drops_counter)) {
+                if (printk_ratelimit()) {
+                    printk(
+                        KERN_WARNING PFX "Head drop channel: Event list is full, dropping oldest packet (trap_id=%u)\n",
+                        head_trap_id);
+                }
+            }
+            inc_eventlist_drops_counter(sx_dev, head_trap_id);
+            file->channel_experienced_drop = true;
 
-    if ((sx_dev != NULL) && (!sx_dev->eventlist_drops_counter)) {
-        if (printk_ratelimit()) {
-            printk(KERN_WARNING PFX "Event list is full, dropping RX packet (trap_id=%u)\n", comp_info->hw_synd);
+            goto out_ok;
+        } else {
+            spin_unlock_irqrestore(&file->lock, flags);
+
+            if ((sx_dev != NULL) && (!sx_dev->eventlist_drops_counter)) {
+                if (printk_ratelimit()) {
+                    printk(KERN_WARNING PFX "Tail drop channel: Event list is full, dropping RX packet (trap_id=%u)\n",
+                           comp_info->hw_synd);
+                }
+            }
+            inc_eventlist_drops_counter(sx_dev, comp_info->hw_synd);
+            file->channel_experienced_drop = true;
         }
     }
-    inc_eventlist_drops_counter(sx_dev, comp_info->hw_synd);
 
 out_free:
     kfree_skb(skb);
@@ -528,22 +555,12 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
     uint32_t               i, idx;
     struct sk_buff       * skb;
     union sx_cqe           u_cqe;
-    u8                     dqn = 0;
-    u8                     is_send = 0;
-    u8                     is_err = 0;
-    u16                    trap_id = 0;
-    u16                    byte_count = 0;
-    u16                    wqe_counter = 0;
+    struct sx_cqe_params   cqe_params = {0};
     struct sx_dq          *dq;
     uint32_t               packets_sent_to_fd_count = 0;
     uint32_t               packets_sent_to_fd_total_size = 0;
-    u32                    user_def_val_orig_pkt_len = 0;
-    u8                     is_lag = 0;
-    u8                     lag_subport = 0;
-    u16                    sysport_lag_id = 0;
     uint32_t               skb_mark_dropped_count = 0;
-    u8                     mirror_reason = 0;
-    struct sx_rx_timestamp rx_ts, cqe_ts;
+    struct sx_rx_timestamp rx_ts;
 
     mon_rx_start = bound_monitor_rdq->mon_rx_start;
     mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
@@ -577,30 +594,27 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
         }
 
         /* extract cqe from cq */
-        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-                                                &is_send, &dqn, &wqe_counter, &byte_count,
-                                                &user_def_val_orig_pkt_len, &is_lag, &lag_subport, &sysport_lag_id,
-                                                &mirror_reason, &cqe_ts);
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
 
-        if (is_send) {
+        if (cqe_params.is_send) {
             printk(KERN_ERR "%s(): Error SDQ %d was provided when only RDQ is supported.\n",
-                   __func__, dqn);
+                   __func__, cqe_params.dqn);
             err = -EINVAL;
             goto out;
         }
 
         /* ETH packet always contains CRC. Driver doesn't copy the CRC to the user ,
          * so we need to remove it from byte_count */
-        byte_count -= ETH_CRC_LENGTH;
+        cqe_params.byte_count -= ETH_CRC_LENGTH;
 
         /*
          * Calculate if there enough space in the buffer for the packet
          * Need to verify that there is enough space for ku_read , packet , last ku_read
          */
-        if (byte_count + sizeof(struct ku_read) > buf_len_list[i]) {
+        if (cqe_params.byte_count + sizeof(struct ku_read) > buf_len_list[i]) {
             /* There isn't enough space to this packet */
             printk(KERN_ERR "%s(): i=%d , not enough space %d for packet size %d \n",
-                   __func__, i, (int)buf_len_list[i], (int)(byte_count + sizeof(struct ku_read)));
+                   __func__, i, (int)buf_len_list[i], (int)(cqe_params.byte_count + sizeof(struct ku_read)));
             goto out;
         }
 
@@ -609,12 +623,12 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
                __func__, i, (int)(byte_count + sizeof(struct ku_read)), (int)buf_len_list[i]);
 #endif
 
-        dq = priv->rdq_table.dq[dqn];
+        dq = priv->rdq_table.dq[cqe_params.dqn];
         if (!dq) {
             if (printk_ratelimit()) {
                 sx_warn(cq->sx_dev, "could not find dq context for %s "
                         "dqn = %d\n",
-                        is_send ? "send" : "recv", dqn);
+                        cqe_params.is_send ? "send" : "recv", cqe_params.dqn);
             }
             goto out;
         }
@@ -647,7 +661,7 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
         }
 
         if (IS_CQ_WORKING_WITH_TIMESTAMP(cq->sx_dev, cq->cqn)) {
-            set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[idx].timestamp, &cqe_ts, &rx_ts);
+            set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[idx].timestamp, &cqe_params.cqe_ts, &rx_ts);
         } else {
             SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
         }
@@ -664,7 +678,7 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
                                        dq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
 
 
-        packets_sent_to_fd_total_size += byte_count + sizeof(struct ku_read);
+        packets_sent_to_fd_total_size += cqe_params.byte_count + sizeof(struct ku_read);
         packets_sent_to_fd_count++;
         i++;
     }
@@ -1685,15 +1699,16 @@ long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long da
     counters->fromcpu_control_byte = sx_glb.stats.tx_by_pkt_type_bytes[swid][SX_PKT_TYPE_ETH_CTL_UC] +
                                      sx_glb.stats.tx_by_pkt_type_bytes[swid][SX_PKT_TYPE_ETH_CTL_MC];
 
-    /* iterate HW trap_id (0-511) */
-    for (trap_id = 0; trap_id < NUM_HW_SYNDROMES - NUM_SW_SYNDROMES; trap_id++) { /* trap_id 0-511 (512) */
+    /* iterate HW trap_id (0-1023) */
+    for (trap_id = 0; trap_id < NUM_HW_SYNDROMES - NUM_SW_SYNDROMES; trap_id++) { /* trap_id 0-1023 (1024) */
         counters->trap_id_packet[trap_id] = sx_glb.stats.rx_by_synd[swid][trap_id];
         counters->trap_id_byte[trap_id] = sx_glb.stats.rx_by_synd_bytes[swid][trap_id];
     }
 
-    /* iterate SW trap_id-events (512-575) */
-    for (/* trap_id initialized */; trap_id < NUM_HW_SYNDROMES; trap_id++) {  /* trap_id 512-575 (64) */
+    /* iterate SW trap_id-events (1024-1088) */
+    for (/* trap_id initialized */; trap_id < NUM_HW_SYNDROMES; trap_id++) {  /* trap_id 1024-1088 (64) */
         counters->trap_id_events[trap_id] = sx_glb.stats.rx_eventlist_by_synd[trap_id];
+        counters->trap_id_drops[trap_id] = sx_glb.stats.rx_eventlist_drops_by_synd[trap_id];
     }
 
     for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
@@ -2437,6 +2452,53 @@ long ctrl_cmd_trap_filter_remove_all(struct file *file, unsigned int cmd, unsign
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
     printk(KERN_INFO PFX "Removed all ports and LAGs from the filter list "
            "of trap ID %d\n", filter_data.trap_id);
+
+out:
+    return err;
+}
+
+long ctrl_cmd_set_fd_attributes(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct sx_rsc               *rsc = file->private_data;
+    struct ku_fd_attributes_data fd_attributes_data;
+    int                          err = 0;
+    unsigned long                flags;
+
+    err = copy_from_user(&fd_attributes_data, (void*)data, sizeof(fd_attributes_data));
+    if (err) {
+        goto out;
+    }
+
+    if (fd_attributes_data.queue_type > KU_QUEUE_TYPE_MAX) {
+        printk(KERN_ERR PFX "Received Queue Type %d "
+               "is invalid\n", fd_attributes_data.queue_type);
+        err = -EINVAL;
+        goto out;
+    }
+
+    spin_lock_irqsave(&rsc->lock, flags);
+    rsc->queue_type = (int)fd_attributes_data.queue_type;
+
+    spin_unlock_irqrestore(&rsc->lock, flags);
+
+
+out:
+    return err;
+}
+
+long ctrl_cmd_get_fd_attributes(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct sx_rsc               *rsc = file->private_data;
+    struct ku_fd_attributes_data fd_attributes_data;
+    int                          err = 0;
+
+    fd_attributes_data.queue_type = rsc->queue_type;
+
+    err = copy_to_user((void*)data, &fd_attributes_data, sizeof(fd_attributes_data));
+    if (err) {
+        printk(KERN_ERR PFX "Failed to copy data to user, err = %d.\n", err);
+        goto out;
+    }
 
 out:
     return err;

@@ -170,7 +170,7 @@ static int sx_bridge_newlink(struct net *net, struct net_device *dev, struct nla
     err = sx_netdev_register_device(dev, 0, 0);
     if (err) {
         printk(KERN_INFO PFX "%s: sx_netdev_register_device() failed error - %d\n", __func__, err);
-        return ENXIO;
+        return -ENXIO;
     }
 
     bridge_netdev_db[net_priv->bridge_id - MIN_BRIDGE_ID] = dev;

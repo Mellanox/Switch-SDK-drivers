@@ -112,6 +112,49 @@ MLXSW_ITEM16(reg, iicr, clear_rifs_mask, 0x1e, 0, 16);
  */
 MLXSW_ITEM8(reg, iicr, traps_2_default, 0x23, 0, 1);
 
+/* fpums
+ * -----
+ *
+ */
+/* global
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, fpums, global, 0x0, 4, 2);
+
+/* local_port
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, fpums, local_port, 0x1, 0, 8);
+
+/* mask
+ * Access: OP
+ */
+MLXSW_ITEM8(reg, fpums, mask, 0xb, 0, 8);
+
+/* port_user_mem
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, fpums, port_user_mem, 0xf, 0, 8);
+
+/* port_mask
+ * Access: INDEX
+ */
+MLXSW_ITEM32_INDEXED(reg, fpums, port_mask, 0x10, 0, 32, 4, 0, false);
+
+/* spevet
+ * ------
+ *
+ */
+/* local_port
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, spevet, local_port, 0x1, 0, 8);
+
+/* et_vlan
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, spevet, et_vlan, 0x5, 0, 2);
+
 /* igcr
  * ----
  *
@@ -756,6 +799,11 @@ MLXSW_ITEM8(reg, mgpir, devices_per_flash, 0x1, 0, 8);
  */
 MLXSW_ITEM8(reg, mgpir, num_of_devices, 0x3, 0, 8);
 
+/* num_of_slots
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, mgpir, num_of_slots, 0x6, 0, 8);
+
 /* num_of_modules
  * Access: RO
  */
@@ -1278,6 +1326,40 @@ MLXSW_ITEM16(reg, pecnre, region_id, 0xa, 0, 16);
  * Access: RW
  */
 MLXSW_ITEM16(reg, pecnre, region_id_mask, 0xe, 0, 16);
+
+/* mofs
+ * ----
+ *
+ */
+/* type
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, mofs, type, 0x3, 0, 2);
+
+/* register_id
+ * Access: INDEX
+ */
+MLXSW_ITEM16(reg, mofs, register_id, 0x6, 0, 16);
+
+/* section_id
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, mofs, section_id, 0xa, 0, 8);
+
+/* en
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, mofs, en, 0x11, 0, 1);
+
+/* action
+ * Access: WO
+ */
+MLXSW_ITEM8(reg, mofs, action, 0x13, 0, 2);
+
+/* reg_status
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, mofs, reg_status, 0x17, 0, 2);
 
 /* ralcm
  * -----
@@ -4880,32 +4962,72 @@ MLXSW_ITEM8(reg, rlcmle, l_value, 0x7, 0, 7);
 /* dip
  * Access: INDEX
  */
-MLXSW_ITEM32_INDEXED(reg, rlcmle, dip, 0x10, 0, 32, 4, 0, false);
-
-/* dip_mask
- * Access: INDEX
- */
-MLXSW_ITEM32_INDEXED(reg, rlcmle, dip_mask, 0x20, 0, 32, 4, 0, false);
+MLXSW_ITEM32_INDEXED(reg, rlcmle, dip, 0xc, 0, 32, 4, 0, false);
 
 /* action_type
  * Access: RW
  */
-MLXSW_ITEM8(reg, rlcmle, action_type, 0x33, 0, 2);
+MLXSW_ITEM8(reg, rlcmle, action_type, 0x1f, 0, 2);
 
-/* action
+/* remote_action_trap_action
  * Access: RW
  */
-MLXSW_ITEM32_INDEXED(reg, rlcmle, action, 0x40, 0, 32, 4, 0, false);
+MLXSW_ITEM8(reg, rlcmle, remote_action_trap_action, 0x20, 4, 4);
+
+/* remote_action_trap_id
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, rlcmle, remote_action_trap_id, 0x22, 0, 9);
+
+/* remote_action_adjacency_index
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, rlcmle, remote_action_adjacency_index, 0x24, 0, 24);
+
+/* remote_action_ecmp_size
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, rlcmle, remote_action_ecmp_size, 0x2a, 0, 13);
+
+/* local_action_trap_action
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, rlcmle, local_action_trap_action, 0x20, 4, 4);
+
+/* local_action_trap_id
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, rlcmle, local_action_trap_id, 0x22, 0, 9);
+
+/* local_action_local_erif
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, rlcmle, local_action_local_erif, 0x26, 0, 16);
+
+/* ip2me_trap_action
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, rlcmle, ip2me_trap_action, 0x20, 4, 4);
+
+/* ip2me_v
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, rlcmle, ip2me_v, 0x24, 7, 1);
+
+/* ip2me_tunnel_ptr
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, rlcmle, ip2me_tunnel_ptr, 0x24, 0, 24);
 
 /* counter_set_type
  * Access: RW
  */
-MLXSW_ITEM8(reg, rlcmle, counter_set_type, 0x54, 0, 8);
+MLXSW_ITEM8(reg, rlcmle, counter_set_type, 0x34, 0, 8);
 
 /* counter_index
  * Access: RW
  */
-MLXSW_ITEM32(reg, rlcmle, counter_index, 0x54, 0, 24);
+MLXSW_ITEM32(reg, rlcmle, counter_index, 0x34, 0, 24);
 
 /* mcqi
  * ----
@@ -5525,6 +5647,25 @@ MLXSW_ITEM32(reg, tncr_v2, count_encap_discards_high, 0x30, 0, 32);
  */
 MLXSW_ITEM32(reg, tncr_v2, count_encap_discards_low, 0x34, 0, 32);
 
+/* pcsr
+ * ----
+ *
+ */
+/* gs
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, pcsr, gs, 0x0, 7, 1);
+
+/* offset
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, pcsr, offset, 0x3, 0, 4);
+
+/* port_status_mask
+ * Access: RO
+ */
+MLXSW_ITEM32_INDEXED(reg, pcsr, port_status_mask, 0x4, 0, 32, 4, 0, false);
+
 /* xralst
  * ------
  *
@@ -5865,6 +6006,16 @@ MLXSW_ITEM16_INDEXED(reg, pbsr, watermark, MLXSW_PBSR_STAT_BUFFER_BASE_LEN + 2, 
  */
 MLXSW_ITEM16_INDEXED(reg, pbsr, used_buffer, MLXSW_PBSR_STAT_BUFFER_BASE_LEN + 2, 0, 16, MLXSW_PBSR_STAT_BUFFER_REC_LEN, 4, false);
 
+/* hi
+ * Access: 
+ */
+MLXSW_ITEM32(reg, pbsr, hi, 0x5c, 0, 32);
+
+/* lo
+ * Access: 
+ */
+MLXSW_ITEM32(reg, pbsr, lo, 0x60, 0, 32);
+
 /* rxltm
  * -----
  *
@@ -6059,6 +6210,11 @@ MLXSW_ITEM8(reg, mcc, instruction, 0x3, 0, 8);
  */
 MLXSW_ITEM16(reg, mcc, component_index, 0x6, 0, 16);
 
+/* auto_update
+ * Access: WO
+ */
+MLXSW_ITEM8(reg, mcc, auto_update, 0x8, 7, 1);
+
 /* update_handle
  * Access: RW
  */
@@ -6104,10 +6260,25 @@ MLXSW_ITEM16(reg, mcc, device_index, 0x14, 0, 12);
  */
 MLXSW_ITEM8(reg, mcc, device_type, 0x17, 0, 8);
 
+/* rejected_device_index
+ * Access: RO
+ */
+MLXSW_ITEM16(reg, mcc, rejected_device_index, 0x18, 0, 12);
+
+/* device_index_size
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, mcc, device_index_size, 0x1a, 0, 12);
+
 /* sfdb
  * ----
  *
  */
+/* policy
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, sfdb, policy, 0x9, 0, 2);
+
 /* update_type
  * Access: INDEX
  */
@@ -6280,6 +6451,20 @@ MLXSW_ITEM32(reg, rxltcc, learned_ipv6_high, 0x60, 0, 32);
  * Access: RO
  */
 MLXSW_ITEM32(reg, rxltcc, learned_ipv6_low, 0x64, 0, 32);
+
+/* sbhpc
+ * -----
+ *
+ */
+/* max_buff
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, sbhpc, max_buff, 0x10, 0, 24);
+
+/* buff_occupancy
+ * Access: RO
+ */
+MLXSW_ITEM32(reg, sbhpc, buff_occupancy, 0x20, 0, 24);
 
 /* mcda
  * ----

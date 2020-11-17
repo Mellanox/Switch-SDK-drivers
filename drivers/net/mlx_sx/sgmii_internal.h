@@ -255,7 +255,6 @@ enum sgmii_transaction_completion_status {
     SGMII_TR_COMP_ST_COMPLETED,
     SGMII_TR_COMP_ST_RX_DEV_MISMATCH,
     SGMII_TR_COMP_ST_TIMEDOUT,
-    SGMII_TR_COMP_ST_TERMINATED
 };
 
 typedef uint64_t sgmii_transaction_id_t;
@@ -316,9 +315,6 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
                                        struct sk_buff              *rx_skb,
                                        sgmii_transaction_id_t       tr_id,
                                        struct sgmii_dev            *rx_dev);
-
-int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db,
-                                sgmii_transaction_id_t       tr_id);
 
 int sgmii_send_transaction(struct sgmii_transaction_meta *tr_meta,
                            struct sgmii_dev              *sgmii_dev,

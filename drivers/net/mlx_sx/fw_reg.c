@@ -4729,8 +4729,7 @@ static int __MFGD_encode(u8 *inbox, void *ku_reg, void *context)
     tmp_val_u8 = 0;
     tmp_val_u8 |= (reg->trigger_stack_overflow & 1); /* bit 8 */
     tmp_val_u8 |= (reg->fw_fatal_mode & 3) << 1; /* bits 9 & 10*/
-    tmp_val_u8 |= (reg->trigger_test & 1) << 3; /* bits 11*/
-    tmp_val_u8 |= (reg->trigger_test_storm & 1) << 4; /* bits 12*/
+    tmp_val_u8 |= (reg->fw_fatal_event_test & 0xf) << 3; /* bits 11*/
     SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B2);
     /* Byte 3  */
     tmp_val_u8 = 0;
@@ -4758,8 +4757,8 @@ static int __MFGD_decode(u8 *outbox, void *ku_reg, void *context)
     SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B2);
     reg->trigger_stack_overflow = (tmp_val_u8 >> 0) & 1;
     reg->fw_fatal_mode = (tmp_val_u8 >> 1) & 3;
-    reg->trigger_test = (tmp_val_u8 >> 3) & 1;
-    reg->trigger_test_storm = (tmp_val_u8 >> 4) & 1;
+    reg->fw_fatal_event_test = (tmp_val_u8 >> 3) & 0xf;
+
 
     tmp_val_u8 = 0;
     SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B3);

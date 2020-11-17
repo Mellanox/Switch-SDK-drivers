@@ -89,9 +89,11 @@ static int perform_dev_sw_reset(struct sx_dev *dev)
     case SPECTRUM_PCI_DEV_ID:     /* no break */
     case SPECTRUM2_PCI_DEV_ID:     /* no break */
     case SPECTRUM3_PCI_DEV_ID: /* no break */
+    case SPECTRUM4_PCI_DEV_ID: /* no break */
     case SWITCH_IB_PCI_DEV_ID:     /* no break */
     case SWITCH_IB2_PCI_DEV_ID:
     case QUANTUM_PCI_DEV_ID:
+    case QUANTUM2_PCI_DEV_ID:
         err = sdk_sx_reset(dev);
         if (err) {
             sx_err(dev, "chip reset failed, err [%d]. Running legacy reset.\n", err);
@@ -179,7 +181,7 @@ static int __wait_for_system_ready(struct sx_dev *dev, u32 wait_for_reset_msec, 
             break;
         }
 
-        cond_resched();
+        msleep(1);
     } while (time_before(jiffies, end));
 
     iounmap(sys_status);
@@ -193,11 +195,13 @@ static u32 __get_chip_reset_duration(struct sx_dev *dev)
 
     switch (dev->pdev->device) {
     case QUANTUM_PCI_DEV_ID:
+    case QUANTUM2_PCI_DEV_ID:
         duration = 15 * 1000; /* 15 seconds */
         break;
 
     case SPECTRUM2_PCI_DEV_ID:
     case SPECTRUM3_PCI_DEV_ID:
+    case SPECTRUM4_PCI_DEV_ID:
         /* for now, until we do it in a proper way, always wait up to 15 minutes (!) for switch reset.
          * we have a special case with Tigris or Spectrum 3 setup, in which there is an upgrade for the
          * gearbox FWs and it might take up to 10 minutes.

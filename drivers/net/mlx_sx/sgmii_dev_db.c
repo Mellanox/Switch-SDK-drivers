@@ -588,11 +588,19 @@ static int __sgmii_dev_proc_show(struct seq_file *m, void *v)
         break;
 
     case SXD_MGIR_HW_DEV_ID_QUANTUM:
-        dev_type_name = "Switch-IB-3";
+        dev_type_name = "Quantum";
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_QUANTUM2:
+        dev_type_name = "Quantum2";
         break;
 
     case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
         dev_type_name = "Switch-Spectrum-3";
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_SPECTRUM4:
+        dev_type_name = "Switch-Spectrum-4";
         break;
 
     default:
