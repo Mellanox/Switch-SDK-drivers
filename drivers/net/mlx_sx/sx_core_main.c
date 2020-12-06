@@ -1486,7 +1486,11 @@ out_err:
     return err;
 }
 
-static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, void *context, u8 is_from_user)
+static int sx_send_loopback(struct sx_dev   *dev,
+                            struct ku_write *write_data,
+                            void            *context,
+                            u8               is_from_user,
+                            pid_t            target_pid)
 {
     int                    err = 0;
     struct completion_info ci;
@@ -1565,6 +1569,7 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     ci.mirror_lantency = 0xFFFFFF;
     ci.mirror_tclass = 0x1F;
     ci.device_id = dev->device_id;
+    ci.target_pid = target_pid;
     SX_RX_TIMESTAMP_INIT(&ci.rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
 
     if (dispatch_pkt(dev, &ci, ci.hw_synd, 0) > 0) {
@@ -1577,7 +1582,12 @@ out:
     return err;
 }
 
-int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id, u8 is_from_user, u8 device_id)
+int send_trap(const void    *buf,
+              const uint32_t buf_size,
+              uint16_t       trap_id,
+              u8             is_from_user,
+              u8             device_id,
+              pid_t          target_pid)
 {
     struct ku_write write_data;
     struct ku_iovec iov;
@@ -1601,7 +1611,7 @@ int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id, u8 is_
     write_data.meta.etclass = 6;
     write_data.meta.loopback_data.trap_id = trap_id;
 
-    err = sx_send_loopback(sx_glb.tmp_dev_ptr, &write_data, NULL, is_from_user);
+    err = sx_send_loopback(sx_glb.tmp_dev_ptr, &write_data, NULL, is_from_user, target_pid);
 
 out:
     return err;
@@ -1624,7 +1634,7 @@ int sx_send_health_event(uint8_t dev_id, sxd_health_cause_t cause)
     /* Send SDK health event */
     printk(KERN_ERR PFX "SDK health event, device:[%d] \n", sdk_health.device_id);
 
-    return send_trap(&sdk_health, sizeof(sdk_health), SXD_TRAP_ID_SDK_HEALTH_EVENT, 0, dev_id);
+    return send_trap(&sdk_health, sizeof(sdk_health), SXD_TRAP_ID_SDK_HEALTH_EVENT, 0, dev_id, TARGET_PID_DONT_CARE);
 }
 
 
@@ -2103,6 +2113,7 @@ static int __sx_core_port_vlan_listener_exist(struct ku_port_vlan_params *port_v
  * param swid            [in] - The listener swid
  * param hw_synd         [in] - The listener syndrome number
  * param type            [in] - The listener type - ETH,IB or FC, or Don't care
+ * param called_pid      [in] - Process ID of the caller
  * param is_default      [in] - If the listener is a default listener
  * param is_register     [in] - If the requested action is register or filter
  * param filter_critireas[in] - The listener additional filter critireas
@@ -2117,6 +2128,7 @@ static int __sx_core_port_vlan_listener_exist(struct ku_port_vlan_params *port_v
 int sx_core_add_synd(u8                          swid,
                      u16                         hw_synd,
                      enum l2_type                type,
+                     pid_t                       caller_pid,
                      u8                          is_default,
                      union ku_filter_critireas   crit,
                      cq_handler                  handler,
@@ -2153,6 +2165,7 @@ int sx_core_add_synd(u8                          swid,
     }
     memset(new_listener, 0, sizeof(*new_listener));
     new_listener->swid = swid;
+    new_listener->pid = caller_pid;
     new_listener->critireas = crit;
     new_listener->handler = handler;
     new_listener->context = context;
@@ -3714,7 +3727,7 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
         }
 
         if (write_data.meta.type == SX_PKT_TYPE_LOOPBACK_CTL) {
-            err = sx_send_loopback(dev, &write_data, filp, 1);
+            err = sx_send_loopback(dev, &write_data, filp, 1, TARGET_PID_DONT_CARE);
             if (err) {
                 printk(KERN_WARNING PFX "sx_core_write: "
                        "Failed sending loopback packet\n");
@@ -4120,11 +4133,13 @@ EXPORT_SYMBOL(sx_core_flush_synd_by_handler);
  ***********************************************/
 
 long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data);
+int sx_core_mmap(struct file *filp, struct vm_area_struct *vma);
 
 static const struct file_operations sx_core_fops = {
     .owner = THIS_MODULE,
     .open = sx_core_open,
     .read = sx_core_read,
+    .mmap = sx_core_mmap,
     .write = sx_core_write,
     .unlocked_ioctl = sx_core_ioctl,
     .compat_ioctl = sx_core_ioctl,

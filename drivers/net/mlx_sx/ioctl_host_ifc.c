@@ -1216,7 +1216,7 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
 
         if (cmd == CTRL_CMD_ADD_SYND) {
             err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                                   listener_type, ku.is_default,
+                                   listener_type, current->pid, ku.is_default,
                                    critireas, sx_cq_handler, filp,
                                    CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params, ku.is_register);
         } else {
@@ -1235,7 +1235,7 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         if (cmd == CTRL_CMD_ADD_SYND) {
             sx_priv(dev)->l2_tunnel_params = ku.l2_tunnel_params;
             err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                                   listener_type, ku.is_default,
+                                   listener_type, current->pid, ku.is_default,
                                    critireas, sx_l2_tunnel_handler, dev,
                                    CHECK_DUP_DISABLED_E, dev, &ku.port_vlan_params, ku.is_register);
         } else {
@@ -1337,7 +1337,7 @@ long ctrl_cmd_monitor_sw_queue_synd(struct file *file, unsigned int cmd, unsigne
 
     if (ku.cmd == true) { /* Add listener which will store matched packet to SW buffer of monitor RDQ */
         err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                               listener_type, false,
+                               listener_type, current->pid, false,
                                ku.critireas, sx_cq_monitor_sw_queue_handler,  monitor_dq->file_priv_p->owner, /* use required filp */
                                CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params, 1);
     } else { /* remove listener */

@@ -60,6 +60,7 @@
 #include "sx_clock.h"
 #include "ptp.h"
 #include "sgmii.h"
+#include "bulk_cntr_event.h"
 
 #include "trace_func.h"
 
@@ -563,6 +564,28 @@ static void sx_parse_event(struct completion_info *ci)
     ci->info.dont_care.drop_enable = 0;
 
     switch (ci->hw_synd) {
+    case SXD_TRAP_ID_PPCNT:
+        sx_bulk_cntr_handle_ppcnt(ci);
+        break;
+
+    case SXD_TRAP_ID_MGPCB:
+        sx_bulk_cntr_handle_mgpcb(ci);
+        break;
+
+/*  TODO:
+ *   case SXD_TRAP_ID_PBSR:
+ *       sx_bulk_cntr_handle_pbsr(ci);
+ *       break;
+ *
+ *   case SXD_TRAP_ID_SBSRD:
+ *       sx_bulk_cntr_handle_sbsrd(ci);
+ *       break;
+ */
+
+    case SXD_TRAP_ID_MOCS_DONE:
+        sx_bulk_cntr_handle_mocs_done(ci);
+        break;
+
     case SXD_TRAP_ID_PPBME:
         sx_handle_ppbme_event(ci);
         break;
@@ -641,6 +664,12 @@ static int is_matching(struct completion_info *ci, struct listener_entry *listen
     if ((ci->context != NULL) && (listener->context == ci->context)) {
         return 0;
     }
+
+    /* in case we want to send the trap to a certain process, other processes won't get it */
+    if ((ci->target_pid != TARGET_PID_DONT_CARE) && (listener->pid != ci->target_pid)) {
+        return 0;
+    }
+
     switch (listener->listener_type) {
     case L2_TYPE_DONT_CARE:
         if (listener->critireas.dont_care.drop_enable && ci->info.dont_care.drop_enable) {
@@ -2602,6 +2631,26 @@ void sx_cq_flush_rdq(struct sx_dev *dev, int dqn)
         idx = dq->tail & (dq->wqe_cnt - 1);
         post_skb(dq);
     }
+}
+
+
+/* use this function to make sure that a CQ and its associated DQ is idle,
+ * which means that no tasklet, not low-priority thread or monitoring thread
+ * runs the CQ/DQ. Currently we use this function is two cases:
+ * 1. when changing a RDQ role from regular to monitoring or vice versa. in
+ *    this case we must make sure that before changing role the CQ is idle so
+ *    there will not be a point in time when two threads handling the same RDQ.
+ * 2. when destroying a SDQ/RDQ. When doing so, we must wait until no thread is
+ *    working on the DQ while it is being destroyed.
+ */
+u8 sx_is_cq_idle(struct sx_dev *dev, int cqn)
+{
+    struct sx_priv *priv = sx_priv(dev);
+    struct cpu_traffic_priority *cpu_tp = &priv->cq_table.cpu_traffic_prio;
+
+    return (!sx_bitmap_test(&cpu_tp->active_high_prio_cq_bitmap, cqn) &&
+            !sx_bitmap_test(&cpu_tp->active_low_prio_cq_bitmap, cqn) &&
+            !sx_bitmap_test(&priv->active_monitor_cq_bitmap, cqn));
 }
 
 /************************************************

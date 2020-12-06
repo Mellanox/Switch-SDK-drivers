@@ -554,14 +554,14 @@ static int sx_netdev_register_global_event_handler(void)
 
     /* Register listener for Ethernet SWID */
     memset(&crit, 0, sizeof(crit));
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_global_pkt, NULL,
                                CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering global rx_handler", __func__);
         return err;
     }
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_pude_event, NULL,
                                CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (err) {
@@ -698,6 +698,7 @@ static int sx_netdev_open(struct net_device *netdev)
                                        net_priv->swid,
                                        net_priv->trap_ids[uc_type][i].synd,
                                        L2_TYPE_ETH,
+                                       0,
                                        0,
                                        crit,
                                        netdev_callback,
@@ -1798,7 +1799,7 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
         }
 
         /* register the listener according to the swid */
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0,
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0, 0,
                                    crit, netdev_callback, netdev,
                                    CHECK_DUP_ENABLED_E, net_priv->dev, port_vlan, is_register);
 
@@ -1929,7 +1930,7 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     memset(&crit, 0, sizeof(crit)); /* sets all ETH values to default */
     crit.eth.from_rp = IS_RP_FROM_RP_E;
     if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0,
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0, 0,
                                    crit, sx_netdev_handle_global_pkt, NULL,
                                    CHECK_DUP_DISABLED_E, NULL, &port_vlan, event_data->eth_l3_synd.is_register);
         if (err) {
@@ -1959,7 +1960,7 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     memset(&crit, 0, sizeof(crit)); /* sets all ETH values to default */
     crit.eth.from_bridge = IS_BRIDGE_FROM_BRIDGE_E;
     if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0,
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0, 0,
                                    crit, sx_netdev_handle_global_pkt, NULL,
                                    CHECK_DUP_DISABLED_E, NULL, &port_vlan, event_data->eth_l3_synd.is_register);
         if (err) {
@@ -2489,7 +2490,7 @@ static void sx_netdev_deinit_sx_core_interface(void)
             port_vlan.vlan = net_priv->trap_ids[uc_type][i].vlan;                                           \
             CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err,                                               \
                                        net_priv->swid, net_priv->trap_ids[uc_type][i].synd, L2_TYPE_ETH, 0, \
-                                       crit, netdev_callback, netdev,                                       \
+                                       0, crit, netdev_callback, netdev,                                    \
                                        CHECK_DUP_ENABLED_E, net_priv->dev, &port_vlan, 1);                  \
             if (err) {                                                                                      \
                 printk(KERN_ERR PFX "error %s, User channel (%d) failed registering on "                    \
@@ -2661,13 +2662,13 @@ static void sx_netdev_attach_global_event_handler(void)
     /* Register listener for Ethernet SWID */
     memset(&crit, 0, sizeof(crit));
 
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_global_pkt, NULL,
                                CHECK_DUP_ENABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering global rx_handler", __func__);
     }
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_pude_event, NULL,
                                CHECK_DUP_ENABLED_E, NULL, NULL, 1);
     if (err) {

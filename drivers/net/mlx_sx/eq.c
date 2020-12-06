@@ -101,11 +101,7 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
     getnstimeofday(&timestamp);
 
     /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
-    if ((priv->pause_cqn >= 0) &&
-        !priv->pause_cqn_completed &&
-        !sx_bitmap_test(&cpu_traffic_prio->active_high_prio_cq_bitmap, priv->pause_cqn) &&
-        !sx_bitmap_test(&cpu_traffic_prio->active_low_prio_cq_bitmap, priv->pause_cqn) &&
-        !sx_bitmap_test(&priv->active_monitor_cq_bitmap, priv->pause_cqn)) {
+    if (priv->pause_cqn >= 0 && !priv->pause_cqn_completed && sx_is_cq_idle(dev, priv->pause_cqn)) {
         complete(&priv->pause_cqn_completion);
         priv->pause_cqn_completed = 1;
     }

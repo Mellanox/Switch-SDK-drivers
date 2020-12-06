@@ -496,7 +496,7 @@ int sgmii_mad_init(void)
     }
 
     crit.ib.qpn = 0;
-    ret = sx_core_add_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
+    ret = sx_core_add_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, 0, crit, __sgmii_rx_mad,
                            NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD QP0 handler (ret=%d)\n", ret);
@@ -504,7 +504,7 @@ int sgmii_mad_init(void)
     }
 
     crit.ib.qpn = 1;
-    ret = sx_core_add_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
+    ret = sx_core_add_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, 0, crit, __sgmii_rx_mad,
                            NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD QP1 handler (ret=%d)\n", ret);
@@ -512,7 +512,7 @@ int sgmii_mad_init(void)
     }
 
     crit.ib.qpn = QPN_MULTICAST_VALUE;
-    ret = sx_core_add_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
+    ret = sx_core_add_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, 0, crit, __sgmii_rx_mad,
                            NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD other-QPs handler (ret=%d)\n", ret);

@@ -780,6 +780,95 @@ int sx_ACCESS_REG_PPAD(struct sx_dev *dev, struct ku_access_ppad_reg *reg_data)
 EXPORT_SYMBOL(sx_ACCESS_REG_PPAD);
 
 /************************************************
+* MOCS
+***********************************************/
+static int __MOCS_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_mocs_reg *mocs_reg = (struct ku_mocs_reg*)ku_reg;
+        uint32_t index = 0;
+
+    mlxsw_reg_mocs_type_set(inbox, mocs_reg->type);
+    mlxsw_reg_mocs_clear_set(inbox, mocs_reg->clear);
+    mlxsw_reg_mocs_opcode_set(inbox, mocs_reg->opcode);
+    mlxsw_reg_mocs_hi_set(inbox, mocs_reg->event_tid.hi);
+    mlxsw_reg_mocs_lo_set(inbox, mocs_reg->event_tid.lo);
+    for (index = 0; index < SXD_MOCS_PORT_MASK_NUM; index++) {
+        mlxsw_reg_mocs_mocs_ppcnt_port_mask_set(inbox, index, mocs_reg->entry.mocs_ppcnt.port_mask[index]);
+    }
+    for (index = 0; index < SXD_MOCS_GRP_MASK_NUM; index++) {
+        mlxsw_reg_mocs_mocs_ppcnt_grp_mask_set(inbox, index, mocs_reg->entry.mocs_ppcnt.grp_mask[index]);
+    }
+    mlxsw_reg_mocs_mocs_ppcnt_tc_mask_set(inbox, mocs_reg->entry.mocs_ppcnt.tc_mask);
+    mlxsw_reg_mocs_mocs_ppcnt_prio_mask_set(inbox, mocs_reg->entry.mocs_ppcnt.prio_mask);
+    mlxsw_reg_mocs_mocs_ppcnt_rx_buffer_mask_set(inbox, mocs_reg->entry.mocs_ppcnt.rx_buffer_mask);
+    mlxsw_reg_mocs_mocs_mgpcb_num_rec_set(inbox, mocs_reg->entry.mocs_mgpcb.num_rec);
+    mlxsw_reg_mocs_mocs_mgpcb_counter_index_base_set(inbox, mocs_reg->entry.mocs_mgpcb.counter_index_base);
+    for (index = 0; index < SXD_MOCS_PORT_MASK_NUM; index++) {
+        mlxsw_reg_mocs_mocs_pbsr_port_mask_set(inbox, index, mocs_reg->entry.mocs_pbsr.port_mask[index]);
+    }
+    mlxsw_reg_mocs_mocs_sbsrd_curr_set(inbox, mocs_reg->entry.mocs_sbsrd.curr);
+    mlxsw_reg_mocs_mocs_sbsrd_snap_set(inbox, mocs_reg->entry.mocs_sbsrd.snap);
+    mlxsw_reg_mocs_mocs_sbsrd_cells_set(inbox, mocs_reg->entry.mocs_sbsrd.cells);
+    mlxsw_reg_mocs_mocs_sbsrd_desc_set(inbox, mocs_reg->entry.mocs_sbsrd.desc);
+
+
+    return 0;
+}
+
+static int __MOCS_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_mocs_reg *mocs_reg = (struct ku_mocs_reg*)ku_reg;
+        uint32_t index = 0;
+
+    mocs_reg->type = mlxsw_reg_mocs_type_get(outbox);
+    mocs_reg->clear = mlxsw_reg_mocs_clear_get(outbox);
+    mocs_reg->status = mlxsw_reg_mocs_status_get(outbox);
+    mocs_reg->event_tid.hi = mlxsw_reg_mocs_hi_get(outbox);
+    mocs_reg->event_tid.lo = mlxsw_reg_mocs_lo_get(outbox);
+    for (index = 0; index < SXD_MOCS_PORT_MASK_NUM; index++) {
+        mocs_reg->entry.mocs_ppcnt.port_mask[index] = mlxsw_reg_mocs_mocs_ppcnt_port_mask_get(outbox, index);
+    }
+    for (index = 0; index < SXD_MOCS_GRP_MASK_NUM; index++) {
+        mocs_reg->entry.mocs_ppcnt.grp_mask[index] = mlxsw_reg_mocs_mocs_ppcnt_grp_mask_get(outbox, index);
+    }
+    mocs_reg->entry.mocs_ppcnt.tc_mask = mlxsw_reg_mocs_mocs_ppcnt_tc_mask_get(outbox);
+    mocs_reg->entry.mocs_ppcnt.prio_mask = mlxsw_reg_mocs_mocs_ppcnt_prio_mask_get(outbox);
+    mocs_reg->entry.mocs_ppcnt.rx_buffer_mask = mlxsw_reg_mocs_mocs_ppcnt_rx_buffer_mask_get(outbox);
+    mocs_reg->entry.mocs_mgpcb.num_rec = mlxsw_reg_mocs_mocs_mgpcb_num_rec_get(outbox);
+    mocs_reg->entry.mocs_mgpcb.counter_index_base = mlxsw_reg_mocs_mocs_mgpcb_counter_index_base_get(outbox);
+    for (index = 0; index < SXD_MOCS_PORT_MASK_NUM; index++) {
+        mocs_reg->entry.mocs_pbsr.port_mask[index] = mlxsw_reg_mocs_mocs_pbsr_port_mask_get(outbox, index);
+    }
+    mocs_reg->entry.mocs_sbsrd.curr = mlxsw_reg_mocs_mocs_sbsrd_curr_get(outbox);
+    mocs_reg->entry.mocs_sbsrd.snap = mlxsw_reg_mocs_mocs_sbsrd_snap_get(outbox);
+    mocs_reg->entry.mocs_sbsrd.cells = mlxsw_reg_mocs_mocs_sbsrd_cells_get(outbox);
+    mocs_reg->entry.mocs_sbsrd.desc = mlxsw_reg_mocs_mocs_sbsrd_desc_get(outbox);
+
+
+    return 0;
+}
+
+int sx_ACCESS_REG_MOCS(struct sx_dev *dev, struct ku_access_mocs_reg *reg_data)
+{
+    u16 reg_len_dword = (MLXSW_MOCS_LEN >> 2) + 1;
+
+    if (MLXSW_MOCS_LEN % 4 > 0) {
+        reg_len_dword++;
+    }
+
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __MOCS_encode,
+                                  __MOCS_decode,
+                                  reg_len_dword,
+                                  &reg_data->mocs_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_MOCS);
+
+/************************************************
 * MCQI
 ***********************************************/
 static int __MCQI_encode(u8 *inbox, void *ku_reg, void *context)

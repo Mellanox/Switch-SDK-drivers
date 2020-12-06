@@ -77,7 +77,7 @@ __mlxsw_item_offset(const struct mlxsw_item *item, unsigned short index,
         BUG();
     }
 
-    return ((item->offset + item->step * index + item->in_step_offset) /
+    return ((item->offset + (unsigned int)item->step * index + item->in_step_offset) /
         typesize);
 }
 

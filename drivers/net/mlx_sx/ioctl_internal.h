@@ -197,6 +197,10 @@ long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long da
 long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_sw_ib_node_desc(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_sw_ib_up_down(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_add(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_del(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_cancel(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_ack(struct file *file, unsigned int cmd, unsigned long data);
 #ifdef SW_PUDE_EMULATION
 /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
 long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data);

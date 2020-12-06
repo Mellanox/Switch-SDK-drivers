@@ -40,6 +40,8 @@
 #include "ptp.h"
 #include "sgmii.h"
 #include "ioctl_internal.h"
+#include "bulk_cntr_event.h"
+#include "bulk_cntr_db.h"
 
 long ctrl_cmd_get_capabilities(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -288,6 +290,77 @@ long ctrl_cmd_set_sw_ib_up_down(struct file *file, unsigned int cmd, unsigned lo
 
     sx_core_dispatch_event(dev, event_params.up ? SX_DEV_EVENT_IB_SWID_UP : SX_DEV_EVENT_IB_SWID_DOWN, event_data);
     kfree(event_data);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_add(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction_add bulk_cntr_tr_add;
+    int                                 err;
+
+    err = copy_from_user(&bulk_cntr_tr_add, (void*)data, sizeof(bulk_cntr_tr_add));
+    if (err) {
+        goto out;
+    }
+
+    err = bulk_cntr_db_add(&bulk_cntr_tr_add);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_del(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction bulk_cntr_tr_del;
+    int                             err;
+
+    err = copy_from_user(&bulk_cntr_tr_del, (void*)data, sizeof(bulk_cntr_tr_del));
+    if (err) {
+        goto out;
+    }
+
+    err = bulk_cntr_db_del(bulk_cntr_tr_del.client_pid, bulk_cntr_tr_del.buffer_id);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_cancel(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction bulk_cntr_tr_cancel;
+    int                             err;
+
+    err = copy_from_user(&bulk_cntr_tr_cancel, (void*)data, sizeof(bulk_cntr_tr_cancel));
+    if (err) {
+        goto out;
+    }
+
+    err = bulk_cntr_db_cancel(bulk_cntr_tr_cancel.client_pid, bulk_cntr_tr_cancel.buffer_id);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_ack(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction_ack bulk_cntr_tr_ack;
+    int                                  err;
+
+    err = copy_from_user(&bulk_cntr_tr_ack, (void*)data, sizeof(bulk_cntr_tr_ack));
+    if (err) {
+        goto out;
+    }
+
+    err = sx_bulk_cntr_handle_ack(&bulk_cntr_tr_ack.event_id, bulk_cntr_tr_ack.buffer_id);
+    if (err) {
+        goto out;
+    }
 
 out:
     return err;

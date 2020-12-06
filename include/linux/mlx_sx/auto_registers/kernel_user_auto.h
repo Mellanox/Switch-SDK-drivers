@@ -2234,6 +2234,81 @@ struct ku_access_ppad_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
+#define SXD_MOCS_PORT_MASK_NUM 16
+
+#define SXD_MOCS_GRP_MASK_NUM 4
+
+
+typedef enum sxd_mocs_type {
+    SXD_MOCS_TYPE_PPCNT_E = 0x1,
+    SXD_MOCS_TYPE_MGPCB_E = 0x2,
+    SXD_MOCS_TYPE_PBSR_E = 0x3,
+    SXD_MOCS_TYPE_SBSRD_E = 0x4
+} sxd_mocs_type_t;
+
+
+typedef enum sxd_mocs_status {
+    SXD_MOCS_STATUS_IDLE_E = 0x0,
+    SXD_MOCS_STATUS_BUSY_E = 0x1
+} sxd_mocs_status_t;
+
+typedef struct sxd_mocs_event_tid {
+    uint32_t hi;
+    uint32_t lo;
+} sxd_mocs_event_tid_t;
+
+typedef struct sxd_mocs_mocs_ppcnt {
+    uint32_t port_mask[SXD_MOCS_PORT_MASK_NUM];
+    uint32_t grp_mask[SXD_MOCS_GRP_MASK_NUM];
+    uint32_t tc_mask;
+    uint16_t prio_mask;
+    uint16_t rx_buffer_mask;
+} sxd_mocs_mocs_ppcnt_t;
+
+typedef struct sxd_mocs_mocs_mgpcb {
+    uint32_t num_rec;
+    uint32_t counter_index_base;
+} sxd_mocs_mocs_mgpcb_t;
+
+typedef struct sxd_mocs_mocs_pbsr {
+    uint32_t port_mask[SXD_MOCS_PORT_MASK_NUM];
+} sxd_mocs_mocs_pbsr_t;
+
+typedef struct sxd_mocs_mocs_sbsrd {
+    uint8_t curr;
+    uint8_t snap;
+    uint8_t cells;
+    uint8_t desc;
+} sxd_mocs_mocs_sbsrd_t;
+
+union mocs_entry {
+    sxd_mocs_mocs_ppcnt_t mocs_ppcnt;
+    sxd_mocs_mocs_mgpcb_t mocs_mgpcb;
+    sxd_mocs_mocs_pbsr_t mocs_pbsr;
+    sxd_mocs_mocs_sbsrd_t mocs_sbsrd;
+};
+
+/**
+ * ku_mocs_reg structure is used to store the MOCS register parameters
+ */
+struct ku_mocs_reg {
+    sxd_mocs_type_t type;
+    uint8_t clear;
+    uint8_t opcode;
+    sxd_mocs_status_t status;
+    sxd_mocs_event_tid_t event_tid;
+    union mocs_entry entry;
+};
+
+/**
+ * ku_access_mocs_reg structure is used to store the access register MOCS command parameters
+ */
+struct ku_access_mocs_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_mocs_reg      mocs_reg; /**< mocs_reg - mocs register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
 #define SXD_RLCMLE_DIP_NUM 4
 
 

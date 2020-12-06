@@ -812,6 +812,7 @@ struct listener_register_filter_entry {
 struct listener_entry {
     u8                                    swid;
     enum l2_type                          listener_type;
+    pid_t                                 pid;
     u8                                    is_default;   /* is a default listener  */
     union ku_filter_critireas             critireas;    /* more filter critireas  */
     cq_handler                            handler;      /* The completion handler */

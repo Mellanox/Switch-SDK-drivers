@@ -4901,6 +4901,100 @@ MLXSW_ITEM8(reg, ppad, local_port, 0x1, 0, 8);
  */
 MLXSW_ITEM_BUF(reg, ppad, mac, 0x2, 6);
 
+/* mocs
+ * ----
+ *
+ */
+/* type
+ * Access: INDEX
+ */
+MLXSW_ITEM8(reg, mocs, type, 0x3, 0, 8);
+
+/* clear
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, mocs, clear, 0x5, 0, 1);
+
+/* opcode
+ * Access: WO
+ */
+MLXSW_ITEM8(reg, mocs, opcode, 0x6, 0, 1);
+
+/* status
+ * Access: RO
+ */
+MLXSW_ITEM8(reg, mocs, status, 0x7, 0, 1);
+
+/* hi
+ * Access: 
+ */
+MLXSW_ITEM32(reg, mocs, hi, 0x8, 0, 32);
+
+/* lo
+ * Access: 
+ */
+MLXSW_ITEM32(reg, mocs, lo, 0xc, 0, 32);
+
+/* mocs_ppcnt_port_mask
+ * Access: RW
+ */
+MLXSW_ITEM32_INDEXED(reg, mocs, mocs_ppcnt_port_mask, 0x20, 0, 32, 4, 0, false);
+
+/* mocs_ppcnt_grp_mask
+ * Access: RW
+ */
+MLXSW_ITEM32_INDEXED(reg, mocs, mocs_ppcnt_grp_mask, 0x60, 0, 32, 4, 0, false);
+
+/* mocs_ppcnt_tc_mask
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, mocs, mocs_ppcnt_tc_mask, 0x70, 0, 32);
+
+/* mocs_ppcnt_prio_mask
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, mocs, mocs_ppcnt_prio_mask, 0x74, 0, 16);
+
+/* mocs_ppcnt_rx_buffer_mask
+ * Access: RW
+ */
+MLXSW_ITEM16(reg, mocs, mocs_ppcnt_rx_buffer_mask, 0x76, 0, 16);
+
+/* mocs_mgpcb_num_rec
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, mocs, mocs_mgpcb_num_rec, 0x20, 0, 24);
+
+/* mocs_mgpcb_counter_index_base
+ * Access: RW
+ */
+MLXSW_ITEM32(reg, mocs, mocs_mgpcb_counter_index_base, 0x24, 0, 24);
+
+/* mocs_pbsr_port_mask
+ * Access: RW
+ */
+MLXSW_ITEM32_INDEXED(reg, mocs, mocs_pbsr_port_mask, 0x20, 0, 32, 4, 0, false);
+
+/* mocs_sbsrd_curr
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, mocs, mocs_sbsrd_curr, 0x20, 7, 1);
+
+/* mocs_sbsrd_snap
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, mocs, mocs_sbsrd_snap, 0x20, 6, 1);
+
+/* mocs_sbsrd_cells
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, mocs, mocs_sbsrd_cells, 0x20, 5, 1);
+
+/* mocs_sbsrd_desc
+ * Access: RW
+ */
+MLXSW_ITEM8(reg, mocs, mocs_sbsrd_desc, 0x20, 4, 1);
+
 /* rmftad
  * ------
  *

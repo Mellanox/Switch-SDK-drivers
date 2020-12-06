@@ -96,6 +96,7 @@ CTRL_CMD_ACCESS_REG_XLKBU, /**< Run access register XLKBU command */
 CTRL_CMD_ACCESS_REG_XRMT, /**< Run access register XRMT command */
 CTRL_CMD_ACCESS_REG_REIV, /**< Run access register REIV command */
 CTRL_CMD_ACCESS_REG_PPAD, /**< Run access register PPAD command */
+CTRL_CMD_ACCESS_REG_MOCS, /**< Run access register MOCS command */
 CTRL_CMD_ACCESS_REG_RLCMLE, /**< Run access register RLCMLE command */
 CTRL_CMD_ACCESS_REG_MCQI, /**< Run access register MCQI command */
 CTRL_CMD_ACCESS_REG_CHLTR, /**< Run access register CHLTR command */

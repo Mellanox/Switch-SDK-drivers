@@ -41,6 +41,7 @@ sx_core-y := sx_core_main.o      \
              ioctl_pci.o         \
              ioctl_reg.o         \
              ioctl_sgmii.o       \
+             mmap.o              \
              sx_dpt.o            \
              sx_proc.o           \
              sx_clock.o          \
@@ -63,5 +64,7 @@ sx_core-y := sx_core_main.o      \
              sgmii_transaction.o \
              sgmii_transport.o   \
              map.o               \
+             bulk_cntr_event.o   \
+             bulk_cntr_db.o      \
              trace_func.o
 

@@ -174,6 +174,7 @@ static int __psample_synd_add(struct sx_dev *dev, u16 synd, union sx_event_data 
                                event_data->psample_synd.hw_synd,
                                L2_TYPE_ETH,
                                0,
+                               0,
                                crit,
                                __psample_handler,
                                listener_ctx,

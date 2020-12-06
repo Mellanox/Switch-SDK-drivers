@@ -330,7 +330,7 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
 
     end = jiffies + 5 * HZ;
     spin_lock_irqsave(&dq->lock, flags);
-    while ((int)(dq->head - dq->tail) > 0) {
+    while ((int)(dq->head - dq->tail) > 0 || !sx_is_cq_idle(dev, dq->cq->cqn)) {
         spin_unlock_irqrestore(&dq->lock, flags);
         msleep(1000 / HZ);
         if (time_after(jiffies, end)) {

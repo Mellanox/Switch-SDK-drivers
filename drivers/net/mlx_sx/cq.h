@@ -218,6 +218,8 @@ void set_timestamp_of_rx_packet(struct sx_cq                 *cq,
                                 const struct sx_rx_timestamp *cqe_ts,
                                 struct sx_rx_timestamp       *rx_ts);
 
+u8 sx_is_cq_idle(struct sx_dev *dev, int cqn);
+
 #endif /* SX_CQ_H */
 
 /************************************************

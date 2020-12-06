@@ -214,6 +214,7 @@ void sx_unregister_interface(struct sx_interface *intf);
 int sx_core_add_synd(u8                          swid,
                      u16                         hw_synd,
                      enum l2_type                type,
+                     pid_t                       caller_pid,
                      u8                          is_default,
                      union ku_filter_critireas   crit,
                      cq_handler                  handler,

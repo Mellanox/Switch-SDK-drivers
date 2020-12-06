@@ -73,6 +73,10 @@ typedef enum sxd_mpcir_op {
  * when registering a listener.
  */
 #define SWID_NUM_DONT_CARE 255
+
+/* SWID_NUM_DONT_CARE defines the don't care value for target-process-id. */
+#define TARGET_PID_DONT_CARE 0
+
 /**
  * NUMBER_OF_SWIDS define the number of possible swids
  * in the system.
@@ -533,8 +537,12 @@ enum ku_ctrl_cmd {
     CTRL_CMD_SET_WARM_BOOT_MODE, /**< set sdk boot mode : normal, issu , ... */
     CTRL_CMD_SET_FD_ATTRIBUTES, /**< set FD attributes: head drop, tail drop */
     CTRL_CMD_GET_FD_ATTRIBUTES, /**< set FD attributes: head drop, tail drop */
+    CTRL_CMD_BULK_CNTR_TR_ADD, /**< add bulk-counter transaction */
+    CTRL_CMD_BULK_CNTR_TR_DEL, /**< delete bulk-counter transaction */
+    CTRL_CMD_BULK_CNTR_TR_CANCEL, /**< cancel bulk-counter transaction */
+    CTRL_CMD_BULK_CNTR_TR_ACK, /**< SDK acknowledgement to complete a transaction */
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
-    CTRL_CMD_MAX_VAL = CTRL_CMD_GET_FD_ATTRIBUTES /**< Maximum enum value */
+    CTRL_CMD_MAX_VAL = CTRL_CMD_BULK_CNTR_TR_ACK /**< Maximum enum value */
 #ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
                        CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
 #endif /* SW_PUDE_EMULATION */
@@ -9635,6 +9643,11 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_PPBME = 0x101,
     SXD_TRAP_ID_PACKET_RECEIVED = 0x103,
     SXD_TRAP_ID_MFDE = 0x003,
+    SXD_TRAP_ID_MOCS_DONE = 0x106,
+    SXD_TRAP_ID_PPCNT = 0x107,
+    SXD_TRAP_ID_MGPCB = 0x108,
+    SXD_TRAP_ID_PBSR = 0x109,
+    SXD_TRAP_ID_SBSRD = 0x10A,
 
     /* ETHERNET L2 */
     SXD_TRAP_ID_ETH_L2_STP = 0x10,
@@ -9922,6 +9935,7 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_OBJECT_DELETED_EVENT = 0x411,
     SXD_TRAP_ID_SDK_HEALTH_EVENT = 0x412,
     SXD_TRAP_ID_API_LOGGER_EVENT = 0x413,
+    SXD_TRAP_ID_BULK_COUNTER_DONE_EVENT = 0x414,
     SXD_TRAP_ID_PORT_ADDED = 0x431,
     SXD_TRAP_ID_PORT_DELETED = 0x432,
     SXD_TRAP_ID_PORT_ADDED_TO_LAG = 0x433,
@@ -9973,6 +9987,103 @@ typedef struct sxd_event_health_notification {
     sxd_boolean_t         was_debug_started; /* according to policy, see: sx_api_dbg_policy */
     uint8_t               irisc_id; /*< which IRISC triggered the event, in case the event is SDK and not FW should be DBG_ALL_IRICS  */
 } sxd_event_health_notification_t;
+
+enum sxd_bulk_cntr_key_type_e {
+    SXD_BULK_CNTR_KEY_TYPE_PORT_E,
+    SXD_BULK_CNTR_KEY_TYPE_FLOW_E,
+    SXD_BULK_CNTR_KEY_TYPE_LAST_E
+};
+
+typedef struct sxd_flow_counter_set {
+    /*
+     *   ATTENTION:
+     *   SWIG does not let sx_flow_counter_set_t to be a typedef of sxd_flow_counter_set_t.
+     *   Therefore, any changes to this struct MUST be applied to sx_flow_counter_set_t as well!
+     */
+
+    uint64_t flow_counter_packets;
+    uint64_t flow_counter_bytes;
+} sxd_flow_counter_set_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_common {
+    uint32_t type; /**< SXD_BULK_CNTR_KEY_TYPE_PORT_E, SXD_BULK_CNTR_KEY_TYPE_FLOW_E */
+    uint32_t buff_size; /**< total buffer size, including this header */
+    uint32_t num_of_counters; /**< number of expected counters (registers TLVs) from the operation */
+    uint32_t counters_received_so_far; /**< number of counters (register TLVs) received so far during the operation */
+} sxd_bulk_cntr_buffer_layout_common_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_flow {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint32_t                             base_counter_id; /**< base counter ID of the range of flow counters */
+    uint32_t                             reserved; /**< to keep alignment to 64bit */
+    sxd_flow_counter_set_t               counters[0]; /**< set of counters */
+} sxd_bulk_cntr_buffer_layout_flow_t;
+
+struct sxd_bulk_cntr_params_port {
+    /* TBD */
+};
+struct sxd_bulk_cntr_params_flow {
+    uint32_t base_counter_id; /**< base counter ID of the range of flow counters */
+};
+union sxd_bulk_cntr_transaction_params {
+    struct sxd_bulk_cntr_params_port port_params;
+    struct sxd_bulk_cntr_params_flow flow_params;
+};
+
+typedef union sxd_bulk_cntr_event_id {
+    struct {
+        uint64_t id : 24,        /* running counter                        */
+                 type      : 8,  /* type of transaction: PPCNT, MGPCB, ... */
+                 client_id : 32; /* client process-ID                      */
+    } event_id_fields;
+    uint64_t event_id_value;
+} sxd_bulk_cntr_event_id_t;
+
+enum sxd_bulk_cntr_done_status_e {
+    SXD_BULK_CNTR_DONE_STATUS_OK,
+    SXD_BULK_CNTR_DONE_STATUS_CANCELED,
+    SXD_BULK_CNTR_DONE_STATUS_ERROR
+};
+
+/**
+ * ku_bulk_cntr_transaction_add is used to store the data of the CTRL_CMD_BULK_CNTR_TR_ADD ioctl
+ */
+struct ku_bulk_cntr_transaction_add {
+    unsigned long                          buffer_id; /**< buffer ID */
+    sxd_bulk_cntr_event_id_t               event_id; /**< event-ID of the transaction */
+    union sxd_bulk_cntr_transaction_params params; /**< per-type transaction parameters */
+};
+
+/**
+ * ku_bulk_cntr_transaction_poll is used to store the data of the CTRL_CMD_BULK_CNTR_TR_POLL ioctl
+ */
+struct ku_bulk_cntr_transaction_ack {
+    unsigned long            buffer_id;         /**< buffer ID */
+    sxd_bulk_cntr_event_id_t event_id;          /**< event-ID of the transaction */
+};
+
+/**
+ * ku_bulk_cntr_transaction is used to call DEL/CANCEL/IN_PROGRESS ioctl
+ */
+struct ku_bulk_cntr_transaction {
+    pid_t         client_pid; /**< process ID that keeps the buffer */
+    unsigned long buffer_id; /**< buffer ID */
+};
+
+/**
+ * This event is generated by the SDK driver to notify the user that an asynchronous bulk-counter
+ * transaction has finished/canceled.
+ */
+typedef struct sxd_bulk_counter_done_notification {
+    /*
+     *   ATTENTION:
+     *   SWIG does not let sx_bulk_counter_done_notification_t to be a typedef of sxd_bulk_counter_done_notification_t.
+     *   Therefore, any changes to this struct MUST be applied to sx_bulk_counter_done_notification_t as well!
+     */
+
+    enum sxd_bulk_cntr_done_status_e status; /**< canceled, done_ok, done_error */
+    unsigned long                    buffer_id; /**< buffer ID */
+} sxd_bulk_counter_done_notification_t;
 
 /* Please, do not move this include.
  *  It includes auto generated code which uses data defined in this file. */

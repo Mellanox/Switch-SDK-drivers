@@ -38,6 +38,7 @@
 #include <linux/mlx_sx/kernel_user.h>
 #include "sx.h"
 #include "alloc.h"
+#include "mmap.h"
 #include "sx_dbg_dump_proc.h"
 
 /************************************************
@@ -97,6 +98,12 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_PPBME] = "SXD_PPBME",                  /**< BER monitor trap */
     [SXD_TRAP_ID_PACKET_RECEIVED] = "SXD_PACKET_RECEIVED",
     [SXD_TRAP_ID_MFDE] = "SXD_MFDE",                   /**< FW MFDE (FW_SOS) */
+    [SXD_TRAP_ID_MOCS_DONE] = "SXD_TRAP_ID_MOCS_DONE", /**< MOCS DONE (Bulk counters) */
+    [SXD_TRAP_ID_PPCNT] = "SXD_TRAP_ID_PPCNT", /**< PPCNT (Bulk counters) */
+    [SXD_TRAP_ID_MGPCB] = "SXD_TRAP_ID_MGPCB", /**< MGPCB (Bulk counters) */
+    [SXD_TRAP_ID_PBSR] = "SXD_TRAP_ID_PBSR", /**< PBSR (Bulk counters) */
+    [SXD_TRAP_ID_SBSRD] = "SXD_TRAP_ID_SBSRD", /**< SBSRD (Bulk counters) */
+    [SXD_TRAP_ID_BULK_COUNTER_DONE_EVENT] = "SXD_TRAP_ID_BULK_COUNTER_DONE_EVENT", /**< MOCS DONE SW Event (Bulk counters) */
 
     /* ETHERNET L2 */
     [SXD_TRAP_ID_ETH_L2_STP] = "SXD_STP",                /**< ETHERNET L2 STP */
@@ -2015,6 +2022,7 @@ error:
 int sx_dbg_ptp_dump_proc_show(struct seq_file *m, void *v);
 int sx_dbg_clock_dump_proc_show(struct seq_file *m, void *v);
 int sx_dbg_clock_and_ptp_log_dump_proc_show(struct seq_file *m, void *v);
+
 void __sx_dbg_dump_proc_fs_unregister(struct proc_info *proc_info)
 {
     list_del(&proc_info->list);
@@ -2095,6 +2103,7 @@ int __init sx_dbg_dump_proc_fs_init(void)
     sx_dbg_dump_proc_fs_register("vid_to_fid_dump", __vid_to_fid_dump, NULL);
     sx_dbg_dump_proc_fs_register("lag_oper_state_dump", __lag_oper_state_dump, NULL);
     sx_dbg_dump_proc_fs_register("fw_and_board_info_dump", __fw_and_board_info_dump, NULL);
+    sx_dbg_dump_proc_fs_register("mmap_dump", sx_mmap_dump, NULL);
 
     sx_core_counters_init();
 

@@ -131,6 +131,10 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_WARM_BOOT_MODE)] = ctrl_cmd_set_warm_boot_mode,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_FD_ATTRIBUTES)] = ctrl_cmd_set_fd_attributes,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_FD_ATTRIBUTES)] = ctrl_cmd_get_fd_attributes,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_ADD)] = ctrl_cmd_bulk_cntr_tr_add,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_DEL)] = ctrl_cmd_bulk_cntr_tr_del,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_CANCEL)] = ctrl_cmd_bulk_cntr_tr_cancel,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_ACK)] = ctrl_cmd_bulk_cntr_tr_ack,
 #ifdef SW_PUDE_EMULATION
     /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,

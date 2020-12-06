@@ -3042,6 +3042,81 @@ void mlxsw_reg_ppad_mac_memcpy_from(const char *buf, char *dst);
 
 void mlxsw_reg_ppad_mac_memcpy_to(char *buf, const char *src);
 
+/* mocs
+ * ----
+ *
+ */
+#define MLXSW_MOCS_ID 0x9095
+#define MLXSW_MOCS_LEN 0x78
+
+uint8_t mlxsw_reg_mocs_type_get(const char *buf);
+
+void mlxsw_reg_mocs_type_set(char *buf, uint8_t val);
+
+uint8_t mlxsw_reg_mocs_clear_get(const char *buf);
+
+void mlxsw_reg_mocs_clear_set(char *buf, uint8_t val);
+
+void mlxsw_reg_mocs_opcode_set(char *buf, uint8_t val);
+
+uint8_t mlxsw_reg_mocs_status_get(const char *buf);
+
+uint32_t mlxsw_reg_mocs_hi_get(const char *buf);
+
+void mlxsw_reg_mocs_hi_set(char *buf, uint32_t val);
+
+uint32_t mlxsw_reg_mocs_lo_get(const char *buf);
+
+void mlxsw_reg_mocs_lo_set(char *buf, uint32_t val);
+
+uint32_t mlxsw_reg_mocs_mocs_ppcnt_port_mask_get(const char *buf, unsigned short index);
+
+void mlxsw_reg_mocs_mocs_ppcnt_port_mask_set(char *buf, unsigned short index, uint32_t val);
+
+uint32_t mlxsw_reg_mocs_mocs_ppcnt_grp_mask_get(const char *buf, unsigned short index);
+
+void mlxsw_reg_mocs_mocs_ppcnt_grp_mask_set(char *buf, unsigned short index, uint32_t val);
+
+uint32_t mlxsw_reg_mocs_mocs_ppcnt_tc_mask_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_ppcnt_tc_mask_set(char *buf, uint32_t val);
+
+uint16_t mlxsw_reg_mocs_mocs_ppcnt_prio_mask_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_ppcnt_prio_mask_set(char *buf, uint16_t val);
+
+uint16_t mlxsw_reg_mocs_mocs_ppcnt_rx_buffer_mask_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_ppcnt_rx_buffer_mask_set(char *buf, uint16_t val);
+
+uint32_t mlxsw_reg_mocs_mocs_mgpcb_num_rec_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_mgpcb_num_rec_set(char *buf, uint32_t val);
+
+uint32_t mlxsw_reg_mocs_mocs_mgpcb_counter_index_base_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_mgpcb_counter_index_base_set(char *buf, uint32_t val);
+
+uint32_t mlxsw_reg_mocs_mocs_pbsr_port_mask_get(const char *buf, unsigned short index);
+
+void mlxsw_reg_mocs_mocs_pbsr_port_mask_set(char *buf, unsigned short index, uint32_t val);
+
+uint8_t mlxsw_reg_mocs_mocs_sbsrd_curr_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_sbsrd_curr_set(char *buf, uint8_t val);
+
+uint8_t mlxsw_reg_mocs_mocs_sbsrd_snap_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_sbsrd_snap_set(char *buf, uint8_t val);
+
+uint8_t mlxsw_reg_mocs_mocs_sbsrd_cells_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_sbsrd_cells_set(char *buf, uint8_t val);
+
+uint8_t mlxsw_reg_mocs_mocs_sbsrd_desc_get(const char *buf);
+
+void mlxsw_reg_mocs_mocs_sbsrd_desc_set(char *buf, uint8_t val);
+
 /* rmftad
  * ------
  *

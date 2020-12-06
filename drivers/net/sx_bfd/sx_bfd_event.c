@@ -42,7 +42,8 @@ extern int send_trap(const void    *buf,
                      const uint32_t buf_size,
                      uint16_t       trap_id,
                      u8             is_from_user,
-                     u8             device_id);
+                     u8             device_id,
+                     pid_t          target_pid);
 
 void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
                               char                     *packet,
@@ -118,7 +119,7 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
 
     if (send_trap(event_msg,
                   event_msg_size,
-                  SXD_TRAP_ID_BFD_PACKET_EVENT, 0, 1) != 0) {
+                  SXD_TRAP_ID_BFD_PACKET_EVENT, 0, 1, 0) != 0) {
         printk(KERN_ERR "Failed to send data trap 0x210 for session (%d).\n", session ? session->session_id : -1);
     }
 
@@ -141,7 +142,7 @@ void sx_bfd_event_send_timeout(struct sx_bfd_rx_session *session)
     /*Send the trap */
     if (send_trap(&event,
                   sizeof(struct bfd_timeout_event),
-                  SXD_TRAP_ID_BFD_TIMEOUT_EVENT, 0, 1) != 0) {
+                  SXD_TRAP_ID_BFD_TIMEOUT_EVENT, 0, 1, 0) != 0) {
         printk(KERN_ERR "Failed to send timeout trap for session_id %d and VRF %d.\n",
                session->session_id, session->vrf_id);
     }
