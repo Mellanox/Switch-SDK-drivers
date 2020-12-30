@@ -49,7 +49,13 @@
 #include "sx_proc.h"
 #include "sgmii.h"
 
-#define SX_FULL_DQ_TOUT_MSECS 300000
+#define SX_FULL_DQ_TOUT_MSECS       300000
+#define WAIT_FOR_COMPLETION_GC_TIME (5 * HZ)
+#ifdef INCREASED_TIMEOUT
+#define WAIT_FOR_COMPLETION_TIMEOUT (2 * WAIT_FOR_COMPLETION_GC_TIME) * 1000
+#else
+#define WAIT_FOR_COMPLETION_TIMEOUT (2 * WAIT_FOR_COMPLETION_GC_TIME)
+#endif
 
 extern struct sx_globals sx_glb;
 
@@ -225,6 +231,62 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
     return 0;
 }
 
+static void sx_sdq_wait_for_completion_gc(struct sx_dq *sdq)
+{
+    struct sx_pkt *iter_pkt, *tmp_pkt;
+    unsigned long  now = jiffies;
+    unsigned long  flags;
+
+    spin_lock_irqsave(&sdq->lock, flags);
+
+    list_for_each_entry_safe(iter_pkt, tmp_pkt, &sdq->pkts_comp_list.list_wait_for_completion,
+                             list_wait_for_completion) {
+        if (time_after(now, iter_pkt->since + WAIT_FOR_COMPLETION_TIMEOUT)) {
+            list_del(&iter_pkt->list_wait_for_completion);
+            sx_skb_free(sdq->sge[iter_pkt->idx].skb);
+            sdq->sge[iter_pkt->idx].skb = NULL;
+            atomic64_inc(&sdq->pkts_no_rev_completion);
+            if (printk_ratelimit()) {
+                printk(KERN_ERR PFX "Did not receive completion for SDQ dqn (%u) idx (%u) "
+                       "after %d seconds\n",
+                       sdq->dqn, iter_pkt->idx, WAIT_FOR_COMPLETION_TIMEOUT / 1000);
+            }
+            kfree(iter_pkt);
+            sdq->state = DQ_STATE_STUCK;
+        } else {
+            break;
+        }
+    }
+
+    if (sdq->state == DQ_STATE_STUCK) {
+        list_for_each_entry_safe(iter_pkt, tmp_pkt, &sdq->pkts_list.list_send_to_sdq,
+                                 list_send_to_sdq) {
+            list_del(&iter_pkt->list_send_to_sdq);
+            sx_skb_free(iter_pkt->skb);
+            atomic64_inc(&sdq->pkts_removed_from_sdq);
+            if (printk_ratelimit()) {
+                printk(KERN_ERR PFX "Remove skb from list_send_to_sdq\n");
+            }
+            kfree(iter_pkt);
+        }
+    }
+
+    spin_unlock_irqrestore(&sdq->lock, flags);
+}
+
+static void sx_sdq_wait_for_completion_handler(struct work_struct *work)
+{
+    struct sx_priv *priv = container_of(work, struct sx_priv, sdq_completion_gc_dwork.work);
+    int             dqn = 0;
+
+    for (dqn = 0; dqn < priv->dev.dev_cap.max_num_sdqs; dqn++) {
+        if (priv->sdq_table.dq[dqn] != NULL) {
+            sx_sdq_wait_for_completion_gc(priv->sdq_table.dq[dqn]);
+        }
+    }
+
+    queue_delayed_work(priv->dev.generic_wq, &priv->sdq_completion_gc_dwork, WAIT_FOR_COMPLETION_GC_TIME);
+}
 
 /* DQ must be locked here!!! */
 static int sx_dq_overflow(struct sx_dq *sdq)
@@ -268,7 +330,7 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
 
     end = jiffies + 5 * HZ;
     spin_lock_irqsave(&dq->lock, flags);
-    while ((int)(dq->head - dq->tail) > 0) {
+    while ((int)(dq->head - dq->tail) > 0 || !sx_is_cq_idle(dev, dq->cq->cqn)) {
         spin_unlock_irqrestore(&dq->lock, flags);
         msleep(1000 / HZ);
         if (time_after(jiffies, end)) {
@@ -310,8 +372,8 @@ int sx_add_pkts_to_sdq(struct sx_dq *sdq)
     struct list_head *pos, *q;
     u8                arm = 0;
 
-    list_for_each_safe(pos, q, &sdq->pkts_list.list) {
-        curr_pkt = list_entry(pos, struct sx_pkt, list);
+    list_for_each_safe(pos, q, &sdq->pkts_list.list_send_to_sdq) {
+        curr_pkt = list_entry(pos, struct sx_pkt, list_send_to_sdq);
         list_del(pos);
         wqe_idx = sdq->head & (sdq->wqe_cnt - 1);
         wqe = sx_get_send_wqe(sdq, wqe_idx);
@@ -323,8 +385,13 @@ int sx_add_pkts_to_sdq(struct sx_dq *sdq)
             break;
         }
 
+        curr_pkt->idx = wqe_idx;
+        curr_pkt->since = jiffies;
+        list_add_tail(&curr_pkt->list_wait_for_completion, &sdq->pkts_comp_list.list_wait_for_completion);
+        atomic64_inc(&sdq->pkts_sent_to_sdq);
+
         ++sdq->head;
-        kfree(curr_pkt);
+
         arm = 1;
         if (sx_dq_overflow(sdq)) {
             break; /* go to arm the db */
@@ -354,6 +421,7 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     u8             sdqn;
     u8             stclass;
     u8             max_cpu_etclass_for_unlimited_mtu;
+    u16            cap_max_mtu = 0;
 
     if (!dev || !dev->profile_set) {
         printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
@@ -380,7 +448,8 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     }
 
     err = sx_get_sdq(meta, dev, meta->type, meta->swid,
-                     meta->etclass, &stclass, &sdqn, &max_cpu_etclass_for_unlimited_mtu);
+                     meta->etclass, &stclass, &sdqn, &max_cpu_etclass_for_unlimited_mtu,
+                     &cap_max_mtu);
 
     if (err) {
         if (printk_ratelimit()) {
@@ -404,12 +473,29 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
 
     if (sdq->is_flushing == 1) {
         if (printk_ratelimit()) {
-            printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on dqn [%u]"
+            printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on dqn [%u] "
                    "while in flushing mode\n", sdqn);
         }
         sx_skb_free(skb);
-        err = -EFAULT;
-        goto out;
+        return -EFAULT;
+    }
+
+    if (sdq->state == DQ_STATE_STUCK) {
+        if (printk_ratelimit()) {
+            printk(KERN_ERR PFX "%s: Cannot send packet on dqn [%u] "
+                   "sdq stuck\n", __func__, sdqn);
+        }
+        sx_skb_free(skb);
+        return 0;
+    }
+
+    if (skb->len > cap_max_mtu) {
+        if (printk_ratelimit()) {
+            printk(KERN_WARNING PFX "%s: cannot send packet of size %u, "
+                   "larger than max MTU %u\n", __func__, skb->len, cap_max_mtu);
+        }
+        sx_skb_free(skb);
+        return -EFAULT;
     }
 
     err = sx_build_isx_header(meta, skb, stclass);
@@ -465,7 +551,7 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
     new_pkt->set_lp = meta->lp;
     new_pkt->type = meta->type;
     spin_lock_irqsave(&sdq->lock, flags);
-    list_add_tail(&new_pkt->list, &sdq->pkts_list.list);
+    list_add_tail(&new_pkt->list_send_to_sdq, &sdq->pkts_list.list_send_to_sdq);
     if (sx_dq_overflow(sdq)) {
         if ((sdq->last_full_queue != sdq->last_completion) &&
             (time_after_eq(jiffies, (sdq->last_completion + msecs_to_jiffies(SX_FULL_DQ_TOUT_MSECS))))) {
@@ -642,9 +728,10 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
 #endif
 
     if (!rdq->dev->profile_set) {
-        printk(KERN_WARNING PFX "sx_core_post_recv() cannot "
-               "execute because the profile is not "
-               "set\n");
+        if (printk_ratelimit()) {
+            printk(KERN_WARNING PFX "sx_core_post_recv() cannot execute because the profile is not set\n");
+        }
+
         return;
     }
     spin_lock_irqsave(&rdq->lock, flags);
@@ -816,6 +903,11 @@ int sx_init_dq_table(struct sx_dev *dev, unsigned int ndqs, int send)
 
     err = sx_bitmap_init(&dq_table->bitmap, ndqs);
 
+    if (send) {
+        INIT_DELAYED_WORK(&priv->sdq_completion_gc_dwork, sx_sdq_wait_for_completion_handler);
+        queue_delayed_work(dev->generic_wq, &priv->sdq_completion_gc_dwork, 0);
+    }
+
     return err;
 }
 
@@ -951,7 +1043,13 @@ static int sx_dq_alloc(struct sx_dev *dev, u8 send, struct sx_dq *dq, u8 dqn)
     dq->state = DQ_STATE_RESET;
     dq->dev = dev;
     if (send) {
-        INIT_LIST_HEAD(&dq->pkts_list.list);
+        INIT_LIST_HEAD(&dq->pkts_list.list_send_to_sdq);
+        INIT_LIST_HEAD(&dq->pkts_comp_list.list_wait_for_completion);
+        atomic64_set(&dq->pkts_sent_to_sdq, 0);
+        atomic64_set(&dq->pkts_removed_from_sdq, 0);
+        atomic64_set(&dq->pkts_recv_completion, 0);
+        atomic64_set(&dq->pkts_no_rev_completion, 0);
+        atomic64_set(&dq->pkts_late_completion, 0);
     }
 
     return 0;
@@ -1042,7 +1140,7 @@ int sx_core_add_rdq_to_monitor_rdq_list(struct sx_dq *dq)
     if (!is_found) {
         sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count] = dq->dqn;
         sx_priv(dev)->monitor_rdqs_count++;
-        sx_bitmap_set(&sx_priv(dev)->active_monitor_cq_bitmap, dq->cq->cqn);
+        sx_bitmap_set(&sx_priv(dev)->monitor_cq_bitmap, dq->cq->cqn);
     }
 
     return 0;
@@ -1056,11 +1154,18 @@ void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq)
     /* remove monitor rdq from the list */
     for (i = 0; i < sx_priv(dev)->monitor_rdqs_count; i++) {
         if (sx_priv(dev)->monitor_rdqs_arr[i] == dq->dqn) {
+            sx_bitmap_free(&(sx_priv(dev)->monitor_cq_bitmap), dq->cq->cqn);
             sx_bitmap_free(&(sx_priv(dev)->active_monitor_cq_bitmap), dq->cq->cqn);
             sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count - 1];
             sx_priv(dev)->monitor_rdqs_count--;
         }
     }
+
+    if (dq->is_monitor) {
+        unset_monitor_rdq(dq);
+    }
+
+    sx_cq_arm(dq->cq);
 }
 
 
@@ -1096,15 +1201,23 @@ static void sx_dq_free(struct sx_dev *dev, struct sx_dq *dq)
 
     wait_for_completion(&dq->free);
 
-    if (dq->is_send && !list_empty(&dq->pkts_list.list)) {
-        list_for_each_safe(pos, q, &dq->pkts_list.list) {
-            tmp_pkt = list_entry(pos, struct sx_pkt, list);
+    if (dq->is_send && !list_empty(&dq->pkts_list.list_send_to_sdq)) {
+        list_for_each_safe(pos, q, &dq->pkts_list.list_send_to_sdq) {
+            tmp_pkt = list_entry(pos, struct sx_pkt, list_send_to_sdq);
             list_del(pos);
             /* The destructor assumes the context of the user
              *  who sent the packet still exists, and we might
              *  get a kernel oops if the user already closed the FD */
             tmp_pkt->skb->destructor = NULL;
             sx_skb_free(tmp_pkt->skb);
+            kfree(tmp_pkt);
+        }
+    }
+
+    if (dq->is_send && !list_empty(&dq->pkts_comp_list.list_wait_for_completion)) {
+        list_for_each_safe(pos, q, &dq->pkts_comp_list.list_wait_for_completion) {
+            tmp_pkt = list_entry(pos, struct sx_pkt, list_wait_for_completion);
+            list_del(pos);
             kfree(tmp_pkt);
         }
     }
@@ -1152,6 +1265,8 @@ void sx_core_destroy_sdq_table(struct sx_dev *dev, u8 free_table)
     struct sx_priv     *priv = sx_priv(dev);
     struct sx_dq_table *sdq_table = &priv->sdq_table;
     int                 i;
+
+    cancel_delayed_work_sync(&priv->sdq_completion_gc_dwork);
 
     for (i = 0; i < dev->dev_cap.max_num_sdqs; i++) {
         if (sdq_table->dq[i]) {

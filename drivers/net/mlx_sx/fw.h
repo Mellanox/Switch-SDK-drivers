@@ -38,6 +38,7 @@
 
 struct profile_driver_params {
     u8 cqe_version;
+    u8 cqe_time_stamp_type;
 };
 
 int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profile_driver_params *params);

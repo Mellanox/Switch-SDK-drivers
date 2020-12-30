@@ -95,7 +95,6 @@ int get_edata_from_elist(int               *evlist_size,
 void sx_copy_pkt_metadata_prepare(struct ku_read    *metadata_p,
                                   struct event_data *edata_p);
 void unset_monitor_rdq(struct sx_dq *dq);
-int sx_core_ptp_cleanup(struct sx_dev *dev);
 int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid);
 
 /* ioctl_cmd_ifc.c */
@@ -110,9 +109,21 @@ long ctrl_cmd_get_system_mkey(struct file *file, unsigned int cmd, unsigned long
 
 /* ioctl_common.c - ioctl() helper functions */
 int sx_core_ioctl_enable_swid(struct sx_dev *dev, unsigned long data);
-int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params);
-int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params);
-int sx_core_add_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params);
+int sx_core_add_synd_l2(u8                          swid,
+                        u16                         hw_synd,
+                        struct sx_dev              *dev,
+                        struct ku_port_vlan_params *port_vlan_params,
+                        u8                          is_register);
+int sx_core_add_synd_l3(u8                          swid,
+                        u16                         hw_synd,
+                        struct sx_dev              *dev,
+                        struct ku_port_vlan_params *port_vlan_params,
+                        u8                          is_register);
+int sx_core_add_synd_phy(u8                          swid,
+                         u16                         hw_synd,
+                         struct sx_dev              *dev,
+                         struct ku_port_vlan_params *port_vlan_params,
+                         u8                          is_register);
 int sx_core_ioctl_set_pci_profile(struct sx_dev *dev, unsigned long data, uint8_t set_profile);
 int sx_core_ioctl_get_pci_profile(struct sx_dev *dev, unsigned long data);
 
@@ -136,6 +147,8 @@ long ctrl_cmd_set_vid_2_ip(struct file *file, unsigned int cmd, unsigned long da
 long ctrl_cmd_set_port_vid_to_fid_map(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_fid_to_hwfid_map(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_default_vid(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_warm_boot_mode(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_psample_port_sample_rate_update(struct file *file, unsigned int cmd, unsigned long data);
 
 /* ioctl_dpt.c */
 long ctrl_cmd_add_dev_path(struct file *file, unsigned int cmd, unsigned long data);
@@ -163,6 +176,8 @@ long ctrl_cmd_set_rdq_cpu_priority(struct file *file, unsigned int cmd, unsigned
 long ctrl_cmd_set_truncate_params(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_rdq_agg_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_read_multi(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_skb_offload_fwd_mark_en(struct file *file, unsigned int cmd, unsigned long data);
@@ -170,17 +185,26 @@ long ctrl_cmd_flush_evlist(struct file *file, unsigned int cmd, unsigned long da
 long ctrl_cmd_trap_filter_add(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_trap_filter_remove(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_trap_filter_remove_all(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_fd_attributes(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_get_fd_attributes(struct file *file, unsigned int cmd, unsigned long data);
+
 
 /* ioctl_misc.c */
 long ctrl_cmd_get_capabilities(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_issu_fw(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_enable_swid(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long data);
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data);
-#endif /* PD_BU */
 long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long data);
 long ctrl_cmd_set_sw_ib_node_desc(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_set_sw_ib_up_down(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_add(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_del(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_cancel(struct file *file, unsigned int cmd, unsigned long data);
+long ctrl_cmd_bulk_cntr_tr_ack(struct file *file, unsigned int cmd, unsigned long data);
+#ifdef SW_PUDE_EMULATION
+/* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
+long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data);
+#endif /* SW_PUDE_EMULATION */
 
 /* ioctl_pci.c */
 long ctrl_cmd_set_pci_profile(struct file *file, unsigned int cmd, unsigned long data);

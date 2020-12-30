@@ -139,6 +139,12 @@ is_ref()
 
 start()
 {
+    lsmod | grep sx_core > /dev/null
+    is_core_running=$?
+    if [ $is_core_running -eq 0 ]; then
+        echo_warning $"sx_core service been already started"
+        return 0
+    fi
 	/sbin/modprobe 8021q
 	RC=$?
 	if [ $RC -ne 0 ]; then
@@ -158,28 +164,7 @@ start()
 		return $RC
 	fi
 
-	if [ "x$udevd_restart" != "xno" ]; then
-		if [ -x /sbin/udevtrigger ]; then
-			echo "Reloading udev:"
-			/sbin/udevtrigger
-			RC=$?
-			if [ $RC = 1 ]; then
-				echo "Failed to run udevtrigger."
-				return $RC
-			fi
-		fi
-		if [ -x /sbin/udevadm ]; then
-			echo "Reloading udev:"
-			/sbin/udevadm trigger
-			RC=$?
-			if [ $RC = 1 ]; then
-				echo "Failed to run udevadm."
-				return $RC
-			fi
-		fi
-	fi
-
-       /sbin/modprobe sx_netdev
+        /sbin/modprobe sx_netdev
         RC=$?
         if [ $RC -ne 0 ]; then
                 echo_failure $"Loading sx_netdev: "
@@ -199,7 +184,7 @@ start()
 
 	RC=$?
 	if [ $RC -ne 0 ]; then
-		echo_failure $"Preparing /dev/sxdevs/sxcdev device"
+		echo_failure $"Preparing /dev/sxdevs/sxcdev major='$major' device"
 		return $RC
 	fi
 
@@ -215,7 +200,7 @@ start()
 
     RC=$?
     if [ $RC -ne 0 ]; then
-        echo_failure $"Preparing /dev/sxdevs/bfdcdev device"
+        echo_failure $"Preparing /dev/sxdevs/bfdcdev major='$major' device"
         return $RC
     fi
 

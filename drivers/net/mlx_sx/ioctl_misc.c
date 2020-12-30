@@ -37,9 +37,11 @@
 #include <linux/mlx_sx/kernel_user.h>
 #include "sx.h"
 #include "alloc.h"
-#include "sx_clock.h"
+#include "ptp.h"
 #include "sgmii.h"
 #include "ioctl_internal.h"
+#include "bulk_cntr_event.h"
+#include "bulk_cntr_db.h"
 
 long ctrl_cmd_get_capabilities(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -58,7 +60,7 @@ long ctrl_cmd_issu_fw(struct file *file, unsigned int cmd, unsigned long data)
     u8             retry_num = 0;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
+#define NUM_OF_QUERIES 20
     /* Verify ISSU FW state is idle */
     err = sx_ISSU_FW_STATUS_GET(dev, &status);
     if (err) {
@@ -80,7 +82,7 @@ long ctrl_cmd_issu_fw(struct file *file, unsigned int cmd, unsigned long data)
     }
 
     /* Wait for ISSU FW to end */
-    while (retry_num < 20) {
+    while (retry_num < NUM_OF_QUERIES) {
         err = sx_ISSU_FW_STATUS_GET(dev, &status);
         if (err) {
             printk(KERN_ERR PFX "Fail to get ISSU FW state.\n");
@@ -95,7 +97,7 @@ long ctrl_cmd_issu_fw(struct file *file, unsigned int cmd, unsigned long data)
         }
     }
 
-    if (retry_num == 3) {
+    if (retry_num >= NUM_OF_QUERIES) {
         printk(KERN_ERR PFX "ISSU FW timeout.\n");
         err = -ETIME;
         goto out;
@@ -141,15 +143,10 @@ long ctrl_cmd_disable_swid(struct file *file, unsigned int cmd, unsigned long da
     return 0;
 }
 
-
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#ifdef SW_PUDE_EMULATION
+/* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
 long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigned long data)
 {
-    /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
-     * - should be removed before Phoenix bring up;
-     * - fill kernel DB with new port admin status;
-     */
-
     struct ku_admin_status_data admin_status_data;
     struct sx_dev              *dev;
     unsigned long               flags;
@@ -168,41 +165,7 @@ long ctrl_cmd_set_port_admin_status(struct file *file, unsigned int cmd, unsigne
 
     return 0;
 }
-#endif /* PD_BU */
-
-
-static int __sx_core_ptp_init(struct sx_dev *dev, ptp_mode_t ptp_mode)
-{
-    int             err = 0;
-    struct sx_priv *priv = sx_priv(dev);
-
-    err = __sx_core_dev_specific_cb_get_reference(dev);
-    if (err) {
-        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-        return err;
-    }
-
-    if (!priv->dev_specific_cb.sx_ptp_init) {
-        err = -ENOSYS;
-        goto out;
-    }
-
-    if (IS_PTP_MODE_EVENTS || IS_PTP_MODE_POLLING) {
-        printk(KERN_ERR "PTP mode is already configured. can't do it more than once.\n");
-        err = -EBUSY;
-        goto out;
-    }
-
-    /*
-     * KU_PTP_MODE_EVENTS  - for each RX PTP packet trap, FW will also send a FIFO trap
-     * KU_PTP_MODE_POLLING - for each RX PTP packet trap, should poll FW for the FIFO record
-     */
-    err = priv->dev_specific_cb.sx_ptp_init(priv, ptp_mode);
-
-out:
-    __sx_core_dev_specific_cb_release_reference(dev);
-    return err;
-}
+#endif /* SW_PUDE_EMULATION */
 
 
 long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long data)
@@ -225,18 +188,15 @@ long ctrl_cmd_set_ptp_mode(struct file *file, unsigned int cmd, unsigned long da
         goto out;
     }
 
-    if ((ptp_mode.ptp_mode == KU_PTP_MODE_EVENTS) ||
-        (ptp_mode.ptp_mode == KU_PTP_MODE_POLLING)) {
-        err = __sx_core_ptp_init(dev, ptp_mode.ptp_mode);
+    if (ptp_mode.ptp_mode != KU_PTP_MODE_DISABLED) {
+        err = sx_core_ptp_init(sx_priv(dev), ptp_mode.ptp_mode);
         if (err) {
             printk(KERN_ERR PFX "__sx_core_ptp_init failed, err:%d\n", err);
-            goto out;
         }
-    } else if (ptp_mode.ptp_mode == KU_PTP_MODE_DISABLED) {
-        err = sx_core_ptp_cleanup(dev);
+    } else { /* ptp_mode.ptp_mode == KU_PTP_MODE_DISABLED */
+        err = sx_core_ptp_cleanup(sx_priv(dev));
         if (err) {
             printk(KERN_ERR PFX "__sx_core_ptp_cleanup failed, err:%d\n", err);
-            goto out;
         }
     }
 
@@ -294,6 +254,113 @@ long ctrl_cmd_set_sw_ib_node_desc(struct file *file, unsigned int cmd, unsigned 
 
     sx_core_dispatch_event(dev, SX_DEV_EVENT_NODE_DESC_UPDATE, event_data);
     kfree(event_data);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_set_sw_ib_up_down(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_ib_swid_up_down event_params;
+    union sx_event_data      *event_data;
+    struct sx_dev            *dev;
+    int                       err;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    err = copy_from_user(&event_params, (struct ku_ib_node_description*)data, sizeof(event_params));
+    if (err) {
+        goto out;
+    }
+
+    printk(KERN_INFO "Setting swid [%u] device [%u] [%s]\n",
+           event_params.swid,
+           event_params.dev_id,
+           event_params.up ? "up" : "down");
+
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        err = -ENOMEM;
+        goto out;
+    }
+
+    event_data->ib_swid_change.swid = event_params.swid;
+    event_data->ib_swid_change.dev_id = event_params.dev_id;
+
+    sx_core_dispatch_event(dev, event_params.up ? SX_DEV_EVENT_IB_SWID_UP : SX_DEV_EVENT_IB_SWID_DOWN, event_data);
+    kfree(event_data);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_add(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction_add bulk_cntr_tr_add;
+    int                                 err;
+
+    err = copy_from_user(&bulk_cntr_tr_add, (void*)data, sizeof(bulk_cntr_tr_add));
+    if (err) {
+        goto out;
+    }
+
+    err = bulk_cntr_db_add(&bulk_cntr_tr_add);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_del(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction bulk_cntr_tr_del;
+    int                             err;
+
+    err = copy_from_user(&bulk_cntr_tr_del, (void*)data, sizeof(bulk_cntr_tr_del));
+    if (err) {
+        goto out;
+    }
+
+    err = bulk_cntr_db_del(bulk_cntr_tr_del.client_pid, bulk_cntr_tr_del.buffer_id);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_cancel(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction bulk_cntr_tr_cancel;
+    int                             err;
+
+    err = copy_from_user(&bulk_cntr_tr_cancel, (void*)data, sizeof(bulk_cntr_tr_cancel));
+    if (err) {
+        goto out;
+    }
+
+    err = bulk_cntr_db_cancel(bulk_cntr_tr_cancel.client_pid, bulk_cntr_tr_cancel.buffer_id);
+
+out:
+    return err;
+}
+
+
+long ctrl_cmd_bulk_cntr_tr_ack(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_bulk_cntr_transaction_ack bulk_cntr_tr_ack;
+    int                                 err;
+
+    err = copy_from_user(&bulk_cntr_tr_ack, (void*)data, sizeof(bulk_cntr_tr_ack));
+    if (err) {
+        goto out;
+    }
+
+    err = sx_bulk_cntr_handle_ack(&bulk_cntr_tr_ack.event_id, bulk_cntr_tr_ack.buffer_id);
+    if (err) {
+        goto out;
+    }
 
 out:
     return err;

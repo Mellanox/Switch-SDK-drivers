@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2010-2020,  Mellanox Technologies. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -30,40 +30,18 @@
  * SOFTWARE.
  */
 
-#undef TRACE_SYSTEM
-#define TRACE_SYSTEM sx_core
+#ifndef __BULK_CNTR_EVENT_H__
+#define __BULK_CNTR_EVENT_H__
 
-#if !defined(_SX_CORE_TRACE_H) || defined(TRACE_HEADER_MULTI_READ)
-#define _SX_CORE_TRACE_H
+#include <linux/mlx_sx/device.h>
 
-#include <linux/tracepoint.h>
+void sx_bulk_cntr_handle_mocs_done(struct completion_info *ci);
+void sx_bulk_cntr_handle_ppcnt(struct completion_info *ci);
+void sx_bulk_cntr_handle_mgpcb(struct completion_info *ci);
+void sx_bulk_cntr_handle_pbsr(struct completion_info *ci);
+void sx_bulk_cntr_handle_sbsrd(struct completion_info *ci);
 
-TRACE_EVENT(monitor_rdq_rx,
-            TP_PROTO(const struct sk_buff *skb, uint16_t trap_id, const struct timespec *timestamp),
+int sx_bulk_cntr_handle_ack(const sxd_bulk_cntr_event_id_t *ev_id,
+                            unsigned long                   buffer_id);
 
-            TP_ARGS(skb, trap_id, timestamp),
-
-            TP_STRUCT__entry(
-                __field(const void *, skb)
-                __field(uint16_t,     trap_id)
-                __field(const void *, timestamp)
-                ),
-
-            TP_fast_assign(
-                __entry->skb = skb;
-                __entry->trap_id = trap_id;
-                __entry->timestamp = timestamp;
-                ),
-
-            TP_printk("trap_id %u tv_sec %ld tv_nsec %ld", __entry->trap_id,
-                      (long)(((const struct timespec*)__entry->timestamp)->tv_sec),
-                      ((const struct timespec*)__entry->timestamp)->tv_nsec)
-            );
-
-#endif /* _SX_CORE_TRACE_H */
-
-/* This part must be outside protection */
-#undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH .
-#define TRACE_INCLUDE_FILE trace
-#include <trace/define_trace.h>
+#endif /* __BULK_CNTR_EVENT_H__ */

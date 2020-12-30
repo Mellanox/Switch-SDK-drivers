@@ -62,6 +62,16 @@
 #include <net/switchdev.h>
 #endif
 #include "sx_netdev.h"
+#include "sx_psample.h"
+
+/*
+ * Local define in order to allocate skb IP aligned.
+ * In header asm/processor.h NET_IP_ALIGN is defined as 0.
+ */
+#ifdef NET_IP_ALIGN
+#undef NET_IP_ALIGN
+#endif
+#define NET_IP_ALIGN (2)
 
 MODULE_AUTHOR("Amos Hersch");
 MODULE_DESCRIPTION("Mellanox SwitchX Network Device Driver");
@@ -86,19 +96,22 @@ module_param_named(offload_fwd_mark_en, offload_fwd_mark_en, int, 0644);
 MODULE_PARM_DESC(offload_fwd_mark_en, "1 - enable offload of packets fwd in HW, 0 - disable offload");
 #endif
 
+static ssize_t skip_tunnel_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf);
+static ssize_t skip_tunnel_cb(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len);
+static struct kobj_attribute skip_netdev_attr =
+    __ATTR(skip_tunnel, S_IWUSR | S_IRUGO, skip_tunnel_show, skip_tunnel_cb);
 static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len);
 static struct kobj_attribute bind_sx_core_attr = __ATTR(bind_sx_core, S_IWUSR, NULL, store_bind_sx_core);
 static char                  sx_netdev_version[] =
     PFX "Mellanox SwitchX Network Device Driver "
     DRV_VERSION " (" DRV_RELDATE ")\n";
-struct net_device       *lag_netdev_db[MAX_LAG_NUM];
-struct net_device       *port_netdev_db[MAX_SYSPORT_NUM];
 struct sx_netdev_rsc    *g_netdev_resources = NULL; /* Should be replaced in the core with sx_dev context */
 struct sx_dev          * g_sx_dev = NULL;
 struct net_device       *bridge_netdev_db[MAX_BRIDGE_NUM];
 struct workqueue_struct *netdev_wq;
 struct sx_core_interface sx_core_if;
 void                    *g_dev_ctx = NULL;
+u8                       g_skip_tunnel = 0;
 
 u64 sx_netdev_mac_to_u64(u8 *addr)
 {
@@ -173,12 +186,18 @@ static int sx_netdev_rx_apply_vlan_logic(u8               vlan_child_exist,
     struct sk_buff  *new_skb = NULL;
 
     skb_get(old_skb);
+    /*
+     * We copy old_skb to new_skb and add / edit vlan header if necessary.
+     * The new_skb is IP align.
+     */
     if ((is_tagged == VLAN_UNTAGGED_E) && vlan_child_exist) {
-        new_skb = alloc_skb(old_skb->len + 4, GFP_ATOMIC);
+        new_skb = netdev_alloc_skb(NULL, old_skb->len + 4 + NET_IP_ALIGN);
         if (!new_skb) {
             err = -ENOMEM;
             goto out;
         }
+
+        skb_reserve(new_skb, NET_IP_ALIGN);
 
         p_skb_data = skb_put(new_skb, old_skb->len + 4);
         if (!p_skb_data) {
@@ -198,11 +217,13 @@ static int sx_netdev_rx_apply_vlan_logic(u8               vlan_child_exist,
             vhdr = (struct vlan_hdr *)(old_skb->data + ETH_HLEN);
             vhdr->h_vlan_TCI = (vhdr->h_vlan_TCI & htons(~VLAN_VID_MASK)) | htons(pvid);
         }
-        new_skb = skb_copy(old_skb, GFP_ATOMIC);
+        new_skb = netdev_alloc_skb(NULL, old_skb->len + NET_IP_ALIGN);
         if (!new_skb) {
             err = -ENOMEM;
             goto out;
         }
+        skb_reserve(new_skb, NET_IP_ALIGN);
+        memcpy(skb_put(new_skb, old_skb->len), old_skb->data, old_skb->len);
     }
 
     *new_skb_p = new_skb;
@@ -217,7 +238,7 @@ static void sx_netdev_fix_sx_skb(struct completion_info *comp_info, struct sk_bu
     struct ethhdr *eth_h = (struct ethhdr *)(skb->data);
 
 
-    if (comp_info->hw_synd == ETH_L3_MTUERROR_TRAP_ID) {
+    if (comp_info->hw_synd == SXD_TRAP_ID_ETH_L3_MTUERROR) {
         struct iphdr *ipptr;
         u32           new_checksum;
         u16           old_frag_off;
@@ -228,17 +249,19 @@ static void sx_netdev_fix_sx_skb(struct completion_info *comp_info, struct sk_bu
             ipptr = (struct iphdr *)(skb->data + ETH_HLEN);
         }
 
-        /* RFC 1624 describes how to recalculate the checksum via incremental update */
-        old_frag_off = be16_to_cpu(ipptr->frag_off); /* save old flags */
-        if (!(old_frag_off & 0x4000)) { /* If don't fragment bit is not set */
-            ipptr->frag_off = cpu_to_be16(old_frag_off | 0x4000); /* set Don't-Fragment bit */
-            /* calculate the new checksum */
-            new_checksum = (~old_frag_off & 0xffff) + (be16_to_cpu(ipptr->frag_off) & 0xffff); /* checksum' = ~m+m' */
-            new_checksum += (~be16_to_cpu(ipptr->check) & 0xffff); /* checksum' += ~checksum */
-            new_checksum = (new_checksum & 0xffff) + (new_checksum >> 16); /* Add carry if such exists */
-            ipptr->check = cpu_to_be16(~(new_checksum + (new_checksum >> 16))); /* checksum' = ~checksum' */
+        if (ipptr->version == IPVERSION) {
+            /* RFC 1624 describes how to recalculate the checksum via incremental update */
+            old_frag_off = be16_to_cpu(ipptr->frag_off); /* save old flags */
+            if (!(old_frag_off & 0x4000)) { /* If don't fragment bit is not set */
+                ipptr->frag_off = cpu_to_be16(old_frag_off | 0x4000); /* set Don't-Fragment bit */
+                /* calculate the new checksum */
+                new_checksum = (~old_frag_off & 0xffff) + (be16_to_cpu(ipptr->frag_off) & 0xffff); /* checksum' = ~m+m' */
+                new_checksum += (~be16_to_cpu(ipptr->check) & 0xffff); /* checksum' += ~checksum */
+                new_checksum = (new_checksum & 0xffff) + (new_checksum >> 16); /* Add carry if such exists */
+                ipptr->check = cpu_to_be16(~(new_checksum + (new_checksum >> 16))); /* checksum' = ~checksum' */
+            }
         }
-    } else if (comp_info->hw_synd == ETH_L3_LBERROR_TRAP_ID) {
+    } else if (comp_info->hw_synd == SXD_TRAP_ID_ETH_L3_LBERROR) {
         memcpy(eth_h->h_dest, netdev->dev_addr, netdev->addr_len);
     }
 
@@ -266,9 +289,6 @@ static void sx_netdev_handle_rx(struct completion_info *comp_info, struct net_de
     struct skb_shared_hwtstamps hwts = *skb_hwtstamps(comp_info->skb);
 
     if (!netdev) {
-        if (sx_netdev_rx_debug) {
-            printk(KERN_ERR "%s: netdev is NULL! dropping packet!\n", __func__);
-        }
         return;
     }
 
@@ -311,15 +331,21 @@ static void sx_netdev_handle_rx(struct completion_info *comp_info, struct net_de
 static void sx_netdev_log_port_rx_pkt(struct completion_info *comp_info, void *context)
 {
     /* Get routed netdev */
-    struct net_device *netdev = NULL;
+    u8 i = 0, port_type = 0;
 
-    if (comp_info->is_lag) {
-        netdev = lag_netdev_db[comp_info->sysport];
-    } else {
-        netdev = port_netdev_db[comp_info->sysport];
+    port_type = comp_info->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
+    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+        if (g_netdev_resources->port_netdev[port_type][comp_info->sysport][i] != NULL) {
+            sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[port_type][comp_info->sysport][i]);
+        } else {
+            if (sx_netdev_rx_debug) {
+                printk(KERN_ERR "%s: %s %d index %d netdev is NULL! dropping packet!\n",
+                       __func__,
+                       comp_info->is_lag ? "lag" : "port",
+                       comp_info->sysport, i);
+            }
+        }
     }
-
-    sx_netdev_handle_rx(comp_info, netdev);
 }
 
 static void sx_netdev_phy_port_rx_pkt(struct completion_info *comp_info, void *context)
@@ -327,24 +353,34 @@ static void sx_netdev_phy_port_rx_pkt(struct completion_info *comp_info, void *c
     /* Get routed netdev */
     struct net_device  *netdev = context;
     struct sx_net_priv *net_priv = netdev_priv(netdev);
-    uint16_t            lag_id = 0;
-    uint16_t            local = 0;
+    uint16_t            local = comp_info->sysport;
     int                 ret = 0;
+    u8                  i = 0;
 
     if (comp_info->is_lag) {
-        lag_id = comp_info->sysport;
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_get_local, ret, net_priv->dev, lag_id, comp_info->lag_subport, &local);
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_get_local,
+                                   ret,
+                                   net_priv->dev,
+                                   comp_info->sysport,
+                                   comp_info->lag_subport,
+                                   &local);
         if (ret) {
             printk(KERN_ERR PFX "Fail to get local port from lag_id (%d) "
-                   "and port index (%d)\n", lag_id, comp_info->lag_subport);
+                   "and port index (%d)\n", comp_info->sysport, comp_info->lag_subport);
             return;
         }
-        netdev = port_netdev_db[local];
-    } else {
-        netdev = port_netdev_db[comp_info->sysport];
     }
 
-    sx_netdev_handle_rx(comp_info, netdev);
+    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+        if (g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][local][i] != NULL) {
+            sx_netdev_handle_rx(comp_info, g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][local][i]);
+        } else {
+            if (sx_netdev_rx_debug) {
+                printk(KERN_ERR "%s: port %d index %d netdev is NULL! dropping packet!\n",
+                       __func__, local, i);
+            }
+        }
+    }
 }
 
 
@@ -352,7 +388,13 @@ static void sx_netdev_handle_rx_pkt(struct completion_info *comp_info, void *con
 {
     struct net_device *netdev = context;
 
-    sx_netdev_handle_rx(comp_info, netdev);
+    if (netdev != NULL) {
+        sx_netdev_handle_rx(comp_info, netdev);
+    } else {
+        if (sx_netdev_rx_debug) {
+            printk(KERN_ERR "%s: netdev is NULL! dropping packet!\n", __func__);
+        }
+    }
 }
 
 void sx_netdev_dwork_func(struct work_struct *pude_dwork)
@@ -383,9 +425,9 @@ static void sx_netdev_handle_pude_event(struct completion_info *comp_info, void 
     struct sx_emad           *emad_header = &pude->emad_header;
     struct sx_net_priv       *net_priv;
     int                       reg_id = be16_to_cpu(emad_header->emad_op.register_id);
-    unsigned int              logical_port;
-    int                       sysport;
-    int                       is_up, is_lag;
+    unsigned int              logical_port = 0;
+    int                       sysport = 0;
+    int                       is_up = 0, is_lag = 0, i = 0;
     unsigned short            type_len, ethertype;
 
     type_len = ntohs(pude->tlv_header.type_len);
@@ -419,16 +461,18 @@ static void sx_netdev_handle_pude_event(struct completion_info *comp_info, void 
         return;
     }
     is_up = pude->oper_status == PORT_OPER_STATUS_UP;
-    netdev = port_netdev_db[sysport];
 
     printk("%s: Called for logical port - %05X status %s\n", __func__,
            logical_port, is_up ? "UP" : "DOWN");
 
-    /* Change port status for L2 netdev per port */
-    if (netdev) {
-        net_priv = netdev_priv(netdev);
-        net_priv->is_oper_state_up = is_up;
-        __sx_netdev_scedule_work(net_priv);
+    /* Change port status for port netdev */
+    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+        netdev = g_netdev_resources->port_netdev[PORT_TYPE_SINGLE][sysport][i];
+        if (netdev) {
+            net_priv = netdev_priv(netdev);
+            net_priv->is_oper_state_up = is_up;
+            __sx_netdev_scedule_work(net_priv);
+        }
     }
 }
 
@@ -457,32 +501,16 @@ static void sx_netdev_remove_vlan_header(struct sk_buff *skb)
     skb->mac_len = skb->network_header - skb->mac_header;
 }
 
-static void sx_netdev_handle_global_pkt(struct completion_info *comp_info, void *context)
+static void __sx_netdev_handle_global_pkt(struct net_device *netdev, struct completion_info *comp_info)
 {
-    struct net_device  *netdev = NULL;
     struct sx_net_priv *net_priv = NULL;
     int                 err = 0;
     u16                 vlan = 0;
-
-    if (comp_info->bridge_id) {
-        if ((comp_info->bridge_id < MIN_BRIDGE_ID)
-            || (comp_info->bridge_id > MAX_BRIDGE_ID)) {
-            printk(KERN_ERR PFX "Bridge ID %u is out of range [%u,%u]\n",
-                   comp_info->bridge_id, MIN_BRIDGE_ID, MAX_BRIDGE_ID);
-            return;
-        }
-        netdev = bridge_netdev_db[comp_info->bridge_id - MIN_BRIDGE_ID];
-    } else if (comp_info->is_lag) {
-        netdev = lag_netdev_db[comp_info->sysport];
-    } else {
-        netdev = port_netdev_db[comp_info->sysport];
-    }
 
     if (!netdev) {
         if (sx_netdev_rx_debug) {
             printk(KERN_ERR "%s: netdev is NULL! dropping packet!\n", __FUNCTION__);
         }
-
         return;
     }
 
@@ -496,6 +524,29 @@ static void sx_netdev_handle_global_pkt(struct completion_info *comp_info, void 
     sx_netdev_handle_rx(comp_info, netdev);
 }
 
+static void sx_netdev_handle_global_pkt(struct completion_info *comp_info, void *context)
+{
+    struct net_device *netdev = NULL;
+    u8                 port_type = 0, i = 0;
+
+    if (comp_info->bridge_id) {
+        if ((comp_info->bridge_id < MIN_BRIDGE_ID)
+            || (comp_info->bridge_id > MAX_BRIDGE_ID)) {
+            printk(KERN_ERR PFX "Bridge ID %u is out of range [%u,%u]\n",
+                   comp_info->bridge_id, MIN_BRIDGE_ID, MAX_BRIDGE_ID);
+            return;
+        }
+        netdev = bridge_netdev_db[comp_info->bridge_id - MIN_BRIDGE_ID];
+        __sx_netdev_handle_global_pkt(netdev, comp_info);
+    } else {
+        port_type = comp_info->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
+        for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+            netdev = g_netdev_resources->port_netdev[port_type][comp_info->sysport][i];
+            __sx_netdev_handle_global_pkt(netdev, comp_info);
+        }
+    }
+}
+
 static int sx_netdev_register_global_event_handler(void)
 {
     int                       err = 0;
@@ -503,17 +554,16 @@ static int sx_netdev_register_global_event_handler(void)
 
     /* Register listener for Ethernet SWID */
     memset(&crit, 0, sizeof(crit));
-
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_global_pkt, NULL,
-                               CHECK_DUP_DISABLED_E, NULL, NULL);
+                               CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering global rx_handler", __func__);
         return err;
     }
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_pude_event, NULL,
-                               CHECK_DUP_DISABLED_E, NULL, NULL);
+                               CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering PUDE event rx_handler", __func__);
         return err;
@@ -529,7 +579,7 @@ static int sx_netdev_unregister_global_event_handler(void)
 
     memset(&crit, 0, sizeof(crit));
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
-                               crit, NULL, NULL, NULL, NULL);
+                               crit, NULL, NULL, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "error: Failed de registering on "
                "0x%x syndrome.\n", NUM_HW_SYNDROMES);
@@ -537,7 +587,7 @@ static int sx_netdev_unregister_global_event_handler(void)
     }
 
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
-                               crit, NULL, NULL, NULL, NULL);
+                               crit, NULL, NULL, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "error: Failed de registering on "
                "0x%x syndrome.\n", SXD_TRAP_ID_PUDE);
@@ -545,7 +595,6 @@ static int sx_netdev_unregister_global_event_handler(void)
     }
 
     CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_flush_synd_by_handler, sx_netdev_handle_global_pkt);
-
     return err;
 }
 
@@ -650,12 +699,14 @@ static int sx_netdev_open(struct net_device *netdev)
                                        net_priv->trap_ids[uc_type][i].synd,
                                        L2_TYPE_ETH,
                                        0,
+                                       0,
                                        crit,
                                        netdev_callback,
                                        netdev,
                                        CHECK_DUP_DISABLED_E,
                                        net_priv->dev,
-                                       &port_vlan);
+                                       &port_vlan,
+                                       1);
             if (err) {
                 printk(KERN_ERR PFX "error %s, User channel (%d) failed registering on "
                        "0x%x syndrome.\n", netdev->name, uc_type, net_priv->trap_ids[uc_type][i].synd);
@@ -696,7 +747,7 @@ static int sx_netdev_stop(struct net_device *netdev)
             port_vlan.vlan = net_priv->trap_ids[uc_type][i].vlan;
             CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_remove_synd, net_priv->swid, net_priv->trap_ids[uc_type][i].synd,
                                           L2_TYPE_ETH, 0, crit, netdev, net_priv->dev,
-                                          netdev_callback, &port_vlan);
+                                          netdev_callback, &port_vlan, 1);
         }
     }
 
@@ -713,6 +764,7 @@ void sx_netdev_set_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 oper_state)
     struct sx_net_priv *net_priv;
     uint16_t            lag_max = 0, lag_member_max = 0;
     int                 err = 0;
+    u8                  i = 0;
 
     CALL_SX_CORE_FUNC_WITH_RET(sx_core_get_lag_max, err, dev, &lag_max, &lag_member_max);
     if (err) {
@@ -726,16 +778,17 @@ void sx_netdev_set_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 oper_state)
         return;
     }
 
-    netdev = lag_netdev_db[lag_id];
-
     printk("%s: Called for lag_id %d  status %s\n", __func__,
            lag_id, oper_state ? "UP" : "DOWN");
 
     /* Change port netdev status */
-    if (netdev) {
-        net_priv = netdev_priv(netdev);
-        net_priv->is_oper_state_up = oper_state;
-        netdev_linkstate_set(netdev);
+    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+        netdev = g_netdev_resources->port_netdev[PORT_TYPE_LAG][lag_id][i];
+        if (netdev) {
+            net_priv = netdev_priv(netdev);
+            net_priv->is_oper_state_up = oper_state;
+            netdev_linkstate_set(netdev);
+        }
     }
 }
 
@@ -912,44 +965,6 @@ static int sx_netdev_override_icmp_ip(struct net_device *netdev, struct sk_buff 
     return 0;
 }
 
-static int sx_netdev_skb_add_vlan(struct sk_buff *old_skb, struct sk_buff **new_skb_p, uint16_t vlan)
-{
-    struct vlan_ethhdr *veth = NULL;
-    u8                 *p_skb_data;
-    u32                 vlan_tag;
-    struct sk_buff     *new_skb = NULL;
-
-    *new_skb_p = NULL;
-
-    /* If no vlan header - add empty vlan header */
-    veth = (struct vlan_ethhdr *)(old_skb->data);
-    if (ntohs(veth->h_vlan_proto) != ETH_P_8021Q) {
-        new_skb = alloc_skb(old_skb->len + 4 + ISX_HDR_SIZE, GFP_ATOMIC);
-        if (!new_skb) {
-            printk(KERN_ERR PFX "sx_netdev_skb_add_vlan new_skb alloc failed\n");
-            return -ENOMEM;
-        }
-
-        skb_reserve(new_skb, ISX_HDR_SIZE);
-
-        p_skb_data = skb_put(new_skb, old_skb->len + 4);
-        if (!p_skb_data) {
-            kfree_skb(new_skb);
-            return -ENOMEM;
-        }
-
-        vlan_tag = ETH_P_8021Q << 16;
-        vlan_tag |= (vlan & 0x3fff);
-        vlan_tag = cpu_to_be32(vlan_tag);
-        memcpy(p_skb_data, old_skb->data, 12);
-        memcpy(p_skb_data + 12, &vlan_tag, 4);
-        memcpy(p_skb_data + 16, old_skb->data + 12, old_skb->len - 12);
-        *new_skb_p = new_skb;
-    }
-
-    return 0;
-}
-
 
 /* change skb to hold 'control' traffic (rather than 'data' traffic) */
 static int __set_as_control_traffic(struct sk_buff *skb, struct net_device *netdev, struct isx_meta *meta)
@@ -1086,10 +1101,12 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
     struct isx_meta     meta;
     struct sk_buff     *tmp_skb = NULL;
     struct vlan_ethhdr *veth = NULL;
-    u8                  is_ptp_packet = 0;
     u16                 pcp = 0;
     uint16_t            ifc_vlan = 0;
     u8                  is_ifc_rp = 0;
+    u8                  tx_hw_timestamp = 0, tx_hw_timestamp_flags = 0;
+    struct sock        *tx_hw_timestamp_sock = NULL;
+    u8                  is_tagged;
 
     if (net_priv->dev == NULL) {
         if (printk_ratelimit()) {
@@ -1100,6 +1117,9 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         kfree_skb(skb);
         return -ENXIO;
     }
+
+    veth = (struct vlan_ethhdr *)(skb->data);
+    is_tagged = (ntohs(veth->h_vlan_proto) == ETH_P_8021Q);
 
     sx_netdev_override_icmp_ip(netdev, skb);
 
@@ -1161,19 +1181,54 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         }
     }
 
-    if ((net_priv->hwtstamp_config.tx_type == HWTSTAMP_TX_ON) &&
-        unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
-        CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_pending_ptp_eg_pkt,
-                                      net_priv->dev,
-                                      skb,
-                                      net_priv->port,
-                                      net_priv->is_lag,
-                                      &is_ptp_packet);
+    if (meta.type == SX_PKT_TYPE_ETH_DATA) {
+        meta.rx_is_tunnel = net_priv->skip_tunnel;
     }
 
-    if (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp) {
-        /* Set pcp = skb priority
-         * If no vlan header add prio tag. */
+    if ((net_priv->hwtstamp_config.tx_type == HWTSTAMP_TX_ON) &&
+        unlikely(skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_ptp_tx_handler,
+                                   err,
+                                   net_priv->dev,
+                                   skb,
+                                   net_priv->port,
+                                   net_priv->is_lag);
+
+        if (err) {
+            if (printk_ratelimit()) {
+                printk(KERN_ERR "failed to handle PTP TX packet (err=%d)\n", err);
+            }
+        } else {
+            /* we should save these local parameters in case skb will be replaced in this function (a VLAN
+             * header should be added or not enough headroom */
+            tx_hw_timestamp = 1;
+            tx_hw_timestamp_flags = skb_shinfo(skb)->tx_flags;
+            tx_hw_timestamp_sock = skb->sk;
+        }
+    }
+
+    /* *****************************************/
+    /* Apply SPC2/3 PTP WA                     */
+
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_ptp_tx_control_to_data,
+                               err,
+                               net_priv->dev,
+                               &skb,
+                               &meta,
+                               net_priv->port,
+                               net_priv->is_lag,
+                               &is_tagged,
+                               tx_hw_timestamp);
+
+    if (err) {
+        kfree_skb(skb);
+        return err;
+    }
+
+    /* *****************************************/
+
+    if (!is_tagged && (((skb->priority != 0) && (meta.type == SX_PKT_TYPE_ETH_DATA)) || is_ifc_rp)) {
+        /* If it is a DATA packet and it is untagged, add prio tag (PCP according to skb->priority) */
         if (skb->priority > SX_VLAN_PRIO_MAX) {
             if (sx_netdev_tx_debug) {
                 printk(KERN_INFO PFX "%s: skb priority is to big. set max pcp %d\n", __func__, SX_VLAN_PRIO_MAX);
@@ -1182,22 +1237,19 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         } else {
             pcp = skb->priority;
         }
-        veth = (struct vlan_ethhdr *)(skb->data);
-        if (ntohs(veth->h_vlan_proto) != ETH_P_8021Q) {
-            err = sx_netdev_skb_add_vlan(skb, &tmp_skb, ifc_vlan);
-            if (err) {
-                if (printk_ratelimit()) {
-                    printk(KERN_ERR PFX "%s: Fail to alloc skb with vlan header\n", __func__);
-                }
-                kfree_skb(skb);
-                net_priv->stats.tx_dropped++;
-                return err;
+
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_skb_add_vlan, err, &skb, ifc_vlan, pcp); /* skb may change pointer here ... */
+        if (err) {
+            if (printk_ratelimit()) {
+                printk(KERN_ERR PFX "%s: Fail to alloc skb with vlan header\n", __func__);
             }
+
             kfree_skb(skb);
-            skb = tmp_skb;
-            veth = (struct vlan_ethhdr *)(skb->data);
+            net_priv->stats.tx_dropped++;
+            return err;
         }
-        veth->h_vlan_TCI = (veth->h_vlan_TCI & htons(~VLAN_PRIO_MASK)) | (htons(pcp << VLAN_PRIO_SHIFT));
+
+        is_tagged = 1;
     }
 
     /* If there's no place for the ISX header
@@ -1226,6 +1278,13 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
         memcpy(skb_put(tmp_skb, len), skb->data, len);
         kfree_skb(skb);
         len += ISX_HDR_SIZE;
+    }
+
+    if (tx_hw_timestamp) {
+        /* need to override these parameters with the ones we saved in this function. skb may have replaced
+         * (allocated again) and these old parameters does not exist there anymore */
+        skb_shinfo(tmp_skb)->tx_flags = tx_hw_timestamp_flags;
+        tmp_skb->sk = tx_hw_timestamp_sock;
     }
 
     if (sx_netdev_sx_core_if_get_reference()) {
@@ -1550,6 +1609,7 @@ static void  * __sx_netdev_init_one_netdev(struct sx_dev *dev, int swid, int syn
     net_priv->dev = dev;
     net_priv->mac = mac;
     net_priv->is_oper_state_up = 1;
+    net_priv->skip_tunnel = g_skip_tunnel;
     net_priv->netdev = netdev;
     INIT_DELAYED_WORK(&net_priv->pude_dwork, sx_netdev_dwork_func);
 
@@ -1693,12 +1753,14 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
                                     enum sx_netdev_user_channel_type uc_type,
                                     void                            *rsc,
                                     u16                              synd,
-                                    struct ku_port_vlan_params      *port_vlan)
+                                    struct ku_port_vlan_params      *port_vlan,
+                                    u8                               is_register)
 {
     struct sx_net_priv       *net_priv = netdev_priv(netdev);
     int                       err = 0, i = 0;
     union ku_filter_critireas crit;
     cq_handler                netdev_callback = 0;
+    int                       synd_added = 0;
 
     if (net_priv->num_of_traps[uc_type] == MAX_NUM_TRAPS_TO_REGISTER) {
         printk(KERN_ERR PFX "%s: swid %s Too many traps\n",
@@ -1713,18 +1775,19 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
     for (i = 0; i < net_priv->num_of_traps[uc_type]; i++) {
         if (net_priv->trap_ids[uc_type][i].synd == synd) {
             printk(KERN_INFO PFX "The synd 0x%x is already added.\n", synd);
-            err = 0;
-            goto out;
+            synd_added = 1;
         }
     }
 
-    /* add trap to traps_db */
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].synd = synd;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].info_type = port_vlan->port_vlan_type;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].sysport = port_vlan->sysport;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].lag_id = port_vlan->lag_id;
-    net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].vlan = port_vlan->vlan;
-    net_priv->num_of_traps[uc_type]++;
+    if (!synd_added) {
+        /* add trap to traps_db */
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].synd = synd;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].info_type = port_vlan->port_vlan_type;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].sysport = port_vlan->sysport;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].lag_id = port_vlan->lag_id;
+        net_priv->trap_ids[uc_type][net_priv->num_of_traps[uc_type]].vlan = port_vlan->vlan;
+        net_priv->num_of_traps[uc_type]++;
+    }
 
     /* if netdev is active (opened) than config the synd, else the synd will be added after dev open */
     if (netdev->flags & IFF_UP) {
@@ -1736,9 +1799,9 @@ static int __sx_netdev_dev_synd_add(struct net_device               *netdev,
         }
 
         /* register the listener according to the swid */
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0,
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0, 0,
                                    crit, netdev_callback, netdev,
-                                   CHECK_DUP_DISABLED_E, net_priv->dev, port_vlan);
+                                   CHECK_DUP_ENABLED_E, net_priv->dev, port_vlan, is_register);
 
         if (err) {
             printk(KERN_ERR PFX "error %s, Failed registering on "
@@ -1751,12 +1814,12 @@ out:
     return err;
 }
 
-
 static int __sx_netdev_dev_synd_remove(struct net_device               *netdev,
                                        enum sx_netdev_user_channel_type uc_type,
                                        void                            *rsc,
                                        u16                              synd,
-                                       struct ku_port_vlan_params      *port_vlan)
+                                       struct ku_port_vlan_params      *port_vlan,
+                                       u8                               is_register)
 {
     struct sx_net_priv       *net_priv = netdev_priv(netdev);
     int                       err = 0;
@@ -1787,7 +1850,7 @@ static int __sx_netdev_dev_synd_remove(struct net_device               *netdev,
         }
 
         CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, net_priv->swid, synd, L2_TYPE_ETH, 0,
-                                   crit, netdev, net_priv->dev, netdev_callback, port_vlan);
+                                   crit, netdev, net_priv->dev, netdev_callback, port_vlan, is_register);
 
         if (err) {
             printk(KERN_ERR PFX "error %s, Failed de registering on "
@@ -1846,9 +1909,19 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
         if (resources->sx_netdevs[i] != NULL) {
             if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
-                __sx_netdev_dev_synd_add(resources->sx_netdevs[i], USER_CHANNEL_L3_NETDEV, rsc, synd, &port_vlan);
+                __sx_netdev_dev_synd_add(resources->sx_netdevs[i],
+                                         USER_CHANNEL_L3_NETDEV,
+                                         rsc,
+                                         synd,
+                                         &port_vlan,
+                                         event_data->eth_l3_synd.is_register);
             } else {
-                __sx_netdev_dev_synd_remove(resources->sx_netdevs[i], USER_CHANNEL_L3_NETDEV, rsc, synd, &port_vlan);
+                __sx_netdev_dev_synd_remove(resources->sx_netdevs[i],
+                                            USER_CHANNEL_L3_NETDEV,
+                                            rsc,
+                                            synd,
+                                            &port_vlan,
+                                            event_data->eth_l3_synd.is_register);
             }
         }
     }
@@ -1857,16 +1930,26 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     memset(&crit, 0, sizeof(crit)); /* sets all ETH values to default */
     crit.eth.from_rp = IS_RP_FROM_RP_E;
     if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0,
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0, 0,
                                    crit, sx_netdev_handle_global_pkt, NULL,
-                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan);
+                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan, event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed registering RP rx_handle on "
                    "syndrome %d.\n", synd);
         }
     } else {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, 0, synd, L2_TYPE_ETH, 0,
-                                   crit, NULL, NULL, sx_netdev_handle_global_pkt, &port_vlan);
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd,
+                                   err,
+                                   0,
+                                   synd,
+                                   L2_TYPE_ETH,
+                                   0,
+                                   crit,
+                                   NULL,
+                                   NULL,
+                                   sx_netdev_handle_global_pkt,
+                                   &port_vlan,
+                                   event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed unregistering RP rx_handle on "
                    "syndrome %d.\n", synd);
@@ -1877,16 +1960,26 @@ static void sx_netdev_set_synd_l3(struct sx_dev       *dev,
     memset(&crit, 0, sizeof(crit)); /* sets all ETH values to default */
     crit.eth.from_bridge = IS_BRIDGE_FROM_BRIDGE_E;
     if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0,
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, synd, L2_TYPE_ETH, 0, 0,
                                    crit, sx_netdev_handle_global_pkt, NULL,
-                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan);
+                                   CHECK_DUP_DISABLED_E, NULL, &port_vlan, event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed registering bridge rx_handle on "
                    "syndrome %d.\n", synd);
         }
     } else {
-        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd, err, 0, synd, L2_TYPE_ETH, 0,
-                                   crit, NULL, NULL, sx_netdev_handle_global_pkt, &port_vlan);
+        CALL_SX_CORE_FUNC_WITH_RET(sx_core_remove_synd,
+                                   err,
+                                   0,
+                                   synd,
+                                   L2_TYPE_ETH,
+                                   0,
+                                   crit,
+                                   NULL,
+                                   NULL,
+                                   sx_netdev_handle_global_pkt,
+                                   &port_vlan,
+                                   event_data->eth_l3_synd.is_register);
         if (err) {
             printk(KERN_ERR PFX "Failed unregistering bridge rx_handle on "
                    "syndrome %d.\n", synd);
@@ -1921,17 +2014,17 @@ static void sx_netdev_set_synd_l2(struct sx_dev       *dev,
         break;
 
     case L3_SYND_TYPE_PORT:
-        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_PORT;
         port_vlan.sysport = event_data->eth_l3_synd.port;
         break;
 
     case L3_SYND_TYPE_LAG:
-        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_LAG;
         port_vlan.lag_id = event_data->eth_l3_synd.port;
         break;
 
     case L3_SYND_TYPE_VLAN:
-        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_VLAN;
         port_vlan.vlan = event_data->eth_l3_synd.vlan;
         break;
     }
@@ -1940,13 +2033,15 @@ static void sx_netdev_set_synd_l2(struct sx_dev       *dev,
         if (resources->sx_netdevs[i] != NULL) {
             if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
                 __sx_netdev_dev_synd_add(resources->sx_netdevs[i], USER_CHANNEL_LOG_PORT_NETDEV, rsc, synd,
-                                         &port_vlan);
+                                         &port_vlan,
+                                         event_data->eth_l3_synd.is_register);
             } else {
                 __sx_netdev_dev_synd_remove(resources->sx_netdevs[i],
                                             USER_CHANNEL_LOG_PORT_NETDEV,
                                             rsc,
                                             synd,
-                                            &port_vlan);
+                                            &port_vlan,
+                                            event_data->eth_l3_synd.is_register);
             }
         }
     }
@@ -1998,13 +2093,13 @@ static void sx_netdev_set_synd_phy(struct sx_dev       *dev,
         if (resources->sx_netdevs[i] != NULL) {
             if (event == SX_DEV_EVENT_ADD_SYND_NETDEV) {
                 __sx_netdev_dev_synd_add(resources->sx_netdevs[i], USER_CHANNEL_PHY_PORT_NETDEV, rsc, synd,
-                                         &port_vlan);
+                                         &port_vlan, event_data->eth_l3_synd.is_register);
             } else {
                 __sx_netdev_dev_synd_remove(resources->sx_netdevs[i],
                                             USER_CHANNEL_PHY_PORT_NETDEV,
                                             rsc,
                                             synd,
-                                            &port_vlan);
+                                            &port_vlan, event_data->eth_l3_synd.is_register);
             }
         }
     }
@@ -2041,7 +2136,11 @@ static void sx_netdev_debug_dump(struct sx_dev *dev, void *rsc)
 {
     struct sx_netdev_rsc *resources = rsc;
     unsigned long         flags;
-    int                   i, port;
+    int                   i = 0, port = 0, port_type = 0;
+    int                   max_ports[] = {
+        [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
+        [PORT_TYPE_LAG] = MAX_LAG_NUM
+    };
 
     spin_lock_irqsave(&resources->rsc_lock, flags);
 
@@ -2053,9 +2152,13 @@ static void sx_netdev_debug_dump(struct sx_dev *dev, void *rsc)
     }
 
     /* go over all per port devices */
-    for (port = 0; port < MAX_SYSPORT_NUM; port++) {
-        if (resources->sx_port_netdevs[port] != NULL) {
-            __sx_netdev_dump_per_dev(resources->sx_port_netdevs[port]);
+    for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
+        for (port = 0; port < max_ports[port_type]; port++) {
+            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+                if (resources->port_netdev[port_type][port][i] != NULL) {
+                    __sx_netdev_dump_per_dev(resources->port_netdev[port_type][port][i]);
+                }
+            }
         }
     }
 
@@ -2204,6 +2307,29 @@ static void sx_netdev_event(struct sx_dev       *dev,
         sx_netdev_get_trap_info(dev, resources, event_data);
         break;
 
+    case SX_DEV_EVENT_ADD_SYND_PSAMPLE:
+        printk(KERN_INFO PFX "sx_netdev_event: Got ADD_SYND_PSAMPLE event. "
+               "dev = %p, dev_id = %u, trap_id = 0x%x\n",
+               dev, dev->device_id, event_data->psample_synd.hw_synd);
+        sx_psample_set_synd(dev, event_data->psample_synd.hw_synd,
+                            SX_DEV_EVENT_ADD_SYND_PSAMPLE, event_data);
+        break;
+
+    case SX_DEV_EVENT_REMOVE_SYND_PSAMPLE:
+        printk(KERN_INFO PFX "sx_netdev_event: Got REMOVE_SYND_PSAMPLE event. "
+               "dev = %p, dev_id = %u, trap_id = 0x%x\n",
+               dev, dev->device_id, event_data->psample_synd.hw_synd);
+        sx_psample_set_synd(dev, event_data->psample_synd.hw_synd,
+                            SX_DEV_EVENT_REMOVE_SYND_PSAMPLE, event_data);
+        break;
+
+    case SX_DEV_EVENT_UPDATE_SAMPLE_RATE:
+        printk(KERN_INFO PFX "sx_netdev_event: got port sample-rate update event (rate=%u).",
+               event_data->psample_port_sample_rate.sample_rate);
+        sx_psample_set_port_sample_ret(event_data->psample_port_sample_rate.local_port,
+                                       event_data->psample_port_sample_rate.sample_rate);
+        break;
+
     case SX_DEV_EVENT_CATASTROPHIC_ERROR:
     default:
         return;
@@ -2279,9 +2405,11 @@ static void sx_netdev_init_sx_core_interface(void)
     INIT_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_state);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_clock_index);
-    INIT_ONE_SX_CORE_FUNC(sx_core_pending_ptp_eg_pkt);
+    INIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_handler);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_lag_max);
     INIT_ONE_SX_CORE_FUNC(sx_core_get_rp_mode);
+    INIT_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+    INIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
 
     sx_core_if.init_done = 1;
 }
@@ -2316,9 +2444,11 @@ static void sx_netdev_deinit_sx_core_interface(void)
     DEINIT_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_state);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_ptp_clock_index);
-    DEINIT_ONE_SX_CORE_FUNC(sx_core_pending_ptp_eg_pkt);
+    DEINIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_handler);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_lag_max);
     DEINIT_ONE_SX_CORE_FUNC(sx_core_get_rp_mode);
+    DEINIT_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+    DEINIT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
 }
 
 #define GET_ONE_SX_CORE_FUNC(func_name)               \
@@ -2360,8 +2490,8 @@ static void sx_netdev_deinit_sx_core_interface(void)
             port_vlan.vlan = net_priv->trap_ids[uc_type][i].vlan;                                           \
             CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err,                                               \
                                        net_priv->swid, net_priv->trap_ids[uc_type][i].synd, L2_TYPE_ETH, 0, \
-                                       crit, netdev_callback, netdev,                                       \
-                                       CHECK_DUP_ENABLED_E, net_priv->dev, &port_vlan);                     \
+                                       0, crit, netdev_callback, netdev,                                    \
+                                       CHECK_DUP_ENABLED_E, net_priv->dev, &port_vlan, 1);                  \
             if (err) {                                                                                      \
                 printk(KERN_ERR PFX "error %s, User channel (%d) failed registering on "                    \
                        "0x%x syndrome.\n", netdev->name, uc_type, net_priv->trap_ids[uc_type][i].synd);     \
@@ -2392,7 +2522,7 @@ static void sx_netdev_deinit_sx_core_interface(void)
             CALL_SX_CORE_FUNC_WITHOUT_RET(sx_core_remove_synd, net_priv->swid,         \
                                           net_priv->trap_ids[uc_type][i].synd,         \
                                           L2_TYPE_ETH, 0, crit, netdev, net_priv->dev, \
-                                          netdev_callback, &port_vlan);                \
+                                          netdev_callback, &port_vlan, 1);             \
         }                                                                              \
     }                                                                                  \
     net_priv->dev = NULL;                                                              \
@@ -2404,12 +2534,12 @@ static void attach_netdevs(struct sx_dev *dev)
     struct sx_net_priv        *net_priv = NULL;
     union ku_filter_critireas  crit;
     cq_handler                 netdev_callback = 0;
-    int                        i;
+    int                        i, j;
     u8                         uc_type = 0;
     struct ku_port_vlan_params port_vlan;
     unsigned long              flags;
     int                        port_type = 0;
-    int                        port = 0, lag_id = 0, br_id = 0;
+    int                        port = 0, br_id = 0;
     int                        swid = 0;
     int                        max_ports[] = {
         [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
@@ -2436,38 +2566,16 @@ static void attach_netdevs(struct sx_dev *dev)
 
     for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
         for (port = 0; port < max_ports[port_type]; port++) {
-            if (!g_netdev_resources->port_allocated[port_type][port]) {
+            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
                 continue;
             }
-
-            if (port_type == PORT_TYPE_LAG) {
-                netdev = g_netdev_resources->sx_lag_netdevs[port];
-            } else {
-                netdev = g_netdev_resources->sx_port_netdevs[port];
+            for (j = 0; j < MAX_PORT_NETDEV_NUM; j++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][j];
+                if (netdev != NULL) {
+                    ATTACH_ONE_NETDEV(netdev, dev);
+                    netdev_linkstate_set(netdev);
+                }
             }
-
-            if (netdev == NULL) {
-                continue;
-            }
-
-            ATTACH_ONE_NETDEV(netdev, dev);
-            netdev_linkstate_set(netdev);
-        }
-    }
-
-    for (port = 0; port < MAX_SYSPORT_NUM; port++) {
-        netdev = port_netdev_db[port];
-        if (netdev != NULL) {
-            SX_DEV_ATTACH_ONE_NETDEV(netdev, dev);
-            netdev_linkstate_set(netdev);
-        }
-    }
-
-    for (lag_id = 0; lag_id < MAX_LAG_NUM; lag_id++) {
-        netdev = lag_netdev_db[lag_id];
-        if (netdev != NULL) {
-            SX_DEV_ATTACH_ONE_NETDEV(netdev, dev);
-            netdev_linkstate_set(netdev);
         }
     }
 
@@ -2494,8 +2602,9 @@ static void detach_netdevs(void)
     u8                         uc_type = 0;
     struct ku_port_vlan_params port_vlan;
     unsigned long              flags;
+    int                        j;
     int                        port_type = 0;
-    int                        port = 0, lag_id = 0, br_id = 0;
+    int                        port = 0, br_id = 0;
     int                        swid = 0;
     int                        max_ports[] = {
         [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
@@ -2521,35 +2630,15 @@ static void detach_netdevs(void)
 
     for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
         for (port = 0; port < max_ports[port_type]; port++) {
-            if (!g_netdev_resources->port_allocated[port_type][port]) {
+            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
                 continue;
             }
-
-            if (port_type == PORT_TYPE_LAG) {
-                netdev = g_netdev_resources->sx_lag_netdevs[port];
-            } else {
-                netdev = g_netdev_resources->sx_port_netdevs[port];
+            for (j = 0; j < MAX_PORT_NETDEV_NUM; j++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][j];
+                if (netdev != NULL) {
+                    DETACH_ONE_NETDEV(netdev);
+                }
             }
-
-            if (netdev == NULL) {
-                continue;
-            }
-
-            DETACH_ONE_NETDEV(netdev);
-        }
-    }
-
-    for (port = 0; port < MAX_SYSPORT_NUM; port++) {
-        netdev = port_netdev_db[port];
-        if (netdev != NULL) {
-            DETACH_ONE_NETDEV(netdev);
-        }
-    }
-
-    for (lag_id = 0; lag_id < MAX_LAG_NUM; lag_id++) {
-        netdev = lag_netdev_db[lag_id];
-        if (netdev != NULL) {
-            DETACH_ONE_NETDEV(netdev);
         }
     }
 
@@ -2573,18 +2662,226 @@ static void sx_netdev_attach_global_event_handler(void)
     /* Register listener for Ethernet SWID */
     memset(&crit, 0, sizeof(crit));
 
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, ROUTER_PORT_SWID, NUM_HW_SYNDROMES, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_global_pkt, NULL,
-                               CHECK_DUP_ENABLED_E, NULL, NULL);
+                               CHECK_DUP_ENABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering global rx_handler", __func__);
     }
-    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0,
+    CALL_SX_CORE_FUNC_WITH_RET(sx_core_add_synd, err, 0, SXD_TRAP_ID_PUDE, L2_TYPE_DONT_CARE, 0, 0,
                                crit, sx_netdev_handle_pude_event, NULL,
-                               CHECK_DUP_ENABLED_E, NULL, NULL);
+                               CHECK_DUP_ENABLED_E, NULL, NULL, 1);
     if (err) {
         printk(KERN_ERR PFX "%s: Failed registering PUDE event rx_handler", __func__);
     }
+}
+
+static void __skip_tunnel_default(u8 skip_tunnel)
+{
+    struct net_device  *netdev = NULL;
+    struct sx_net_priv *net_priv = NULL;
+    int                 i;
+    int                 port_type = 0;
+    int                 port = 0, br_id = 0;
+    int                 swid = 0;
+    int                 max_ports[] = {
+        [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
+        [PORT_TYPE_LAG] = MAX_LAG_NUM
+    };
+
+    printk(KERN_INFO PFX "Set default skip_tunnel (%d)\n", skip_tunnel);
+
+    g_skip_tunnel = skip_tunnel;
+    for (swid = 0; swid < NUMBER_OF_SWIDS; swid++) {
+        if (!g_netdev_resources->allocated[swid]) {
+            continue;
+        }
+
+        netdev = g_netdev_resources->sx_netdevs[swid];
+        if (netdev != NULL) {
+            printk(KERN_INFO PFX "Set skip_tunnel (%d) for device '%s'\n", skip_tunnel, netdev->name);
+            net_priv = netdev_priv(netdev);
+            net_priv->skip_tunnel = skip_tunnel;
+        }
+    }
+
+    for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
+        for (port = 0; port < max_ports[port_type]; port++) {
+            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
+                continue;
+            }
+            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][i];
+                if (netdev != NULL) {
+                    printk(KERN_INFO PFX "Set skip_tunnel (%d) for device '%s'\n", skip_tunnel, netdev->name);
+                    net_priv = netdev_priv(netdev);
+                    net_priv->skip_tunnel = skip_tunnel;
+                }
+            }
+        }
+    }
+
+    for (br_id = 0; br_id < MAX_BRIDGE_NUM; br_id++) {
+        netdev = bridge_netdev_db[br_id];
+        if (netdev != NULL) {
+            printk(KERN_INFO PFX "Set skip_tunnel (%d) for device '%s'\n", skip_tunnel, netdev->name);
+            net_priv = netdev_priv(netdev);
+            net_priv->skip_tunnel = skip_tunnel;
+        }
+    }
+}
+
+static void __skip_tunnel_dev(char* dev_name, u8 skip_tunnel)
+{
+    struct net_device  *netdev = NULL;
+    struct sx_net_priv *net_priv = NULL;
+
+    if (dev_name == NULL) {
+        printk(KERN_ERR PFX "Skip tunnel set failed: no <dev_name>\n");
+        return;
+    }
+
+    netdev = dev_get_by_name(&init_net, dev_name);
+    if (netdev == NULL) {
+        printk(KERN_ERR PFX "Skip tunnel set failed: Device name '%s' wasn't found\n", dev_name);
+        return;
+    }
+
+    printk(KERN_INFO PFX "Set skip_tunnel (%d) for net device '%s'\n", skip_tunnel, dev_name);
+    net_priv = netdev_priv(netdev);
+    net_priv->skip_tunnel = skip_tunnel;
+    dev_put(netdev);
+}
+
+char * sx_netdev_proc_str_get_u32(char *buffer, u32 *val32)
+{
+    const char delimiters[] = " .,;:!-";
+    char      *running;
+    char      *token;
+
+    running = (char*)buffer;
+    token = strsep(&running, delimiters);
+    if (token == NULL) {
+        *val32 = 0;
+        return NULL;
+    }
+
+    if (strstr(token, "0x")) {
+        *val32 = simple_strtol(token, NULL, 16);
+    } else {
+        *val32 = simple_strtol(token, NULL, 10);
+    }
+
+    return running;
+}
+
+char * sx_netdev_proc_str_get_str(char *buffer, char **str)
+{
+    const char delimiters[] = " ,;:!-";
+    char      *running;
+    char      *token;
+
+    running = buffer;
+    token = strsep(&running, delimiters);
+    if (token == NULL) {
+        *str = 0;
+        return NULL;
+    }
+
+    *str = token;
+    return running;
+}
+
+static ssize_t skip_tunnel_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    struct net_device  *netdev = NULL;
+    struct sx_net_priv *net_priv = NULL;
+    int                 i;
+    int                 port_type = 0;
+    int                 port = 0, br_id = 0;
+    int                 swid = 0;
+    int                 max_ports[] = {
+        [PORT_TYPE_SINGLE] = MAX_SYSPORT_NUM,
+        [PORT_TYPE_LAG] = MAX_LAG_NUM
+    };
+    int                 offset = 0;
+
+    offset = sprintf(buf, "%-15s | %s\n", "dev_name", "skip_tunnel");
+    offset += sprintf(buf + offset, "------------------------------\n");
+    offset += sprintf(buf + offset, "%-15s | %d\n", "default", g_skip_tunnel);
+
+    for (swid = 0; swid < NUMBER_OF_SWIDS; swid++) {
+        if (!g_netdev_resources->allocated[swid]) {
+            continue;
+        }
+
+        netdev = g_netdev_resources->sx_netdevs[swid];
+        if (netdev != NULL) {
+            net_priv = netdev_priv(netdev);
+            offset += sprintf(buf + offset, "%-15s | %d\n", netdev->name, net_priv->skip_tunnel);
+        }
+    }
+
+    for (port_type = 0; port_type < PORT_TYPE_NUM; port_type++) {
+        for (port = 0; port < max_ports[port_type]; port++) {
+            if (g_netdev_resources->port_allocated[port_type][port] == 0) {
+                continue;
+            }
+            for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+                netdev = g_netdev_resources->port_netdev[port_type][port][i];
+                if (netdev != NULL) {
+                    net_priv = netdev_priv(netdev);
+                    offset += sprintf(buf + offset, "%-15s | %d\n", netdev->name, net_priv->skip_tunnel);
+                }
+            }
+        }
+    }
+
+    for (br_id = 0; br_id < MAX_BRIDGE_NUM; br_id++) {
+        netdev = bridge_netdev_db[br_id];
+        if (netdev != NULL) {
+            net_priv = netdev_priv(netdev);
+            offset += sprintf(buf + offset, "%-15s | %d\n", netdev->name, net_priv->skip_tunnel);
+        }
+    }
+
+    return offset;
+}
+
+static ssize_t skip_tunnel_cb(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len)
+{
+    int   cmd = 0;
+    char *p = NULL;
+    char *running = NULL;
+    char *cmd_str = NULL;
+    u32   skip_tunnel = 0;
+    char *dev_name = NULL;
+
+    running = (char*)buf;
+
+    running = sx_netdev_proc_str_get_str(running, &cmd_str);
+    p = strstr(cmd_str, "default");
+    if (p != NULL) {
+        running = sx_netdev_proc_str_get_u32(running, &skip_tunnel);
+        __skip_tunnel_default(skip_tunnel);
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "set");
+    if (p != NULL) {
+        running = sx_netdev_proc_str_get_str(running, &dev_name);
+        running = sx_netdev_proc_str_get_u32(running, &skip_tunnel);
+        __skip_tunnel_dev(dev_name, skip_tunnel);
+        cmd++;
+    }
+
+    if (cmd == 0) {
+        printk(KERN_INFO PFX "Available Commands for skip_tunnel:\n");
+        printk(KERN_INFO PFX "  default [disable (0) / enable (1)] - Set the default device skip tunnel\n");
+        printk(KERN_INFO PFX "  set [dev_name] [disable (0) / enable (1)] - Set skip tunnel for <dev_name>\n");
+    }
+
+    return len;
 }
 
 static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t len)
@@ -2621,6 +2918,8 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
     void          *sx_detach_interface_tmp = NULL;
     void          *sx_core_cleanup_dynamic_data_tmp = NULL;
     void          *sx_core_get_rp_mode_tmp = NULL;
+    void          *sx_core_skb_add_vlan_tmp = NULL;
+    void          *sx_core_ptp_tx_control_to_data_tmp = NULL;
 
     ret = kstrtoint(buf, 10, &value);
     if (ret) {
@@ -2665,6 +2964,8 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         GET_ONE_SX_CORE_FUNC(sx_unregister_interface);
         GET_ONE_SX_CORE_FUNC(sx_detach_interface);
         GET_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
+        GET_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+        GET_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
 
         if (!sx_core_if.sx_attach_interface) {
             sx_core_if.sx_attach_interface = __symbol_get("sx_attach_interface");
@@ -2703,6 +3004,9 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         ASSIGN_ONE_FUNC_PTR(sx_unregister_interface);
         ASSIGN_ONE_FUNC_PTR(sx_detach_interface);
         ASSIGN_ONE_FUNC_PTR(sx_core_cleanup_dynamic_data);
+        ASSIGN_ONE_FUNC_PTR(sx_core_skb_add_vlan);
+        ASSIGN_ONE_FUNC_PTR(sx_core_ptp_tx_control_to_data);
+
         if (dev) {
             g_sx_dev = dev;
         }
@@ -2729,6 +3033,7 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
 
         detach_netdevs();
         sx_netdev_unregister_global_event_handler();
+        sx_psample_cleanup();
         dev = g_sx_dev;
 
         write_lock_irqsave(&sx_core_if.access_lock, flags);
@@ -2766,6 +3071,9 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         EMPTY_ONE_FUNC_PTR(sx_unregister_interface);
         EMPTY_ONE_FUNC_PTR(sx_attach_interface);
         EMPTY_ONE_FUNC_PTR(sx_core_cleanup_dynamic_data);
+        EMPTY_ONE_FUNC_PTR(sx_core_skb_add_vlan);
+        EMPTY_ONE_FUNC_PTR(sx_core_ptp_tx_control_to_data);
+
         if (g_sx_dev) {
             g_sx_dev = NULL;
         }
@@ -2805,6 +3113,8 @@ static ssize_t store_bind_sx_core(struct kobject *kobj, struct kobj_attribute *a
         PUT_ONE_SX_CORE_FUNC(sx_unregister_interface);
         PUT_ONE_SX_CORE_FUNC(sx_attach_interface);
         PUT_ONE_SX_CORE_FUNC(sx_core_cleanup_dynamic_data);
+        PUT_ONE_SX_CORE_FUNC(sx_core_skb_add_vlan);
+        PUT_ONE_SX_CORE_FUNC(sx_core_ptp_tx_control_to_data);
     }
 
     return len;
@@ -2855,6 +3165,11 @@ static int __init sx_netdev_init(void)
         goto fail_on_sysfs_create_file;
     }
 
+    ret = sysfs_create_file(&(THIS_MODULE->mkobj.kobj), &(skip_netdev_attr.attr));
+    if (ret) {
+        goto fail_on_sysfs_create_file;
+    }
+
     return 0;
 
 fail_on_sysfs_create_file:
@@ -2880,11 +3195,13 @@ fail_on_sx_register_interface:
 static void __exit sx_netdev_cleanup(void)
 {
     printk(KERN_INFO PFX "sx_netdev_cleanup \n");
-
+    sysfs_remove_file(&(THIS_MODULE->mkobj.kobj), &(skip_netdev_attr.attr));
     sysfs_remove_file(&(THIS_MODULE->mkobj.kobj), &(bind_sx_core_attr.attr));
     sx_bridge_rtnl_link_unregister();
     sx_netdev_rtnl_link_unregister();
     sx_netdev_unregister_global_event_handler();
+    sx_psample_cleanup();
+
     if (netdev_wq) {
         destroy_workqueue(netdev_wq);
     }

@@ -63,7 +63,10 @@ enum sx_dev_event {
     SX_DEV_EVENT_TYPE_RPA_INIT,
     SX_DEV_EVENT_LAG_OPER_STATE_UPDATE,
     SX_DEV_EVENT_OFFLOAD_MARK_SET,
-    SX_DEV_EVENT_GET_NETDEV_TRAP_INFO
+    SX_DEV_EVENT_GET_NETDEV_TRAP_INFO,
+    SX_DEV_EVENT_ADD_SYND_PSAMPLE,
+    SX_DEV_EVENT_REMOVE_SYND_PSAMPLE,
+    SX_DEV_EVENT_UPDATE_SAMPLE_RATE
 };
 
 #define SX_PAGE_SIZE  4096
@@ -87,14 +90,6 @@ enum sx_dev_event {
 #define FDB_TRAP_ID               0x06
 #define ARP_REQUEST_TRAP_ID       0x50
 #define ARP_RESPONSE_TRAP_ID      0x51
-#define ETH_L3_MTUERROR_TRAP_ID   0x52
-#define ETH_L3_TTLERROR_TRAP_ID   0x53
-#define ETH_L3_LBERROR_TRAP_ID    0x54
-#define PTP_EVENT_PTP0_TRAP_ID    0x28
-#define PTP_GENERAL_PTP1_TRAP_ID  0x29
-#define PTP_ING_PTP_TRAP_ID       0x2D
-#define PTP_EGR_PTP_TRAP_ID       0x2E
-#define ETH_L2_LLDP_TRAP_ID       0x13
 #define MIN_IPTRAP_TRAP_ID        0x1C0 /* TODO define which one will be used */
 
 typedef enum l3_synd_type {
@@ -119,10 +114,12 @@ union sx_event_data {
         enum l3_synd_type type;
         u16               port;
         u16               vlan;
+        u8                is_register;
     } eth_l3_synd;
     struct {
         int swid;
         int hw_synd;
+        u8  is_register;
     } ipoib_synd;
     struct {
         int swid;
@@ -148,6 +145,17 @@ union sx_event_data {
         uint16_t                   trap_ids[NUM_OF_NET_DEV_TYPE][MAX_NUM_TRAPS_TO_REGISTER];
         uint16_t                   num_of_traps[NUM_OF_NET_DEV_TYPE];
     } netdev_trap_info;
+    struct {
+        uint8_t                    swid;
+        int                        hw_synd;
+        u8                         is_register;
+        struct ku_port_vlan_params port_vlan_params;
+        struct ku_psample_params   psample_info;
+    } psample_synd;
+    struct {
+        uint8_t  local_port;
+        uint32_t sample_rate;
+    } psample_port_sample_rate;
 };
 struct sx_interface {
     void * (*add)   (struct sx_dev *dev);
@@ -194,17 +202,31 @@ typedef enum is_bridge {
     IS_BRIDGE_NOT_FROM_BRIDGE_E = 2,
 } is_bridge_e;
 
+struct sx_psample_listener_context {
+    u32 group_num;
+    u32 refcnt;
+};
+
 int sx_core_flush_synd_by_context(void * context);
 int sx_core_flush_synd_by_handler(cq_handler handler);
 int sx_register_interface(struct sx_interface *intf);
 void sx_unregister_interface(struct sx_interface *intf);
-int sx_core_add_synd(u8 swid, u16 hw_synd, enum l2_type type, u8 is_default,
-                     union ku_filter_critireas crit, cq_handler handler, void *context,
-                     check_dup_e check_dup, struct sx_dev* sx_dev, struct ku_port_vlan_params *port_vlan);
+int sx_core_add_synd(u8                          swid,
+                     u16                         hw_synd,
+                     enum l2_type                type,
+                     pid_t                       caller_pid,
+                     u8                          is_default,
+                     union ku_filter_critireas   crit,
+                     cq_handler                  handler,
+                     void                       *context,
+                     check_dup_e                 check_dup,
+                     struct sx_dev             * sx_dev,
+                     struct ku_port_vlan_params *port_vlan,
+                     u8                          is_register); /* is_register ==> 1=register, 0=filter. */
 int sx_core_remove_synd(u8 swid, u16 hw_synd, enum l2_type type, u8 is_default,
                         union ku_filter_critireas critireas,
                         void *context, struct sx_dev* sx_dev, cq_handler handler,
-                        struct ku_port_vlan_params *port_vlan);
+                        struct ku_port_vlan_params *port_vlan, u8 is_register); /* is_register ==> 1=register, 0=filter. */
 int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb,
                       struct isx_meta *meta);
 int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb,
@@ -214,7 +236,15 @@ void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 
 int sx_core_get_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 *oper_state_p);
 int sx_core_get_ptp_clock_index(struct sx_dev *dev, uint8_t *ptp_clock_index_p);
 int sx_core_get_ptp_state(struct sx_dev *dev, uint8_t *is_ptp_enable);
-int sx_core_pending_ptp_eg_pkt(struct sx_dev *dev, struct sk_buff *skb, u16 sysport, u8 is_lag, u8 *is_ptp_pkt);
+int sx_core_ptp_tx_handler(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag);
+int sx_core_ptp_tx_control_to_data(struct sx_dev   *dev,
+                                   struct sk_buff **orig_skb,
+                                   struct isx_meta *meta,
+                                   u16              port,
+                                   u8               is_lag,
+                                   u8              *is_tagged,
+                                   u8               hw_ts_required);
+
 int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint8_t lag_subport,
                       uint16_t *local);
 int sx_core_get_prio2tc(struct sx_dev *dev,
@@ -264,5 +294,7 @@ int sx_core_send_mad_sync(struct sx_dev *dev,
                           int            in_size,
                           void          *out_mad,
                           int            out_size);
+
+int sx_core_skb_add_vlan(struct sk_buff **untagged_skb, uint16_t vid, uint16_t pcp);
 
 #endif /* SX_DRIVER_H */

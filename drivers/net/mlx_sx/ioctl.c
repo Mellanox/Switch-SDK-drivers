@@ -83,9 +83,6 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_PCI_PROFILE)] = ctrl_cmd_get_pci_profile,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_SWID_2_RDQ)] = ctrl_cmd_get_swid_2_rdq,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_DEFAULT_VID)] = ctrl_cmd_set_default_vid,
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
-#endif
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_VID_MEMBERSHIP)] = ctrl_cmd_set_vid_membership,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PRIO_TAGGING)] = ctrl_cmd_set_prio_tagging,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PRIO_TO_TC)] = ctrl_cmd_set_prio_to_tc,
@@ -117,6 +114,8 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_COUNTERS)] = ctrl_cmd_get_counters,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PTP_MODE)] = ctrl_cmd_set_ptp_mode,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_MONITOR_RDQ)] = ctrl_cmd_set_monitor_rdq,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG)] = ctrl_cmd_set_rdq_filter_ebpf_prog,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_RDQ_AGG_EBPF_PROG)] = ctrl_cmd_set_rdq_agg_ebpf_prog,
     [IOCTL_CMD_INDEX(CTRL_CMD_READ_MULTI)] = ctrl_cmd_read_multi,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_RDQ_STAT)] = ctrl_cmd_get_rdq_stat,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SKB_OFFLOAD_FWD_MARK_EN)] = ctrl_cmd_set_skb_offload_fwd_mark_en,
@@ -127,6 +126,19 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PCI_PROFILE_DRIVER_ONLY)] = ctrl_cmd_set_pci_profile_driver_only,
     [IOCTL_CMD_INDEX(CTRL_CMD_FLUSH_EVLIST)] = ctrl_cmd_flush_evlist,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_NODE_DESC)] = ctrl_cmd_set_sw_ib_node_desc,
+    [IOCTL_CMD_INDEX(CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE)] = ctrl_cmd_psample_port_sample_rate_update,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_SWID_UP_DOWN)] = ctrl_cmd_set_sw_ib_up_down,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_WARM_BOOT_MODE)] = ctrl_cmd_set_warm_boot_mode,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_FD_ATTRIBUTES)] = ctrl_cmd_set_fd_attributes,
+    [IOCTL_CMD_INDEX(CTRL_CMD_GET_FD_ATTRIBUTES)] = ctrl_cmd_get_fd_attributes,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_ADD)] = ctrl_cmd_bulk_cntr_tr_add,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_DEL)] = ctrl_cmd_bulk_cntr_tr_del,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_CANCEL)] = ctrl_cmd_bulk_cntr_tr_cancel,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_ACK)] = ctrl_cmd_bulk_cntr_tr_ack,
+#ifdef SW_PUDE_EMULATION
+    /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
+#endif /* SW_PUDE_EMULATION */
 };
 
 
@@ -147,12 +159,12 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
 {
     ioctl_handler_cb_t handler = NULL;
     long               err = -ENOTTY;
-    u8                 access_reg_cmd = 0;
+    u8                 handler_uses_pci_restart_lock = 0;
 
+    /* coverity[unsigned_compare] */
     if ((cmd >= CTRL_CMD_MIN_VAL) && (cmd <= CTRL_CMD_MAX_VAL)) {
         handler = __ioctl_handler_table[IOCTL_CMD_INDEX(cmd)];
     } else if ((cmd >= CTRL_CMD_ACCESS_REG_MIN) && (cmd <= CTRL_CMD_ACCESS_REG_MAX)) {
-        access_reg_cmd = 1;
         handler = ioctl_reg_handler_table[IOCTL_REG_INDEX(cmd)];
 
         /* maybe the handler is implemented in auto-reg */
@@ -167,12 +179,17 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
         goto out;
     }
 
-    if (access_reg_cmd) {
+    if ((cmd == CTRL_CMD_PCI_DEVICE_RESTART) ||
+        (cmd == CTRL_CMD_PCI_REGISTER_DRIVER)) {
+        handler_uses_pci_restart_lock = 1;
+    }
+
+    if (handler_uses_pci_restart_lock) {
+        err = handler(filp, cmd, data);
+    } else {
         down_read(&sx_glb.pci_restart_lock);
         err = handler(filp, cmd, data);
         up_read(&sx_glb.pci_restart_lock);
-    } else {
-        err = handler(filp, cmd, data);
     }
 
 out:

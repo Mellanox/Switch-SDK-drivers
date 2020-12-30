@@ -33,6 +33,7 @@
 #include <linux/fs.h>
 #include <linux/vmalloc.h>
 #include <linux/sched.h>
+#include <linux/filter.h>
 
 #include <linux/mlx_sx/cmd.h>
 #include <linux/mlx_sx/kernel_user.h>
@@ -42,7 +43,7 @@
 #include "alloc.h"
 #include "ioctl_internal.h"
 
-#include "trace.h"
+#include "trace_func.h"
 
 extern int enable_monitor_rdq_trace_points;
 
@@ -118,6 +119,13 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     struct sk_buff    *skb = comp_info->skb;
     struct event_data *head_edata_p = NULL;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    struct sx_cqe_params cqe_params = {0};
+    int                  dqn = file->bound_monitor_rdq->dqn;
+    int                  should_drop = 0;
+    unsigned long        rdq_table_flags;
+#endif
+
     skb_get(skb);
     edata = kmalloc(sizeof(*edata), GFP_ATOMIC);
     if (edata == NULL) {
@@ -149,19 +157,54 @@ static void sx_cq_monitor_sw_queue_handler(struct completion_info *comp_info, vo
     }
 
     /* Make sure that for WJH we will be able to see timestamp for this packet (if it was enabled there) */
-    if (sx_bitmap_test(&sx_priv(sx_dev)->cq_table.ts_bitmap, file->bound_monitor_rdq->cq->cqn)) {
-        edata->has_timestamp = true;
-        getnstimeofday(&edata->timestamp);
+    if (sx_dev && IS_CQ_WORKING_WITH_TIMESTAMP(sx_dev, file->bound_monitor_rdq->cq->cqn)) {
+        SX_RX_TIMESTAMP_COPY(&edata->rx_timestamp, &comp_info->rx_timestamp);
     } else {
-        edata->has_timestamp = false;
+        SX_RX_TIMESTAMP_INIT(&edata->rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
     }
 
     if (enable_monitor_rdq_trace_points) {
-        if (edata->has_timestamp) {
-            trace_monitor_rdq_rx(skb, comp_info->hw_synd, &edata->timestamp);
-        } else {
-            trace_monitor_rdq_rx(skb, comp_info->hw_synd, NULL);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+        cqe_params.is_lag = comp_info->is_lag;
+        cqe_params.sysport_lag_id = comp_info->sysport;
+        cqe_params.lag_subport = comp_info->lag_subport;
+        cqe_params.trap_id = comp_info->hw_synd;
+        cqe_params.mirror_reason = comp_info->mirror_reason;
+        cqe_params.user_def_val_orig_pkt_len = comp_info->user_def_val;
+
+        should_drop = 0;
+        if (sx_dev) {
+            spin_lock_irqsave(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
+            if (sx_priv(sx_dev)->filter_ebpf_progs[dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(sx_priv(sx_dev)->filter_ebpf_progs[dqn],
+                                                                       skb,
+                                                                       &cqe_params);
+            }
+            spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
         }
+        if (should_drop != 0) {
+            spin_unlock_irqrestore(&file->lock, flags);
+            goto out_free;
+        } else {
+            skb->mark = 0;
+        }
+
+        if (sx_dev) {
+            spin_lock_irqsave(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
+            if (edata->rx_timestamp.ts_type != SXD_TS_TYPE_NONE) {
+                sx_core_call_rdq_agg_trace_point_func(sx_priv(sx_dev),
+                                                      dqn,
+                                                      skb,
+                                                      &cqe_params,
+                                                      &edata->rx_timestamp.timestamp);
+            } else {
+                sx_core_call_rdq_agg_trace_point_func(sx_priv(sx_dev), dqn, skb, &cqe_params, NULL);
+            }
+            spin_unlock_irqrestore(&sx_priv(sx_dev)->rdq_table.lock, rdq_table_flags);
+        }
+#endif
+    } else {
+        skb->mark = 0;
     }
 
     list_add_tail(&edata->list, &file->bound_monitor_rdq->sw_dup_evlist_p->list);
@@ -200,6 +243,14 @@ int check_valid_ku_synd(struct ku_synd_ioctl *ku)
 #endif
     }
 
+    if ((ku->is_register != 0) && (ku->is_register != 1)) {
+        err = -EINVAL;
+#ifdef SX_DEBUG
+        printk(KERN_DEBUG PFX "The given ku_synd_ioctl not valid: "
+               " ku->is_register=[%d]\n", ku->is_default);
+#endif
+    }
+
     if ((ku->swid >= NUMBER_OF_SWIDS) && (ku->swid != SWID_NUM_DONT_CARE)) {
         err = -EINVAL;
 #ifdef SX_DEBUG
@@ -223,7 +274,8 @@ int check_valid_ku_synd(struct ku_synd_ioctl *ku)
 static int sx_core_remove_synd_phy(u8                          swid,
                                    u16                         hw_synd,
                                    struct sx_dev              *dev,
-                                   struct ku_port_vlan_params *port_vlan_params)
+                                   struct ku_port_vlan_params *port_vlan_params,
+                                   u8                          is_register)
 {
     union sx_event_data *event_data;
 
@@ -234,6 +286,7 @@ static int sx_core_remove_synd_phy(u8                          swid,
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
+    event_data->eth_l3_synd.is_register = is_register;
     switch (port_vlan_params->port_vlan_type) {
     case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
@@ -252,6 +305,9 @@ static int sx_core_remove_synd_phy(u8                          swid,
     case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
         event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
+
+    default:
         break;
     }
 
@@ -262,7 +318,11 @@ static int sx_core_remove_synd_phy(u8                          swid,
 }
 
 
-int sx_core_remove_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
+int sx_core_remove_synd_l2(u8                          swid,
+                           u16                         hw_synd,
+                           struct sx_dev              *dev,
+                           struct ku_port_vlan_params *port_vlan_params,
+                           u8                          is_register)
 {
     union sx_event_data *event_data;
 
@@ -273,6 +333,7 @@ int sx_core_remove_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_p
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
+    event_data->eth_l3_synd.is_register = is_register;
     switch (port_vlan_params->port_vlan_type) {
     case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
@@ -291,6 +352,9 @@ int sx_core_remove_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_p
     case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
         event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
+
+    default:
         break;
     }
 
@@ -301,7 +365,11 @@ int sx_core_remove_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_p
 }
 
 
-int sx_core_remove_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
+int sx_core_remove_synd_l3(u8                          swid,
+                           u16                         hw_synd,
+                           struct sx_dev              *dev,
+                           struct ku_port_vlan_params *port_vlan_params,
+                           u8                          is_register)
 {
     union sx_event_data *event_data;
 
@@ -312,6 +380,7 @@ int sx_core_remove_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_p
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
+    event_data->eth_l3_synd.is_register = is_register;
     switch (port_vlan_params->port_vlan_type) {
     case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
@@ -331,6 +400,9 @@ int sx_core_remove_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_p
         event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
         event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
         break;
+
+    default:
+        break;
     }
 
     sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_NETDEV, event_data);
@@ -340,7 +412,7 @@ int sx_core_remove_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_p
 }
 
 
-static int sx_core_add_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev)
+static int sx_core_add_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev, u8 is_register)
 {
     union sx_event_data *event_data;
 
@@ -351,13 +423,14 @@ static int sx_core_add_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev)
 
     event_data->ipoib_synd.swid = swid;
     event_data->ipoib_synd.hw_synd = hw_synd;
+    event_data->ipoib_synd.is_register = is_register;
     sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_IPOIB, event_data);
     kfree(event_data);
 
     return 0;
 }
 
-static int sx_core_remove_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev)
+static int sx_core_remove_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev, u8 is_register)
 {
     union sx_event_data *event_data;
 
@@ -368,6 +441,7 @@ static int sx_core_remove_synd_ipoib(u8 swid, u16 hw_synd, struct sx_dev *dev)
 
     event_data->ipoib_synd.swid = swid;
     event_data->ipoib_synd.hw_synd = hw_synd;
+    event_data->ipoib_synd.is_register = is_register;
     sx_core_dispatch_event(dev, SX_DEV_EVENT_REMOVE_SYND_IPOIB, event_data);
     kfree(event_data);
 
@@ -395,6 +469,8 @@ static void sx_cq_handler(struct completion_info *comp_info, void *context)
     struct sx_rsc     *file = ((struct file *)(context))->private_data;
     struct sx_dev     *sx_dev = comp_info->dev;
     struct sk_buff    *skb = comp_info->skb;
+    struct event_data *head_edata = NULL;
+    unsigned short     head_trap_id;
 
     skb_get(skb);
     edata = kmalloc(sizeof(*edata), GFP_ATOMIC);
@@ -410,6 +486,7 @@ static void sx_cq_handler(struct completion_info *comp_info, void *context)
 
     /* update edata params - prepare edata according to the retrieved Completion Info */
     sx_cq_handle_event_data_prepare(edata, skb, comp_info);
+    edata->channel_experienced_drop = file->channel_experienced_drop;
 
     spin_lock_irqsave(&file->lock, flags);
 
@@ -418,17 +495,43 @@ static void sx_cq_handler(struct completion_info *comp_info, void *context)
         file->evlist_size++;
         wake_up_interruptible(&file->poll_wait);
         spin_unlock_irqrestore(&file->lock, flags);
+        file->channel_experienced_drop = false;
         goto out_ok;
-    }
+    } else {
+        if (file->queue_type == KU_QUEUE_TYPE_HEAD_DROP) {
+            list_add_tail(&edata->list, &file->evlist.list);
+            head_edata = list_first_entry(&file->evlist.list, struct event_data, list);
+            head_trap_id = head_edata->trap_id;
+            list_del(&head_edata->list);
+            kfree_skb(head_edata->skb);
+            kfree(head_edata);
+            wake_up_interruptible(&file->poll_wait);
+            spin_unlock_irqrestore(&file->lock, flags);
 
-    spin_unlock_irqrestore(&file->lock, flags);
+            if ((sx_dev != NULL) && (!sx_dev->eventlist_drops_counter)) {
+                if (printk_ratelimit()) {
+                    printk(
+                        KERN_WARNING PFX "Head drop channel: Event list is full, dropping oldest packet (trap_id=%u)\n",
+                        head_trap_id);
+                }
+            }
+            inc_eventlist_drops_counter(sx_dev, head_trap_id);
+            file->channel_experienced_drop = true;
 
-    if ((sx_dev != NULL) && (!sx_dev->eventlist_drops_counter)) {
-        if (printk_ratelimit()) {
-            printk(KERN_WARNING PFX "Event list is full, dropping RX packet (trap_id=%u)\n", comp_info->hw_synd);
+            goto out_ok;
+        } else {
+            spin_unlock_irqrestore(&file->lock, flags);
+
+            if ((sx_dev != NULL) && (!sx_dev->eventlist_drops_counter)) {
+                if (printk_ratelimit()) {
+                    printk(KERN_WARNING PFX "Tail drop channel: Event list is full, dropping RX packet (trap_id=%u)\n",
+                           comp_info->hw_synd);
+                }
+            }
+            inc_eventlist_drops_counter(sx_dev, comp_info->hw_synd);
+            file->channel_experienced_drop = true;
         }
     }
-    inc_eventlist_drops_counter(sx_dev, comp_info->hw_synd);
 
 out_free:
     kfree_skb(skb);
@@ -444,24 +547,20 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
                                       size_t                *total_packet_cnt_p,
                                       struct listener_entry *force_listener)
 {
-    int              err = 0;
-    struct sx_cq    *cq = bound_monitor_rdq->cq;
-    struct sx_priv  *priv = sx_priv(cq->sx_dev);
-    uint32_t         mon_rx_count = bound_monitor_rdq->mon_rx_count;
-    uint32_t         mon_rx_start = bound_monitor_rdq->mon_rx_start;
-    uint32_t         i, idx;
-    struct sk_buff * skb;
-    union sx_cqe     u_cqe;
-    struct timespec* timestamp = NULL;
-    u8               dqn = 0;
-    u8               is_send = 0;
-    u8               is_err = 0;
-    u16              trap_id = 0;
-    u16              byte_count = 0;
-    u16              wqe_counter = 0;
-    struct sx_dq    *dq;
-    uint32_t         packets_sent_to_fd_count = 0;
-    uint32_t         packets_sent_to_fd_total_size = 0;
+    int                    err = 0;
+    struct sx_cq          *cq = bound_monitor_rdq->cq;
+    struct sx_priv        *priv = sx_priv(cq->sx_dev);
+    uint32_t               mon_rx_count = bound_monitor_rdq->mon_rx_count;
+    uint32_t               mon_rx_start = bound_monitor_rdq->mon_rx_start;
+    uint32_t               i, idx;
+    struct sk_buff       * skb;
+    union sx_cqe           u_cqe;
+    struct sx_cqe_params   cqe_params = {0};
+    struct sx_dq          *dq;
+    uint32_t               packets_sent_to_fd_count = 0;
+    uint32_t               packets_sent_to_fd_total_size = 0;
+    uint32_t               skb_mark_dropped_count = 0;
+    struct sx_rx_timestamp rx_ts;
 
     mon_rx_start = bound_monitor_rdq->mon_rx_start;
     mon_rx_count = bound_monitor_rdq->mon_rx_count - bound_monitor_rdq->mon_rx_start;
@@ -495,28 +594,27 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
         }
 
         /* extract cqe from cq */
-        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-                                                &is_send, &dqn, &wqe_counter, &byte_count);
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
 
-        if (is_send) {
+        if (cqe_params.is_send) {
             printk(KERN_ERR "%s(): Error SDQ %d was provided when only RDQ is supported.\n",
-                   __func__, dqn);
+                   __func__, cqe_params.dqn);
             err = -EINVAL;
             goto out;
         }
 
         /* ETH packet always contains CRC. Driver doesn't copy the CRC to the user ,
          * so we need to remove it from byte_count */
-        byte_count -= ETH_CRC_LENGTH;
+        cqe_params.byte_count -= ETH_CRC_LENGTH;
 
         /*
          * Calculate if there enough space in the buffer for the packet
          * Need to verify that there is enough space for ku_read , packet , last ku_read
          */
-        if (byte_count + sizeof(struct ku_read) > buf_len_list[i]) {
+        if (cqe_params.byte_count + sizeof(struct ku_read) > buf_len_list[i]) {
             /* There isn't enough space to this packet */
             printk(KERN_ERR "%s(): i=%d , not enough space %d for packet size %d \n",
-                   __func__, i, (int)buf_len_list[i], (int)(byte_count + sizeof(struct ku_read)));
+                   __func__, i, (int)buf_len_list[i], (int)(cqe_params.byte_count + sizeof(struct ku_read)));
             goto out;
         }
 
@@ -525,22 +623,49 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
                __func__, i, (int)(byte_count + sizeof(struct ku_read)), (int)buf_len_list[i]);
 #endif
 
-        dq = priv->rdq_table.dq[dqn];
+        dq = priv->rdq_table.dq[cqe_params.dqn];
         if (!dq) {
             if (printk_ratelimit()) {
                 sx_warn(cq->sx_dev, "could not find dq context for %s "
                         "dqn = %d\n",
-                        is_send ? "send" : "recv", dqn);
+                        cqe_params.is_send ? "send" : "recv", cqe_params.dqn);
             }
             goto out;
         }
         idx = (mon_rx_start + i) % dq->wqe_cnt;
 
         skb = dq->sge[idx].skb;
-        if (sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn)) {
-            timestamp = &cq->cqe_ts_arr[idx];
+
+        if (!skb) {
+            /* if we get here, most probably that some other RX flow is handling this RDQ and is in the middle
+             * of preparing a new skb (post_skb() or sx_core_post_recv()). If that happens, just skip.
+             */
+            if (printk_ratelimit()) {
+                printk(KERN_NOTICE "WJH: skipping NULL RDQ entry, maybe RDQ is also handled elsewhere "
+                       "[rdq=%u, idx=%u, mon_rx_start=%u, mon_rx_count=%u]\n",
+                       dq->dqn,
+                       idx,
+                       mon_rx_start,
+                       mon_rx_count);
+            }
+
+            i++;
+            continue;
         }
-        err = rx_skb(cq->sx_dev, skb, &u_cqe, timestamp, 1, force_listener);
+
+        /* Check if the packet is marked to be dropped, skip it */
+        if (skb->mark == SKB_MARK_DROP) {
+            i++;
+            skb_mark_dropped_count++;
+            continue;
+        }
+
+        if (IS_CQ_WORKING_WITH_TIMESTAMP(cq->sx_dev, cq->cqn)) {
+            set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[idx].timestamp, &cqe_params.cqe_ts, &rx_ts);
+        } else {
+            SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+        }
+        err = rx_skb(cq->sx_dev, skb, &u_cqe, &rx_ts, 1, force_listener, priv->dev.device_id);
         if (err) {
             printk(KERN_WARNING PFX "rx_skb error %d . Aborting\n", err);
             goto out;
@@ -553,13 +678,13 @@ static int sx_monitor_simulate_rx_skb(struct sx_dq          *bound_monitor_rdq,
                                        dq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
 
 
-        packets_sent_to_fd_total_size += byte_count + sizeof(struct ku_read);
+        packets_sent_to_fd_total_size += cqe_params.byte_count + sizeof(struct ku_read);
         packets_sent_to_fd_count++;
         i++;
     }
 
     /* update mon_start */
-    bound_monitor_rdq->mon_rx_start += packets_sent_to_fd_count;
+    bound_monitor_rdq->mon_rx_start += (packets_sent_to_fd_count + skb_mark_dropped_count);
     *total_packet_cnt_p = packets_sent_to_fd_count;
 
 out:
@@ -922,7 +1047,6 @@ out:
 
         printk(KERN_ERR "%s(): connect rdq %d to TG failed. err: %d \n",
                __func__, file->bound_monitor_rdq->dqn, err);
-        goto out;
     }
 
     return err;
@@ -938,6 +1062,42 @@ static void sx_l2_tunnel_handler(struct completion_info *comp_info, void *contex
     dev = NULL;
     skb_get(skb);
     kfree_skb(skb);
+}
+
+
+static int __add_remove_synd_psample(enum sx_dev_event          add_remove,
+                                     struct ku_synd_ioctl      *ku,
+                                     union ku_filter_critireas *critireas,
+                                     enum l2_type               listener_type,
+                                     struct sx_dev             *dev)
+{
+    union sx_event_data *event_data;
+
+#if !IS_ENABLED(CONFIG_PSAMPLE)
+    printk(KERN_ERR "PSAMPLE is not supported on this kernel (CONFIG_PSAMPLE)\n");
+    return -ENOTSUPP;
+#endif /* !IS_ENABLED(CONFIG_PSAMPLE) */
+
+    /* coverity[unreachable] */
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        return -ENOMEM;
+    }
+
+    event_data->psample_synd.swid = ku->swid;
+    event_data->psample_synd.hw_synd = ku->syndrome_num;
+    event_data->psample_synd.is_register = ku->is_register;
+    memcpy(&event_data->psample_synd.port_vlan_params,
+           &ku->port_vlan_params,
+           sizeof(event_data->psample_synd.port_vlan_params));
+    memcpy(&event_data->psample_synd.psample_info,
+           &ku->psample_params,
+           sizeof(event_data->psample_synd.psample_info));
+
+    sx_core_dispatch_event(dev, add_remove, event_data);
+    kfree(event_data);
+
+    return 0;
 }
 
 
@@ -978,10 +1138,10 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
 
         if (cmd == CTRL_CMD_ADD_SYND) {
             printk("%s: Adding SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV\n", __func__);
-            err = sx_core_add_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+            err = sx_core_add_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params), ku.is_register);
         } else {
             printk("%s: Removing SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV\n", __func__);
-            err = sx_core_remove_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+            err = sx_core_remove_synd_phy(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params), ku.is_register);
         }
 
         if (err) {
@@ -999,10 +1159,10 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
 
         if (cmd == CTRL_CMD_ADD_SYND) {
             printk("%s: Adding SX_KU_USER_CHANNEL_TYPE_L2_NETDEV\n", __func__);
-            err = sx_core_add_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+            err = sx_core_add_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params), ku.is_register);
         } else {
             printk("%s: Removing SX_KU_USER_CHANNEL_TYPE_L2_NETDEV\n", __func__);
-            err = sx_core_remove_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+            err = sx_core_remove_synd_l2(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params), ku.is_register);
         }
 
         if (err) {
@@ -1015,9 +1175,9 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         if (dev->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) {
             /* L3 traps registration */
             if (cmd == CTRL_CMD_ADD_SYND) {
-                err = sx_core_add_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+                err = sx_core_add_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params), ku.is_register);
             } else {
-                err = sx_core_remove_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params));
+                err = sx_core_remove_synd_l3(ku.swid, ku.syndrome_num, dev, &(ku.port_vlan_params), ku.is_register);
             }
 
             if (err) {
@@ -1026,9 +1186,9 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         } else {
             /* IPoIB traps registration */
             if (cmd == CTRL_CMD_ADD_SYND) {
-                err = sx_core_add_synd_ipoib(ku.swid, ku.syndrome_num, dev);
+                err = sx_core_add_synd_ipoib(ku.swid, ku.syndrome_num, dev, ku.is_register);
             } else {
-                err = sx_core_remove_synd_ipoib(ku.swid, ku.syndrome_num, dev);
+                err = sx_core_remove_synd_ipoib(ku.swid, ku.syndrome_num, dev, ku.is_register);
             }
 
             if (err) {
@@ -1039,11 +1199,11 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         break;
 
     case SX_KU_USER_CHANNEL_TYPE_FD:
-        if ((ku.type == SX_KU_L2_TYPE_ETH) &&
+        if ((ku.swid != SWID_NUM_DONT_CARE) && (ku.type == SX_KU_L2_TYPE_ETH) &&
             ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
              (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT))) {
             ku.swid = SWID_NUM_DONT_CARE;
-        } else if ((ku.type == SX_KU_L2_TYPE_DONT_CARE) &&
+        } else if ((ku.swid != SWID_NUM_DONT_CARE) && (ku.type == SX_KU_L2_TYPE_DONT_CARE) &&
                    (ku.critireas.dont_care.sysport == SYSPORT_DONT_CARE_VALUE)) {
             if ((sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ETH) ||
                 (sx_glb.tmp_dev_ptr->profile.swid_type[ku.swid] == SX_KU_L2_TYPE_ROUTER_PORT)) {
@@ -1056,13 +1216,13 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
 
         if (cmd == CTRL_CMD_ADD_SYND) {
             err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                                   listener_type, ku.is_default,
+                                   listener_type, current->pid, ku.is_default,
                                    critireas, sx_cq_handler, filp,
-                                   CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params);
+                                   CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params, ku.is_register);
         } else {
             err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
                                       listener_type, ku.is_default,
-                                      critireas, filp, dev, NULL, &ku.port_vlan_params);
+                                      critireas, filp, dev, NULL, &ku.port_vlan_params, ku.is_register);
         }
 
         if (err) {
@@ -1075,16 +1235,33 @@ static int __synd_cfg(struct file *filp, unsigned int cmd, unsigned long data)
         if (cmd == CTRL_CMD_ADD_SYND) {
             sx_priv(dev)->l2_tunnel_params = ku.l2_tunnel_params;
             err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                                   listener_type, ku.is_default,
+                                   listener_type, current->pid, ku.is_default,
                                    critireas, sx_l2_tunnel_handler, dev,
-                                   CHECK_DUP_DISABLED_E, dev, &ku.port_vlan_params);
+                                   CHECK_DUP_DISABLED_E, dev, &ku.port_vlan_params, ku.is_register);
         } else {
             err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
                                       listener_type, ku.is_default,
-                                      critireas, dev, dev, NULL, &ku.port_vlan_params);
+                                      critireas, dev, dev, NULL, &ku.port_vlan_params, ku.is_register);
         }
 
         if (err) {
+            goto out;
+        }
+
+        break;
+
+    case SX_KU_USER_CHANNEL_TYPE_PSAMPLE:
+        err = __add_remove_synd_psample((cmd == CTRL_CMD_ADD_SYND) ? SX_DEV_EVENT_ADD_SYND_PSAMPLE :
+                                        SX_DEV_EVENT_REMOVE_SYND_PSAMPLE,
+                                        &ku,
+                                        &critireas,
+                                        listener_type,
+                                        dev);
+
+        if (err) {
+            printk(KERN_ERR "failed to %s psample listener (err=%d)\n",
+                   (cmd == CTRL_CMD_ADD_SYND) ? "add" : "remove",
+                   err);
             goto out;
         }
 
@@ -1160,14 +1337,15 @@ long ctrl_cmd_monitor_sw_queue_synd(struct file *file, unsigned int cmd, unsigne
 
     if (ku.cmd == true) { /* Add listener which will store matched packet to SW buffer of monitor RDQ */
         err = sx_core_add_synd(ku.swid, ku.syndrome_num,
-                               listener_type, false,
+                               listener_type, current->pid, false,
                                ku.critireas, sx_cq_monitor_sw_queue_handler,  monitor_dq->file_priv_p->owner, /* use required filp */
-                               CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params);
+                               CHECK_DUP_ENABLED_E, dev, &ku.port_vlan_params, 1);
     } else { /* remove listener */
         if (monitor_dq->file_priv_p) {
             err = sx_core_remove_synd(ku.swid, ku.syndrome_num,
                                       listener_type, false,
-                                      ku.critireas,  monitor_dq->file_priv_p->owner, dev, NULL, &ku.port_vlan_params);
+                                      ku.critireas,  monitor_dq->file_priv_p->owner, dev, NULL, &ku.port_vlan_params,
+                                      1);
         }
     }
 
@@ -1298,7 +1476,7 @@ long ctrl_cmd_get_syndrome_status(struct file *file, unsigned int cmd, unsigned 
     }
 
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
-    if (!list_empty(&sx_glb.listeners_db[tmp_synd_query.syndrome_num].list)) {
+    if (!list_empty(&sx_glb.listeners_rf_db[tmp_synd_query.syndrome_num].list)) {
         is_registered = 1;
     }
     spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
@@ -1392,6 +1570,12 @@ long ctrl_cmd_set_rdq_timestamp_state(struct file *file, unsigned int cmd, unsig
         sx_bitmap_set(&sx_priv(dev)->cq_table.ts_bitmap, cqn);
     } else {
         sx_bitmap_free(&sx_priv(dev)->cq_table.ts_bitmap, cqn);
+    }
+
+    if (rdq_ts_state.hw_utc_enable) {
+        sx_bitmap_set(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, cqn);
+    } else {
+        sx_bitmap_free(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, cqn);
     }
 
 out:
@@ -1498,6 +1682,7 @@ long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long da
     struct ku_get_counters *counters;
     const int               swid = 0; /* the only SWID on Spectrum */
     int                     trap_id;
+    int                     rdq = 0;
     int                     err = 0;
 
     counters = (struct ku_get_counters*)kzalloc(sizeof(*counters), GFP_KERNEL);
@@ -1514,15 +1699,21 @@ long ctrl_cmd_get_counters(struct file *file, unsigned int cmd, unsigned long da
     counters->fromcpu_control_byte = sx_glb.stats.tx_by_pkt_type_bytes[swid][SX_PKT_TYPE_ETH_CTL_UC] +
                                      sx_glb.stats.tx_by_pkt_type_bytes[swid][SX_PKT_TYPE_ETH_CTL_MC];
 
-    /* iterate HW trap_id (0-511) */
-    for (trap_id = 0; trap_id < NUM_HW_SYNDROMES - NUM_SW_SYNDROMES; trap_id++) { /* trap_id 0-511 (512) */
+    /* iterate HW trap_id (0-1023) */
+    for (trap_id = 0; trap_id < NUM_HW_SYNDROMES - NUM_SW_SYNDROMES; trap_id++) { /* trap_id 0-1023 (1024) */
         counters->trap_id_packet[trap_id] = sx_glb.stats.rx_by_synd[swid][trap_id];
         counters->trap_id_byte[trap_id] = sx_glb.stats.rx_by_synd_bytes[swid][trap_id];
     }
 
-    /* iterate SW trap_id-events (512-575) */
-    for (/* trap_id initialized */; trap_id < NUM_HW_SYNDROMES; trap_id++) {  /* trap_id 512-575 (64) */
+    /* iterate SW trap_id-events (1024-1088) */
+    for (/* trap_id initialized */; trap_id < NUM_HW_SYNDROMES; trap_id++) {  /* trap_id 1024-1088 (64) */
         counters->trap_id_events[trap_id] = sx_glb.stats.rx_eventlist_by_synd[trap_id];
+        counters->trap_id_drops[trap_id] = sx_glb.stats.rx_eventlist_drops_by_synd[trap_id];
+    }
+
+    for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
+        counters->trap_group_packet[rdq] = sx_glb.stats.rx_by_rdq[swid][rdq];
+        counters->trap_group_byte[rdq] = sx_glb.stats.rx_by_rdq_bytes[swid][rdq];
     }
 
     err = copy_to_user((void*)data, counters, sizeof(*counters));
@@ -1536,7 +1727,9 @@ out:
 long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_set_monitor_rdq_params monitor_rdq_params;
+    struct sx_priv                  *priv;
     struct sx_dq                    *dq;
+    struct sx_cq                    *cq;
     struct sx_dev                   *dev;
     struct sx_rsc                   *rsc = file->private_data;
     unsigned long                    flags;
@@ -1559,20 +1752,66 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         return -EINVAL;
     }
 
-    spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
+    priv = sx_priv(dev);
+
+    spin_lock_irqsave(&priv->rdq_table.lock, flags);
 
     /* check the rdq is valid */
-    dq = sx_priv(dev)->rdq_table.dq[monitor_rdq_params.rdq];
+    dq = priv->rdq_table.dq[monitor_rdq_params.rdq];
     if (!dq) {
         printk(KERN_ERR PFX "CTRL_CMD_SET_MONITOR_RDQ: RDQ %d is not valid\n", monitor_rdq_params.rdq);
-        spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+        spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
         return -EINVAL;
     }
+
+    /*
+     * This function switches a RDQ from 'monitoring' to 'regular' and vice versa.
+     * when switching modes, we MUST make sure that the RDQ is always handled by a single flow and there is no
+     * point in time where both WJH and regular flow handle the same RDQ in the same time.
+     *
+     * to ensure this, this is the flow:
+     * - initialize a completion object (will get to this later).
+     * - set the CQ of this RDQ as 'pause' (priv->pause_cqn = cq->cqn).
+     * - every flow looks handles RDQs will look at 'priv->pause_cqn'. if it is valid (>= 0), it will stop handling
+     *   the CQ (that is attached to the RDQ).
+     * - we must schedule the tasklet to make sure the tasklet is running at least one time with the 'priv->pause_cqn'
+     *   in order to signal the completion object (to signal the switching flow that no one handles the RDQ and it can
+     *   be switched without race conditions between the RX flows). also, if the CQ/RDQ is idle, scheduling the tasklet
+     *   will make sure that the completion object will be signaled.
+     *
+     * - after preparing all the settings, we'll wait for the completion to be signaled. until then, no switching will
+     *   take place.
+     * - the waiting must be outside of the 'rdq_table' lock. yes, leaving the lock just for the wait and then turning
+     *   back to it is a bad thing but:
+     *   1) rdq_table.lock is abused or not used at all in may cases in the driver. all RDQ/RDQ_TABLE flows should have
+     *      code refactoring.
+     *   2) the risk of leaving the lock just for the wait is only when someone unloads the driver in the middle of this
+     *      flow...
+     *
+     * - after completion is signaled, we know that no one handles the RDQ. we can switch its mode.
+     * - after switching RDQ's mode, we arm the CQ attached to it and reschedule the tasklet.
+     */
+
+    cq = dq->cq;
+    init_completion(&priv->pause_cqn_completion);
+    priv->pause_cqn_completed = 0;
+    priv->pause_cqn = cq->cqn;
+    tasklet_schedule(&priv->intr_tasklet);
+    spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+
+    if (wait_for_completion_timeout(&priv->pause_cqn_completion, msecs_to_jiffies(5000)) == 0) {
+        printk(KERN_ERR "tasklet did not signal us ...\n");
+        priv->pause_cqn = -1;
+        return -ETIMEDOUT;
+    }
+
+    spin_lock_irqsave(&priv->rdq_table.lock, flags);
 
     if (monitor_rdq_params.is_monitor) {
         if (dq->is_monitor) {
             if (dq->file_priv_p->owner == rsc->owner) { /* same owner, do nothing */
-                spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+                priv->pause_cqn = -1;
+                spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
                 goto out;
             }
 
@@ -1588,11 +1827,12 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
          * which is used to simulate RDQ and store discarded packets which
          * were consumed by NOS (in case of trap double registration). */
         dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p =
-            kzalloc(sizeof(*dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p), GFP_KERNEL);
+            kzalloc(sizeof(*dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p), GFP_ATOMIC);
 
         if (dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p == NULL) {
             printk(KERN_DEBUG PFX " Failed to allocate memory for SW duplication queue. \n");
-            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            priv->pause_cqn = -1;
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             return -ENOMEM;
         }
         /* Initialize SW buffer counters */
@@ -1607,21 +1847,211 @@ long ctrl_cmd_set_monitor_rdq(struct file *file, unsigned int cmd, unsigned long
         err = sx_core_add_rdq_to_monitor_rdq_list(dq);
         if (err) {
             unset_monitor_rdq(dq);
-            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            priv->pause_cqn = -1;
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
             goto out;
         }
     } else {
         unset_monitor_rdq(dq);
-
         sx_core_del_rdq_from_monitor_rdq_list(dq);
+    }
+
+    priv->pause_cqn = -1;
+    sx_cq_arm(cq);
+    tasklet_schedule(&priv->intr_tasklet);
+
+    spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+
+out:
+    return err;
+}
+
+long ctrl_cmd_set_rdq_filter_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    struct ku_set_rdq_filter_ebpf_prog_params rdq_filter_ebpf_prog_params;
+    struct sx_dq                             *dq;
+    struct sx_dev                            *dev;
+    unsigned long                             flags;
+    int                                       err = 0;
+    struct bpf_prog                          *bpf_prog_p = NULL;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    if (!dev->pdev) {
+        printk(KERN_DEBUG PFX "will not set rdq filter ebpf program since there's no PCI device\n");
+        goto out;
+    }
+
+    err = copy_from_user(&rdq_filter_ebpf_prog_params, (void*)data, sizeof(rdq_filter_ebpf_prog_params));
+    if (err) {
+        goto out;
+    }
+
+    if (rdq_filter_ebpf_prog_params.rdq >= dev->dev_cap.max_num_rdqs) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: RDQ %d is out of range\n",
+               rdq_filter_ebpf_prog_params.rdq);
+        err = -EINVAL;
+        goto out;
+    }
+
+    spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
+
+    /* check the rdq is valid */
+    dq = sx_priv(dev)->rdq_table.dq[rdq_filter_ebpf_prog_params.rdq];
+    if (!dq) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: RDQ %d is not valid\n",
+               rdq_filter_ebpf_prog_params.rdq);
+        spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (rdq_filter_ebpf_prog_params.is_attach) {
+        if (rdq_filter_ebpf_prog_params.ebpf_prog_fd < 0) {
+            printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: eBPF program file descriptor %d is invalid\n",
+                   rdq_filter_ebpf_prog_params.ebpf_prog_fd);
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            err = -EINVAL;
+            goto out;
+        }
+
+        if (sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq] != NULL) {
+            printk(KERN_INFO PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: RDQ %d already has an eBPF program attached, "
+                   "detach it and attach the new one.\n", rdq_filter_ebpf_prog_params.rdq);
+            bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq]);
+        }
+
+        bpf_prog_p = bpf_prog_get_type(rdq_filter_ebpf_prog_params.ebpf_prog_fd, BPF_PROG_TYPE_SCHED_CLS);
+        if (IS_ERR(bpf_prog_p)) {
+            printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: failed to get ebpf program\n");
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            err = PTR_ERR(bpf_prog_p);
+            goto out;
+        }
+        sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq] = bpf_prog_p;
+    } else {
+        if (sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq] == NULL) {
+            printk(KERN_INFO PFX "CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG: RDQ %d has no eBPF program attached to it.\n",
+                   rdq_filter_ebpf_prog_params.rdq);
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            goto out;
+        }
+        bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq]);
+        sx_priv(dev)->filter_ebpf_progs[rdq_filter_ebpf_prog_params.rdq] = NULL;
     }
 
     spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
 
 out:
     return err;
+#else /* if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)) */
+    return -ENOTSUPP;
+#endif /* if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)) */
 }
 
+long ctrl_cmd_set_rdq_agg_ebpf_prog(struct file *file, unsigned int cmd, unsigned long data)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    struct ku_set_rdq_agg_ebpf_prog_params rdq_agg_ebpf_prog_params;
+    struct sx_dq                          *dq;
+    struct sx_dev                         *dev;
+    unsigned long                          flags;
+    int                                    err = 0;
+    struct bpf_prog                       *bpf_prog_p = NULL;
+    int                                    rdq = 0;
+    int                                    index = 0;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    if (!dev->pdev) {
+        printk(KERN_DEBUG PFX "will not set rdq aggregation ebpf program since there's no PCI device\n");
+        goto out;
+    }
+
+    err = copy_from_user(&rdq_agg_ebpf_prog_params, (void*)data, sizeof(rdq_agg_ebpf_prog_params));
+    if (err) {
+        goto out;
+    }
+
+    if ((rdq_agg_ebpf_prog_params.rdq >= dev->dev_cap.max_num_rdqs) ||
+        (rdq_agg_ebpf_prog_params.rdq < 0)) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d is out of range\n",
+               rdq_agg_ebpf_prog_params.rdq);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if ((rdq_agg_ebpf_prog_params.index >= SX_AGG_EBPF_PROG_NUM_PER_RDQ) ||
+        (rdq_agg_ebpf_prog_params.index < 0)) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: index %d is out of range\n",
+               rdq_agg_ebpf_prog_params.index);
+        err = -EINVAL;
+        goto out;
+    }
+
+    rdq = rdq_agg_ebpf_prog_params.rdq;
+    index = rdq_agg_ebpf_prog_params.index;
+
+
+    spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
+
+    /* check the rdq is valid */
+    dq = sx_priv(dev)->rdq_table.dq[rdq];
+    if (!dq) {
+        printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d is not valid\n",
+               rdq);
+        spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (rdq_agg_ebpf_prog_params.is_attach) {
+        if (rdq_agg_ebpf_prog_params.ebpf_prog_fd < 0) {
+            printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: eBPF program file descriptor %d is invalid\n",
+                   rdq_agg_ebpf_prog_params.ebpf_prog_fd);
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            err = -EINVAL;
+            goto out;
+        }
+
+        if (sx_priv(dev)->agg_ebpf_progs[rdq][index] != NULL) {
+            printk(KERN_INFO PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d index %d already has an eBPF program attached, "
+                   "detach it and attach the new one.\n",
+                   rdq,
+                   index);
+            bpf_prog_put(sx_priv(dev)->agg_ebpf_progs[rdq][index]);
+        }
+
+        bpf_prog_p = bpf_prog_get_type(rdq_agg_ebpf_prog_params.ebpf_prog_fd, BPF_PROG_TYPE_SCHED_CLS);
+        if (IS_ERR(bpf_prog_p)) {
+            printk(KERN_ERR PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: failed to get ebpf program\n");
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            err = PTR_ERR(bpf_prog_p);
+            goto out;
+        }
+        sx_priv(dev)->agg_ebpf_progs[rdq][index] = bpf_prog_p;
+    } else {
+        if (sx_priv(dev)->agg_ebpf_progs[rdq][index] == NULL) {
+            printk(
+                KERN_INFO PFX "CTRL_CMD_SET_RDQ_AGG_EBPF_PROG: RDQ %d index %d has no eBPF program attached to it.\n",
+                rdq,
+                index);
+            spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+            goto out;
+        }
+        bpf_prog_put(sx_priv(dev)->agg_ebpf_progs[rdq][index]);
+        sx_priv(dev)->agg_ebpf_progs[rdq][index] = NULL;
+    }
+
+    spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+
+out:
+    return err;
+#else /* if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)) */
+    return -ENOTSUPP;
+#endif /* if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)) */
+}
 
 long ctrl_cmd_read_multi(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -1723,6 +2153,7 @@ long ctrl_cmd_get_rdq_stat(struct file *file, unsigned int cmd, unsigned long da
 
     if (ku.clear_after_read == true) {
         monitor_dq->mon_rx_start_total = monitor_dq->mon_rx_count;
+        monitor_dq->sw_dup_evlist_total_cnt = 0;
     }
 
     err = copy_to_user((void*)data, &ku, sizeof(ku));
@@ -2021,6 +2452,53 @@ long ctrl_cmd_trap_filter_remove_all(struct file *file, unsigned int cmd, unsign
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
     printk(KERN_INFO PFX "Removed all ports and LAGs from the filter list "
            "of trap ID %d\n", filter_data.trap_id);
+
+out:
+    return err;
+}
+
+long ctrl_cmd_set_fd_attributes(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct sx_rsc               *rsc = file->private_data;
+    struct ku_fd_attributes_data fd_attributes_data;
+    int                          err = 0;
+    unsigned long                flags;
+
+    err = copy_from_user(&fd_attributes_data, (void*)data, sizeof(fd_attributes_data));
+    if (err) {
+        goto out;
+    }
+
+    if (fd_attributes_data.queue_type > KU_QUEUE_TYPE_MAX) {
+        printk(KERN_ERR PFX "Received Queue Type %d "
+               "is invalid\n", fd_attributes_data.queue_type);
+        err = -EINVAL;
+        goto out;
+    }
+
+    spin_lock_irqsave(&rsc->lock, flags);
+    rsc->queue_type = (int)fd_attributes_data.queue_type;
+
+    spin_unlock_irqrestore(&rsc->lock, flags);
+
+
+out:
+    return err;
+}
+
+long ctrl_cmd_get_fd_attributes(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct sx_rsc               *rsc = file->private_data;
+    struct ku_fd_attributes_data fd_attributes_data;
+    int                          err = 0;
+
+    fd_attributes_data.queue_type = rsc->queue_type;
+
+    err = copy_to_user((void*)data, &fd_attributes_data, sizeof(fd_attributes_data));
+    if (err) {
+        printk(KERN_ERR PFX "Failed to copy data to user, err = %d.\n", err);
+        goto out;
+    }
 
 out:
     return err;
