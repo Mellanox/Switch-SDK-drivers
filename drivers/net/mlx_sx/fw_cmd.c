@@ -148,6 +148,10 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
 #define QUERY_FW_DB_PAGE_BAR_OFFSET    0x48
 #define QUERY_FW_FRC_OFFSET            0x50
 #define QUERY_FW_FRC_BAR_OFFSET        0x58
+#define QUERY_FW_UTC_SEC_OFFSET        0x70
+#define QUERY_FW_UTC_SEC_BAR_OFFSET    0x78
+#define QUERY_FW_UTC_NSEC_OFFSET       0x80
+#define QUERY_FW_UTC_NSEC_BAR_OFFSET   0x88
 #define QUERY_FW_SIZE_OFFSET           0x00
 
     mailbox = sx_alloc_cmd_mailbox(dev, target_dev_id);
@@ -198,6 +202,10 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
     SX_GET(fw.doorbell_page_bar,    outbox, QUERY_FW_DB_PAGE_BAR_OFFSET);
     SX_GET(fw.frc_offset, outbox, QUERY_FW_FRC_OFFSET);
     SX_GET(fw.frc_bar,    outbox, QUERY_FW_FRC_BAR_OFFSET);
+    SX_GET(fw.utc_sec_offset, outbox, QUERY_FW_UTC_SEC_OFFSET);
+    SX_GET(fw.utc_sec_bar, outbox, QUERY_FW_UTC_SEC_BAR_OFFSET);
+    SX_GET(fw.utc_nsec_offset, outbox, QUERY_FW_UTC_NSEC_OFFSET);
+    SX_GET(fw.utc_nsec_bar, outbox, QUERY_FW_UTC_NSEC_BAR_OFFSET);
     SX_GET(fw.fw_hour,    outbox, QUERY_FW_FW_HOUR_OFFSET);
     SX_GET(fw.fw_minutes, outbox, QUERY_FW_FW_MINUTES_OFFSET);
     SX_GET(fw.fw_seconds, outbox, QUERY_FW_FW_SECONDS_OFFSET);
@@ -218,6 +226,10 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
         query_fw->fw_rev = fw.fw_ver;
         query_fw->frc_offset = fw.frc_offset;
         query_fw->frc_bar = fw.frc_bar;
+        query_fw->utc_sec_offset = fw.utc_sec_offset;
+        query_fw->utc_sec_bar = fw.utc_sec_bar;
+        query_fw->utc_nsec_offset = fw.utc_nsec_offset;
+        query_fw->utc_nsec_bar = fw.utc_nsec_bar;
     }
 
     if ((0 == sx_priv(dev)->is_fw_initialized) &&
@@ -452,15 +464,21 @@ out:
 }
 EXPORT_SYMBOL(sx_QUERY_AQ_CAP);
 
-int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct sx_board *board)
+int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct ku_query_board_info *board)
 {
     struct sx_cmd_mailbox *mailbox;
     u32                   *outbox;
     int                    err;
+    u8                     xm_exis_and_num_ports;
 
-#define QUERY_ADAPTER_INTA_PIN_OFFSET      0x10
-#define QUERY_ADAPTER_VSD_VENDOR_ID_OFFSET 0x1e
-#define QUERY_ADAPTER_VSD_OFFSET           0x20
+#define QUERY_ADAPTER_XM_EXIST_AND_PORTS_NUM_OFFSET 0x03
+#define QUERY_ADAPTER_XM_PORTS_OFFSET               0x04
+#define QUERY_ADAPTER_INTA_PIN_OFFSET               0x10
+#define QUERY_ADAPTER_VSD_VENDOR_ID_OFFSET          0x1e
+#define QUERY_ADAPTER_VSD_OFFSET                    0x20
+#define QUERY_ADAPTER_XM_EXIST_BITMASK              0x01 /* bit 1 */
+#define QUERY_ADAPTER_XM_PORTS_NUM_BITMASK          0x07 /* bits 0-2 after right shift*/
+#define QUERY_ADAPTER_XM_PORTS_NUM_INTERNAL_OFFSET  4
 
     memset(board, 0, sizeof(*board));
     mailbox = sx_alloc_cmd_mailbox(dev, dev->device_id);
@@ -474,6 +492,18 @@ int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct sx_board *board)
     if (err) {
         goto out;
     }
+
+    SX_GET(xm_exis_and_num_ports, outbox,
+           QUERY_ADAPTER_XM_EXIST_AND_PORTS_NUM_OFFSET);
+    board->xm_exists = (xm_exis_and_num_ports & QUERY_ADAPTER_XM_EXIST_BITMASK);
+
+    board->xm_num_local_ports =
+        (xm_exis_and_num_ports >> QUERY_ADAPTER_XM_PORTS_NUM_INTERNAL_OFFSET) & QUERY_ADAPTER_XM_PORTS_NUM_BITMASK;
+
+    SX_GET(board->xm_local_ports[3], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET);
+    SX_GET(board->xm_local_ports[2], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET + 1);
+    SX_GET(board->xm_local_ports[1], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET + 2);
+    SX_GET(board->xm_local_ports[0], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET + 3);
 
     SX_GET(board->vsd_vendor_id, outbox,
            QUERY_ADAPTER_VSD_VENDOR_ID_OFFSET);
@@ -534,6 +564,7 @@ EXPORT_SYMBOL(sx_QUERY_BOARDINFO);
 #define PROFILE_IB_RTR_ECMP_BIT_N                  6
 #define PROFILE_IB_RTR_MCF_BIT_N                   5
 #define PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET       0xa2
+#define PROFILE_CQE_TIME_STAMP_TYPE_OFFSET         0xb2
 #define PROFILE_CQE_VERSION_OFFSET                 0xb3
 #define PROFILE_RESERVED1_OFFSET                   0xb4
 #define CONFIG_PROFILE_MB_SIZE                     0xb8
@@ -626,6 +657,7 @@ int sx_GET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     profile->ib_router_ecmp = (tmp >> PROFILE_IB_RTR_ECMP_BIT_N) & 0x1;
     profile->ib_router_mcf = (tmp >> PROFILE_IB_RTR_MCF_BIT_N) & 0x1;
     SX_GET(profile->ib_router_ecmp_lid_range, outbox, PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET);
+    SX_GET(params.cqe_time_stamp_type, outbox, PROFILE_CQE_TIME_STAMP_TYPE_OFFSET);
     SX_GET(params.cqe_version, outbox, PROFILE_CQE_VERSION_OFFSET);
     SX_GET(profile->reserved1, outbox, PROFILE_RESERVED1_OFFSET);
 
@@ -738,6 +770,7 @@ int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
                    (profile->ib_router_mcf & 0x1) << PROFILE_IB_RTR_MCF_BIT_N);
     SX_PUT(inbox, temp_u8, PROFILE_IB_RTR_FLAGS_OFFSET);
     SX_PUT(inbox, profile->ib_router_ecmp_lid_range, PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET);
+    SX_PUT(inbox, params->cqe_time_stamp_type, PROFILE_CQE_TIME_STAMP_TYPE_OFFSET);
     SX_PUT(inbox, params->cqe_version, PROFILE_CQE_VERSION_OFFSET);
 
     err = sx_cmd(dev, profile->dev_id, mailbox, 0, 1, SX_CMD_CONFIG_PROFILE,

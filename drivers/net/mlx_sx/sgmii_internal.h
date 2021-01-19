@@ -55,6 +55,10 @@ extern int               tx_dump;
 
 int sgmii_init(void);
 
+int sgmii_get_send_interval_msec_by_transport(sxd_command_type_t transport_type);
+int sgmii_get_send_attempts_by_transport(sxd_command_type_t transport_type);
+int sgmii_get_cr_send_attempts(void);
+int sgmii_get_cr_send_interval_msec(void);
 int sgmii_get_send_attempts(void);
 int sgmii_get_send_interval_msec(void);
 int sgmii_get_rx_pps(void);
@@ -251,7 +255,6 @@ enum sgmii_transaction_completion_status {
     SGMII_TR_COMP_ST_COMPLETED,
     SGMII_TR_COMP_ST_RX_DEV_MISMATCH,
     SGMII_TR_COMP_ST_TIMEDOUT,
-    SGMII_TR_COMP_ST_TERMINATED
 };
 
 typedef uint64_t sgmii_transaction_id_t;
@@ -263,8 +266,15 @@ struct sgmii_sync_transaction_context {
     struct sk_buff                          *rx_skb; /* the skb that completed the transaction */
     enum sgmii_transaction_completion_status status;
 };
+struct sgmii_transaction_meta {
+    struct sgmii_transaction_db *tr_db;
+    sgmii_transaction_id_t       tr_id;
+    struct sk_buff              *skb;
+    sxd_command_type_t           transport_type;
+};
 struct sgmii_transaction_db;
 struct sgmii_transaction_info;
+struct sgmii_transaction_meta;
 
 typedef void (*sgmii_transaction_entry_handler_cb)(int                            err,
                                                    struct sgmii_transaction_info *tr_info,
@@ -306,15 +316,10 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
                                        sgmii_transaction_id_t       tr_id,
                                        struct sgmii_dev            *rx_dev);
 
-int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db,
-                                sgmii_transaction_id_t       tr_id);
-
-int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
-                           struct sk_buff              *skb,
-                           sgmii_transaction_id_t       tr_id,
-                           struct sgmii_dev            *sgmii_dev,
-                           const struct isx_meta       *meta,
-                           void                        *context);
+int sgmii_send_transaction(struct sgmii_transaction_meta *tr_meta,
+                           struct sgmii_dev              *sgmii_dev,
+                           const struct isx_meta         *isx_meta,
+                           void                          *context);
 
 int sgmii_send_transaction_sync(int                            dev_id,
                                 struct sk_buff                *skb,

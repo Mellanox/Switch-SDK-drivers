@@ -95,7 +95,7 @@ static int sx_mlxfw_fsm_lock(struct mlxfw_dev *mlxfw_dev, u32 *fwhandle)
     }
     *fwhandle = reg_mcc.mcc_reg.update_handle;
 
-    if (reg_mcc.mcc_reg.control_state != MLXFW_FSM_STATE_IDLE) {
+    if (reg_mcc.mcc_reg.control_state != SXD_MCC_CONTROL_STATE_IDLE_E) {
         pr_err("(fsm_lock) control state is not idle\n");
         return -EBUSY;
     }
@@ -202,7 +202,7 @@ static int sx_mlxfw_fsm_activate(struct mlxfw_dev *mlxfw_dev, u32 fwhandle)
 
 static int sx_mlxfw_fsm_query_state(struct mlxfw_dev         *mlxfw_dev,
                                     u32                       fwhandle,
-                                    enum mlxfw_fsm_state     *fsm_state,
+                                    enum sxd_mcc_control_state     *fsm_state,
                                     enum mlxfw_fsm_state_err *fsm_state_err)
 {
     int                      ret = 0;
