@@ -97,6 +97,21 @@ enum port_vlan_match {
     PORT_VLAN_MATCH_LAG_VALID = 2,
     PORT_VLAN_MATCH_VLAN_VALID = 3
 };
+struct sx_rx_timestamp {
+    struct timespec timestamp; /* Linux time, HW time */
+    u8              ts_type;   /* CQEv2 timestamp type */
+};
+
+#define SX_RX_TIMESTAMP_INIT(ptr, sec, nsec, type) \
+    do {                                           \
+        (ptr)->timestamp.tv_sec = (sec);           \
+        (ptr)->timestamp.tv_nsec = (nsec);         \
+        (ptr)->ts_type = (type);                   \
+    } while (0)
+
+#define SX_RX_TIMESTAMP_COPY(dst, src) \
+    SX_RX_TIMESTAMP_INIT(dst, (src)->timestamp.tv_sec, (src)->timestamp.tv_nsec, (src)->ts_type)
+
 struct completion_info {
     u8                        swid;
     u16                       sysport;
@@ -113,12 +128,17 @@ struct completion_info {
     struct sx_dev            *dev;
     u32                       original_packet_size;
     u16                       bridge_id;
-    u8                        has_timestamp;
-    struct timespec           timestamp;
+    struct sx_rx_timestamp    rx_timestamp;
     u32                       user_def_val;
     u16                       dest_sysport;
     u8                        dest_is_lag;
     u8                        dest_lag_subport;
+    u8                        mirror_reason;
+    u8                        mirror_tclass;
+    u16                       mirror_cong;
+    u32                       mirror_lantency;
+    u8                        device_id;
+    pid_t                     target_pid;
 };
 
 typedef void (*cq_handler)(struct completion_info*, void *);
@@ -132,6 +152,10 @@ struct sx_stats {
     u64 rx_unconsumed_by_synd[NUM_HW_SYNDROMES + 1][PKT_TYPE_NUM];
     u64 rx_eventlist_by_synd[NUM_HW_SYNDROMES + 1];
     u64 rx_eventlist_drops_by_synd[NUM_HW_SYNDROMES + 1];
+    u64 rx_by_rdq[NUMBER_OF_SWIDS + 1][NUMBER_OF_RDQS];
+    u64 rx_by_rdq_bytes[NUMBER_OF_SWIDS + 1][NUMBER_OF_RDQS];
+    u64 tx_loopback_ok_by_synd[NUM_HW_SYNDROMES + 1];
+    u64 tx_loopback_dropped_by_synd[NUM_HW_SYNDROMES + 1];
 };
 struct sx_dev {
     struct sx_dev_cap     dev_cap;
@@ -152,6 +176,7 @@ struct sx_dev {
     struct list_head      list;
     u64                   fw_ver;
     u8                    dev_stuck;
+    unsigned long         dev_stuck_time;
     u8                    global_flushing;
     u8                    dev_sw_rst_flow;
     struct cdev           cdev;
@@ -167,6 +192,15 @@ struct sx_dev {
     struct workqueue_struct *generic_wq;
     int                      catas_poll_running;
     u8                       dev_specific_cb_init_done;
+
+    /* cr space address and size */
+    void __iomem *cr_space_start;
+    u32           cr_space_size;
+
+    /* xm support */
+    u8 xm_exists;
+    u8 xm_num_local_ports;
+    u8 xm_local_ports[SX_XM_MAX_LOCAL_PORTS_LEN];
 };
 
 enum {
@@ -208,10 +242,10 @@ enum {
     MJTAG_REG_ID = 0x901F,
     PMPC_REG_ID = 0x501F,
     MPSC_REG_ID = 0x9080,
-    MOGCR_REG_ID = 0x9086,
     MTPPPC_REG_ID = 0x9090,
     MTPPTR_REG_ID = 0x9091,
     MTPTPT_REG_ID = 0x9092,
+    MTPCPC_REG_ID = 0x9093,
     MTPPS_REG_ID = 0x9053,
     MTUTC_REG_ID = 0x9055,
     PPBMC_REG_ID = 0x5052,
@@ -260,12 +294,22 @@ struct sx_emad {
     struct sx_eth_hdr     eth_hdr;
     struct emad_operation emad_op;
 };
-
-#define EMAD_TLV_TYPE_SHIFT (11)
 struct sxd_emad_tlv_reg {
     __be16 type_len;
     __be16 reserved0;
 };
+
+#define EMAD_TLV_TYPE_SHIFT (11)
+static inline u16 sxd_emad_tlv_type(const struct sxd_emad_tlv_reg *tlv)
+{
+    return be16_to_cpu(tlv->type_len) >> EMAD_TLV_TYPE_SHIFT;
+}
+
+static inline u16 sxd_emad_tlv_len(const struct sxd_emad_tlv_reg *tlv)
+{
+    return (be16_to_cpu(tlv->type_len) & ((1 << EMAD_TLV_TYPE_SHIFT) - 1)) * 4 /* sizeof DWORD */;
+}
+
 struct sxd_emad_pude_reg {
     struct sx_emad          emad_header;
     struct sxd_emad_tlv_reg tlv_header;
@@ -286,12 +330,25 @@ struct sxd_emad_ppbme_reg {
     u8                      monitor_state;
     __be64                  reserved4;
 };
+struct sxd_emad_ppbmc_reg {
+    struct sx_emad          emad_header;
+    struct sxd_emad_tlv_reg tlv_header;
+    u8                      reserved1;
+    u8                      local_port;
+    u8                      pnat_monitor_type;
+    u8                      reserved2;
+    u8                      e_ievent_event_ctrl;
+    u8                      monitor_ctrl;
+    u8                      reserved3;
+    u8                      monitor_state;
+    __be64                  reserved4;
+};
 struct sxd_emad_sbctr_reg {
     struct sx_emad          emad_header;
     struct sxd_emad_tlv_reg tlv_header;
     u8                      ievent;
     u8                      local_port;
-    u8                      reserved1;
+    u8                      dir_ing;
     u8                      fp_entity;
     u8                      reserved2[4];
     __be64                  tc_vec;

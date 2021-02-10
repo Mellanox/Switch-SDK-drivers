@@ -1,0 +1,13 @@
+diff --git a/drivers/net/mlx_sx/sx_clock.h b/drivers/net/mlx_sx/sx_clock.h
+index bfe6dd0..76b58e7 100644
+--- a/drivers/net/mlx_sx/sx_clock.h
++++ b/drivers/net/mlx_sx/sx_clock.h
+@@ -37,7 +37,7 @@
+ 
+ /************************************************************************************/
+ /* this definition may change in kernel_backports patches! don't touch it here! */
+-#define SX_CLOCK_USE_TIMESPEC64 (0)
++#define SX_CLOCK_USE_TIMESPEC64 (1)
+ 
+ /* these definitions should only be used with clock callbacks.
+  * in other places driver may use its own timespec structure (timespec or timespec64).
