@@ -60,6 +60,7 @@
 #define SX_PACKET_DEFAULT_TC    5
 #define TX_HEADER_RP_RIF_TO_FID (15 * 1024)
 #define SX_VLAN_PRIO_MAX        7
+#define MAX_PORT_NETDEV_NUM     2
 
 
 static const char *net_port_vlan_type_str[] = {
@@ -104,6 +105,7 @@ struct sx_net_priv {
     struct delayed_work       pude_dwork;   /* pude delayed work */
     struct workqueue_struct * pude_wq;
     struct hwtstamp_config    hwtstamp_config;
+    u8                        skip_tunnel;
 };
 
 enum {
@@ -116,8 +118,7 @@ struct sx_netdev_rsc {
     struct net_device *sx_netdevs[NUMBER_OF_SWIDS];
     spinlock_t         rsc_lock; /* the resource's lock */
     u8                 allocated[NUMBER_OF_SWIDS];
-    struct net_device *sx_port_netdevs[MAX_SYSPORT_NUM];
-    struct net_device *sx_lag_netdevs[MAX_LAG_NUM];
+    struct net_device *port_netdev[PORT_TYPE_NUM][MAX_SYSPORT_NUM][MAX_PORT_NETDEV_NUM];
     u8                 port_allocated[PORT_TYPE_NUM][MAX_SYSPORT_NUM];
     u8                 in_attach_detach;
 };
@@ -131,11 +132,10 @@ int sx_netdev_register_device(struct net_device *netdev, int should_rtnl_lock,
                               int admin_state);
 
 /* Global core context */
-extern struct net_device    *port_netdev_db[MAX_SYSPORT_NUM];
-extern struct net_device    *lag_netdev_db[MAX_LAG_NUM];
 extern struct net_device    *bridge_netdev_db[MAX_BRIDGE_NUM];
 extern struct sx_netdev_rsc *g_netdev_resources;
-extern struct sx_dev       * g_sx_dev;
+extern struct sx_dev        *g_sx_dev;
+extern u8                    g_skip_tunnel;
 
 enum {
     IFLA_SX_BRIDGE_UNSPEC,
@@ -161,13 +161,15 @@ struct sx_core_interface {
     int               (*sx_core_add_synd)(u8                          swid,
                                           u16                         hw_synd,
                                           enum l2_type                type,
+                                          pid_t                       caller_pid,
                                           u8                          is_default,
                                           union ku_filter_critireas   crit,
                                           cq_handler                  handler,
                                           void                       *context,
                                           check_dup_e                 check_dup,
                                           struct sx_dev              *sx_dev,
-                                          struct ku_port_vlan_params *port_vlan);
+                                          struct ku_port_vlan_params *port_vlan,
+                                          u8                          is_register);
     int (*sx_core_remove_synd)(u8                          swid,
                                u16                         hw_synd,
                                enum l2_type                type,
@@ -176,7 +178,8 @@ struct sx_core_interface {
                                void                       *context,
                                struct sx_dev              *sx_dev,
                                cq_handler                  handler,
-                               struct ku_port_vlan_params *port_vlan);
+                               struct ku_port_vlan_params *port_vlan,
+                               u8                          is_register);
     int (*sx_core_flush_synd_by_handler)(cq_handler handler);
     int (*sx_core_get_prio2tc)(struct sx_dev *dev, uint16_t port_lag_id, uint8_t is_lag, uint8_t pcp, uint8_t *tc);
     int (*sx_core_get_vlan_tagging)(struct sx_dev *dev,
@@ -205,10 +208,17 @@ struct sx_core_interface {
     void         * (*sx_detach_interface)(struct sx_interface *intf, struct sx_dev *dev);
     int            (*sx_core_get_ptp_state)(struct sx_dev *dev, uint8_t *is_ptp_enable);
     int            (*sx_core_get_ptp_clock_index)(struct sx_dev *dev, uint8_t *ptp_clock_index_p);
-    int            (*sx_core_pending_ptp_eg_pkt)(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id,
-                                                 u8 is_lag, u8 *is_ptp_pkt);
-    int (*sx_core_get_lag_max)(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag);
-    int (*sx_core_get_rp_mode)(struct sx_dev *dev, u8 is_lag, u16 sysport_lag_id, u16 vlan_id, u8 *is_rp);
+    int            (*sx_core_ptp_tx_handler)(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag);
+    int            (*sx_core_get_lag_max)(struct sx_dev *dev, uint16_t *lags, uint16_t *pors_per_lag);
+    int            (*sx_core_get_rp_mode)(struct sx_dev *dev, u8 is_lag, u16 sysport_lag_id, u16 vlan_id, u8 *is_rp);
+    int            (*sx_core_skb_add_vlan)(struct sk_buff **untagged_skb, uint16_t vid, uint16_t pcp);
+    int            (*sx_core_ptp_tx_control_to_data)(struct sx_dev   *dev,
+                                                     struct sk_buff **orig_skb,
+                                                     struct isx_meta *meta,
+                                                     u16              port,
+                                                     u8               is_lag,
+                                                     u8              *is_tagged,
+                                                     u8               hw_ts_required);
 };
 extern struct sx_core_interface sx_core_if;
 
