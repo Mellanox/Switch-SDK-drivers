@@ -213,6 +213,17 @@ if [ ! -e ${kernel_patching_marker_file} ]; then
         fi
 
 	case ${KVERSION} in
+                3.10.0-693.*)
+			# RedHat EL 7.4
+			MODULES_DIR=/lib/modules/${KVERSION}/update
+		 	apply_backporting_patches "3.10.0-693"
+		;;
+                3.10.0-957.*)
+			# RedHat EL 7.6
+			MODULES_DIR=/lib/modules/${KVERSION}/update
+		 	apply_backporting_patches "3.10.0-693"
+		 	apply_backporting_patches "3.10.0-957"
+		;;
                 3.10.* | 3.13.* | 3.14.* | 3.16.*)
 			echo "Kernel version ${KVERSION} - 3.10 kernel - no backporting patches required"
 		;;
@@ -223,11 +234,19 @@ if [ ! -e ${kernel_patching_marker_file} ]; then
   	    	4.15.*)
                     	MODULES_DIR=/lib/modules/${KVERSION}/update
                     	apply_backporting_patches "4.9.0"
+                    	apply_backporting_patches "4.11.9"
                     	apply_backporting_patches "4.15.15"
+            	;;
+  	    	4.19.*)
+                    	MODULES_DIR=/lib/modules/${KVERSION}/update
+                    	apply_backporting_patches "4.9.0"
+                    	apply_backporting_patches "4.11.9"
+                    	apply_backporting_patches "4.15.15"
+                    	apply_backporting_patches "4.19.0"
             	;;
 	
 		*)
-			echo "Kernel version ${KVERSION} is not supported, supported versions are 3.10.*, 3.13.*, 3.14.*, 3.16.* and 4.9.0"
+			echo "Kernel version ${KVERSION} is not supported, supported versions are 3.10.*, 3.13.*, 3.14.*, 3.16.*, 4.9.0, 4.15.* and 4.19.*"
 			exit 1
 		;;
 	esac

@@ -67,10 +67,10 @@ static const char * const mlxfw_fsm_state_err_str[] = {
     [MLXFW_FSM_STATE_ERR_MAX] =
         "unknown error"
 };
-static int mlxfw_fsm_state_wait(struct mlxfw_dev *mlxfw_dev, u32 fwhandle, enum mlxfw_fsm_state fsm_state)
+static int mlxfw_fsm_state_wait(struct mlxfw_dev *mlxfw_dev, u32 fwhandle, enum sxd_mcc_control_state fsm_state)
 {
     enum mlxfw_fsm_state_err fsm_state_err;
-    enum mlxfw_fsm_state     curr_fsm_state;
+    enum sxd_mcc_control_state     curr_fsm_state;
     int                      times;
     int                      err;
 
@@ -138,7 +138,7 @@ static int mlxfw_flash_component(struct mlxfw_dev *mlxfw_dev, u32 fwhandle, stru
     }
 
     err = mlxfw_fsm_state_wait(mlxfw_dev, fwhandle,
-                               MLXFW_FSM_STATE_DOWNLOAD);
+                               SXD_MCC_CONTROL_STATE_DOWNLOAD_E);
     if (err) {
         goto err_out;
     }
@@ -165,7 +165,7 @@ static int mlxfw_flash_component(struct mlxfw_dev *mlxfw_dev, u32 fwhandle, stru
         goto err_out;
     }
 
-    err = mlxfw_fsm_state_wait(mlxfw_dev, fwhandle, MLXFW_FSM_STATE_LOCKED);
+    err = mlxfw_fsm_state_wait(mlxfw_dev, fwhandle, SXD_MCC_CONTROL_STATE_LOCKED_E);
     if (err) {
         goto err_out;
     }
@@ -233,7 +233,7 @@ int mlxfw_firmware_flash(struct mlxfw_dev *mlxfw_dev, const struct firmware *fir
     }
 
     err = mlxfw_fsm_state_wait(mlxfw_dev, fwhandle,
-                               MLXFW_FSM_STATE_LOCKED);
+                               SXD_MCC_CONTROL_STATE_LOCKED_E);
     if (err) {
         goto err_state_wait_idle_to_locked;
     }
@@ -250,7 +250,7 @@ int mlxfw_firmware_flash(struct mlxfw_dev *mlxfw_dev, const struct firmware *fir
         goto err_fsm_activate;
     }
 
-    err = mlxfw_fsm_state_wait(mlxfw_dev, fwhandle, MLXFW_FSM_STATE_LOCKED);
+    err = mlxfw_fsm_state_wait(mlxfw_dev, fwhandle, SXD_MCC_CONTROL_STATE_LOCKED_E);
     if (err) {
         goto err_state_wait_activate_to_locked;
     }

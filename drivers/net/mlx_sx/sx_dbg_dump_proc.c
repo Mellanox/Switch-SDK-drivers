@@ -38,6 +38,8 @@
 #include <linux/mlx_sx/kernel_user.h>
 #include "sx.h"
 #include "alloc.h"
+#include "mmap.h"
+#include "ber_monitor.h"
 #include "sx_dbg_dump_proc.h"
 
 /************************************************
@@ -46,12 +48,16 @@
 
 #define DBG_DUMP_BUFF_SIZE 80
 #define SEQ_FILE_SIZE      (64 * 1024)
+#define FROM_BITS_TO_U64(bits) \
+    (((bits) %                 \
+      64) ? ((bits) / 64) + 1 : ((bits) / 64))
 
 /************************************************
  *  GLOBAL VARIABLES
  ***********************************************/
 
 extern struct sx_globals sx_glb;
+extern const char       *ku_pkt_type_str[];
 
 /************************************************
  *  LOCAL VARIABLES
@@ -92,6 +98,13 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_CPUWD] = "SXD_CPUWD",                 /**< CPU Watchdog Event */
     [SXD_TRAP_ID_PPBME] = "SXD_PPBME",                  /**< BER monitor trap */
     [SXD_TRAP_ID_PACKET_RECEIVED] = "SXD_PACKET_RECEIVED",
+    [SXD_TRAP_ID_MFDE] = "SXD_MFDE",                   /**< FW MFDE (FW_SOS) */
+    [SXD_TRAP_ID_MOCS_DONE] = "SXD_TRAP_ID_MOCS_DONE", /**< MOCS DONE (Bulk counters) */
+    [SXD_TRAP_ID_PPCNT] = "SXD_TRAP_ID_PPCNT", /**< PPCNT (Bulk counters) */
+    [SXD_TRAP_ID_MGPCB] = "SXD_TRAP_ID_MGPCB", /**< MGPCB (Bulk counters) */
+    [SXD_TRAP_ID_PBSR] = "SXD_TRAP_ID_PBSR", /**< PBSR (Bulk counters) */
+    [SXD_TRAP_ID_SBSRD] = "SXD_TRAP_ID_SBSRD", /**< SBSRD (Bulk counters) */
+    [SXD_TRAP_ID_BULK_COUNTER_DONE_EVENT] = "SXD_TRAP_ID_BULK_COUNTER_DONE_EVENT", /**< MOCS DONE SW Event (Bulk counters) */
 
     /* ETHERNET L2 */
     [SXD_TRAP_ID_ETH_L2_STP] = "SXD_STP",                /**< ETHERNET L2 STP */
@@ -114,12 +127,14 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V3_REPORT] = "SXD_IGMP_V3_REPORT", /**< ETHERNET L2 IGMP V3_REPORT */
     [SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V2_LEAVE] = "SXD_IGMP_V2_LEAVE", /**< ETHERNET L2 IGMP V2_LEAVE */
     [SXD_TRAP_ID_ETH_L2_UDLD] = "SXD_UDLD",               /**< ETHERNET UDLD */
-    [SXD_TRAP_ID_ETH_L2_DHCP] = "SXD_DHCP",               /**< ETHERNET DHCP */
+    [SXD_TRAP_ID_ETH_L2_DHCP] = "SXD_L2_DHCP",               /**< ETHERNET L2 DHCP */
+    [SXD_TRAP_ID_ETH_L2_DHCPV6] = "SXD_L2_DHCPV6",               /**< ETHERNET L2 DHCP V6 */
     [SXD_TRAP_ID_ETH_CONF_TYPE0] = "SXD_ETH_CONF_TYPE0",
     [SXD_TRAP_ID_ETH_CONF_TYPE1] = "SXD_ETH_CONF_TYPE1",
     [SXD_TRAP_ID_ETH_L2_PKT_SAMPLE] = "SXD_PACKET_SAMPLE",    /**< ETHERNET L2 PACKET_SAMPLING */
     [SXD_TRAP_ID_FDB_MISS] = "SXD_FDB_MISS",
     [SXD_TRAP_ID_FDB_MISMATCH] = "SXD_FDB_MISMATCH",
+    [SXD_TRAP_ID_FID_MISS] = "SXD_FID_MISS",
     [SXD_TRAP_ID_ICMPV6_CONF_TYPE0] = "SXD_ICMPV6_CONF_TYPE0",
     [SXD_TRAP_ID_ICMPV6_CONF_TYPE1] = "SXD_ICMPV6_CONF_TYPE1",
     [SXD_TRAP_ID_OVERLAY_ICMPV6_CONF_TYPE] = "SXD_OVERLAY_ICMPV6_CONF_TYPE",
@@ -179,6 +194,8 @@ static const char * const sxd_trap_id_str_s[] = {
 
     /* IPv6 L3 */
     [SXD_TRAP_ID_IPV6_UNSPECIFIED_ADDRESS] = "SXD_IPV6_UNSPEC_ADDR",
+    [SXD_TRAP_ID_IPV6_UNSPECIFIED_SIP] = "SXD_IPV6_UNSPEC_SIP",
+    [SXD_TRAP_ID_IPV6_UNSPECIFIED_DIP] = "SXD_IPV6_UNSPEC_DIP",
     [SXD_TRAP_ID_IPV6_LINK_LOCAL_DST] = "SXD_IPV6_LINK_LOCAL_DST",
     [SXD_TRAP_ID_IPV6_LINK_LOCAL_SRC] = "SXD_IPV6_LINK_LOCAL_SRC",
     [SXD_TRAP_ID_IPV6_ALL_NODES_LINK] = "SXD_IPV6_ALL_NODES_LINK",
@@ -349,10 +366,32 @@ static const char * const sxd_trap_id_str_s[] = {
     [SXD_TRAP_ID_TRANSACTION_ERROR] = "SXD_SW_EV_TRANSACTION_ERROR",               /**< error in transaction mode */
     [SXD_TRAP_ID_BFD_TIMEOUT_EVENT] = "SXD_SW_EV_BFD_TIMEOUT_EVENT",
     [SXD_TRAP_ID_BFD_PACKET_EVENT] = "SXD_SW_EV_BFD_PACKET_EVENT",
+    [SXD_TRAP_ID_SDK_HEALTH_EVENT] = "SXD_SW_SDK_HEALTH_EVENT",
+
 
     /* User defined trap ID */
     [SXD_TRAP_ID_IP2ME_CUSTOM0] = "SXD_IP2ME_CUSTOM0",
     [SXD_TRAP_ID_IP2ME_CUSTOM1] = "SXD_IP2ME_CUSTOM1",
+
+    [SXD_TRAP_ID_CONFT_SWITCH0] = "SXD_TRAP_ID_CONFT_SWITCH0",
+    [SXD_TRAP_ID_CONFT_SWITCH1] = "SXD_TRAP_ID_CONFT_SWITCH1",
+    [SXD_TRAP_ID_CONFT_SWITCH2] = "SXD_TRAP_ID_CONFT_SWITCH2",
+    [SXD_TRAP_ID_CONFT_SWITCH3] = "SXD_TRAP_ID_CONFT_SWITCH3",
+
+    [SXD_TRAP_ID_CONFT_ROUTER0] = "SXD_TRAP_ID_CONFT_ROUTER0",
+    [SXD_TRAP_ID_CONFT_ROUTER1] = "SXD_TRAP_ID_CONFT_ROUTER1",
+    [SXD_TRAP_ID_CONFT_ROUTER2] = "SXD_TRAP_ID_CONFT_ROUTER2",
+    [SXD_TRAP_ID_CONFT_ROUTER3] = "SXD_TRAP_ID_CONFT_ROUTER3",
+
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC0] = "SXD_TRAP_ID_CONFT_SWITCH_ENC0",
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC1] = "SXD_TRAP_ID_CONFT_SWITCH_ENC1",
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC2] = "SXD_TRAP_ID_CONFT_SWITCH_ENC2",
+    [SXD_TRAP_ID_CONFT_SWITCH_ENC3] = "SXD_TRAP_ID_CONFT_SWITCH_ENC3",
+
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC0] = "SXD_TRAP_ID_CONFT_SWITCH_DEC0",
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC1] = "SXD_TRAP_ID_CONFT_SWITCH_DEC1",
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC2] = "SXD_TRAP_ID_CONFT_SWITCH_DEC2",
+    [SXD_TRAP_ID_CONFT_SWITCH_DEC3] = "SXD_TRAP_ID_CONFT_SWITCH_DEC3",
 
     [SXD_TRAP_ID_MAX + 1] = "SXD_UNKNOWN",                               /**< MAXIMUM TRAP ID */
 };
@@ -374,24 +413,44 @@ const char * trap_id_str(u16 trap_id)
     }
 }
 
-static void print_header(struct seq_file *m, const char* header)
+void print_header(struct seq_file *m, const char* header)
 {
-    seq_printf(m, "\n..................................................\n");
-    seq_printf(m, header);
-    seq_printf(m, "\n..................................................\n");
+    seq_printf(m,
+               "\n========================================================================================================================\n");
+    seq_printf(m, "%s", header);
+    seq_printf(m,
+               "\n========================================================================================================================\n\n");
 }
 
-static void print_listener(struct seq_file                 *m,
-                           u16                              synd,
-                           struct listener_entry           *listener,
-                           struct listener_port_vlan_entry *port_vlan_listener)
+static inline int SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(u64 *arr, u32 num)
 {
-    static char handler_name[KSYM_SYMBOL_LEN] = "";
-    static char uc_name[DBG_DUMP_BUFF_SIZE] = "";
-    static char type_name[DBG_DUMP_BUFF_SIZE] = "";
-    static char type_crit[DBG_DUMP_BUFF_SIZE] = "";
-    static char reg_key_name[DBG_DUMP_BUFF_SIZE] = "";
-    char       *end;
+    int idx = (num) / 64;
+    u64 bit = (1ULL << ((num) % 64));
+
+    return ((arr)[idx] & (bit));
+}
+
+static inline int SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(u64 *arr, u32 size)
+{
+    int i = 0;
+
+    for (i = 0; i < size; i++) {
+        if (arr[i] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void print_listener(struct seq_file *m, u16 synd, struct listener_entry           *listener)
+{
+    static char                               handler_name[KSYM_SYMBOL_LEN] = "";
+    static char                               uc_name[DBG_DUMP_BUFF_SIZE] = "";
+    static char                               type_name[DBG_DUMP_BUFF_SIZE] = "";
+    static char                               type_crit[DBG_DUMP_BUFF_SIZE] = "";
+    static char                               reg_key_name[DBG_DUMP_BUFF_SIZE] = "";
+    const struct sx_psample_listener_context *psample_ctx;
+    char                                     *end;
 
     memset(handler_name, 0, sizeof(handler_name));
     memset(uc_name, 0, sizeof(uc_name));
@@ -422,6 +481,10 @@ static void print_listener(struct seq_file                 *m,
         strcpy(uc_name, "PHY_PORT_NETDEV");
     } else if (strstr(handler_name, "sx_l2_tunnel_handler")) {
         strcpy(uc_name, "L2_TUNNEL");
+    } else if (strstr(handler_name, "psample")) {
+        psample_ctx = (struct sx_psample_listener_context*)listener->context;
+        snprintf(uc_name, sizeof(uc_name) - 1, "PSAMPLE [g=%u,rc=%u]",
+                 psample_ctx->group_num, psample_ctx->refcnt);
     } else {
         strncpy(uc_name, handler_name, sizeof(uc_name) - 1);
     }
@@ -474,74 +537,239 @@ static void print_listener(struct seq_file                 *m,
     default:
         strcpy(type_name, "NA");
     }
-
-    switch (port_vlan_listener->match_crit) {
-    case PORT_VLAN_MATCH_GLOBAL:
-        strcpy(reg_key_name, "Global");
-        break;
-
-    case PORT_VLAN_MATCH_PORT_VALID:
-        snprintf(reg_key_name, DBG_DUMP_BUFF_SIZE, "Sysport %d", port_vlan_listener->sysport);
-        break;
-
-    case PORT_VLAN_MATCH_LAG_VALID:
-        snprintf(reg_key_name, DBG_DUMP_BUFF_SIZE, "LID %d", port_vlan_listener->lag_id);
-        break;
-
-    case PORT_VLAN_MATCH_VLAN_VALID:
-        snprintf(reg_key_name, DBG_DUMP_BUFF_SIZE, "Vlan %d", port_vlan_listener->vlan);
-        break;
-
-    default:
-        strcpy(reg_key_name, "NA");
-    }
-
-    seq_printf(m, "%-40s|%-8d| %-13s| %-20s| %-30s| %llu\n",
+    seq_printf(m, "%-30s| %-8d| %-20s| %-25s| %-15llu| %u\n",
                trap_id_str(synd),
                synd,
-               reg_key_name,
                uc_name,
                type_name,
-               listener->rx_pkts);
+               listener->rx_pkts,
+               listener->is_default);
 }
 
-static int sx_dbg_trap_reg_dump_proc_show(struct seq_file *m, void *v)
+
+static int __trap_reg_dump(struct seq_file *m, void *v)
 {
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos;
-    struct list_head                *port_vlan_pos;
-    unsigned long                    flags;
-    u16                              synd = 0;
+    struct listener_entry *listener;
+    struct list_head      *pos;
+    unsigned long          flags;
+    u16                    synd = 0;
 
     print_header(m, "Trap Registration");
 
+    print_table_header(m, "%-30s| %-8s| %-20s| %-25s| %-15s| %s",
+                       "Trap Name", "Trap ID", "User Channel", "Type", "RX packets", "Is default");
 
-    seq_printf(m, "%-40s|%-8s| %-13s| %-20s| %-30s| %s\n",
-               "Trap Name", "Trap ID", "Reg Key", "User Channel", "Type", "RX packets");
-
-    seq_printf(m, "--------------------------------------------"
-               "--------------------------------------------"
-               "--------------------------------------------\n");
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (synd = 0; synd < NUM_HW_SYNDROMES + 1; synd++) {
-        if (!list_empty(&sx_glb.listeners_db[synd].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[synd].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                list_for_each(pos, &(port_vlan_listener->listener.list)) {
-                    listener = list_entry(pos, struct listener_entry, list);
-                    print_listener(m, synd, listener, port_vlan_listener);
-                }
+        if (!list_empty(&sx_glb.listeners_rf_db[synd].list)) {
+            list_for_each(pos, &sx_glb.listeners_rf_db[synd].list) {
+                listener = list_entry(pos, struct listener_entry, list);
+                print_listener(m, synd, listener);
             }
         }
     }
+
     spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
 
+    print_empty_line(m);
+    return 0;
+}
+
+static int __trap_filter_register_dump(struct seq_file *m, void *v)
+{
+    struct listener_entry *listener;
+    struct list_head      *pos;
+    unsigned long          flags;
+    u16                    synd = 0;
+    int                    i = 0;
+
+    print_header(m, "Trap Registrations and Filters");
+
+    spin_lock_irqsave(&sx_glb.listeners_lock, flags);
+    for (synd = 0; synd < NUM_HW_SYNDROMES + 1; synd++) {
+        if (!list_empty(&sx_glb.listeners_rf_db[synd].list)) {
+            list_for_each(pos, &sx_glb.listeners_rf_db[synd].list) {
+                print_table_header(m, "%-30s| %-8s| %-20s| %-25s| %-15s| %s",
+                                   "Trap Name", "Trap ID", "User Channel", "Type", "RX packets", "Is default");
+                listener = list_entry(pos, struct listener_entry, list);
+                print_listener(m, synd, listener);
+                print_empty_line(m);
+
+                print_table_header(m, "%s", "listener Reg/Filter info:");
+
+                seq_printf(m, "%s", "Global Filter: ");
+                listener->listener_register_filter.is_global_filter ? seq_printf(m, "%s", "True") : seq_printf(m,
+                                                                                                               "%s",
+                                                                                                               "False");
+
+                seq_printf(m, "%s", "\nPorts Filters: ");
+                if (SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(listener->listener_register_filter.ports_filters,
+                                                         FROM_BITS_TO_U64(MAX_PHYPORT_NUM + 1))) {
+                    seq_printf(m, "%s", "None");
+                } else {
+                    for (i = 1; i < MAX_PHYPORT_NUM + 1; i++) {
+                        if (SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.ports_filters,
+                                                                   i)) {
+                            seq_printf(m, " %u|", i);
+                        }
+                    }
+                }
+
+                seq_printf(m, "%s", "\nVlans Filters: ");
+                if (SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(listener->listener_register_filter.vlans_filters,
+                                                         FROM_BITS_TO_U64(SXD_MAX_VLAN_NUM + 1))) {
+                    seq_printf(m, "%s", "None");
+                } else {
+                    for (i = 0; i < SXD_MAX_VLAN_NUM + 1; i++) {
+                        if (SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.vlans_filters,
+                                                                   i)) {
+                            seq_printf(m, " %u|", i);
+                        }
+                    }
+                }
+
+                seq_printf(m, "%s", "\nLags Filters: ");
+                if (SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(listener->listener_register_filter.lags_filters,
+                                                         FROM_BITS_TO_U64(MAX_LAG_NUM + 1))) {
+                    seq_printf(m, "%s", "None");
+                } else {
+                    for (i = 0; i < MAX_LAG_NUM + 1; i++) {
+                        if (SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.lags_filters,
+                                                                   i)) {
+                            seq_printf(m, " %u|", i);
+                        }
+                    }
+                }
+
+                seq_printf(m, "%s", "\nGlobal Register: ");
+                listener->listener_register_filter.is_global_register ? seq_printf(m, "%s", "True") : seq_printf(m,
+                                                                                                                 "%s",
+                                                                                                                 "False");
+
+                seq_printf(m, "%s", "\nPorts Registers: ");
+                if (SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(listener->listener_register_filter.ports_registers,
+                                                         FROM_BITS_TO_U64(MAX_PHYPORT_NUM + 1))) {
+                    seq_printf(m, "%s", "None");
+                } else {
+                    for (i = 0; i < MAX_PHYPORT_NUM + 1; i++) {
+                        if (SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.ports_registers,
+                                                                   i)) {
+                            seq_printf(m, " %u|", i);
+                        }
+                    }
+                }
+
+                seq_printf(m, "%s", "\nVlans Registers: ");
+                if (SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(listener->listener_register_filter.vlans_registers,
+                                                         FROM_BITS_TO_U64(SXD_MAX_VLAN_NUM + 1))) {
+                    seq_printf(m, "%s", "None");
+                } else {
+                    for (i = 0; i < SXD_MAX_VLAN_NUM + 1; i++) {
+                        if (SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.vlans_registers,
+                                                                   i)) {
+                            seq_printf(m, " %u|", i);
+                        }
+                    }
+                }
+
+                seq_printf(m, "%s", "\nLags Registers: ");
+                if (SX_DBG_DUMP_REGISTER_FILTER_IS_CLEAR(listener->listener_register_filter.lags_registers,
+                                                         FROM_BITS_TO_U64(MAX_LAG_NUM + 1))) {
+                    seq_printf(m, "%s", "None");
+                } else {
+                    for (i = 0; i < MAX_LAG_NUM + 1; i++) {
+                        if (SX_DBG_DUMP_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.lags_registers,
+                                                                   i)) {
+                            seq_printf(m, " %u|", i);
+                        }
+                    }
+                }
+                print_empty_line(m);
+                print_empty_line(m);
+                print_separate_line(m);
+            }
+        }
+    }
+
+    spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
+
+    print_empty_line(m);
+    return 0;
+}
+
+static int __host_ifc_stats_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    int             pkt_type, synd, rdq;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "host-ifc stats dump");
+
+    print_table_header(m, "%-30s   %-15s",
+                       "RX-type", "RX-packets");
+
+    for (pkt_type = 0; pkt_type < PKT_TYPE_NUM; pkt_type++) {
+        if (dev->stats.rx_by_pkt_type[0][pkt_type]) {
+            seq_printf(m, "%-30s   %-15llu\n",
+                       sx_cqe_packet_type_str[pkt_type],
+                       dev->stats.rx_by_pkt_type[0][pkt_type]);
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-30s   %-15s   %-15s",
+                       "TX-type", "TX-packets", "TX-bytes");
+
+    for (pkt_type = 0; pkt_type < PKT_TYPE_NUM; pkt_type++) {
+        if (dev->stats.tx_by_pkt_type[0][pkt_type]) {
+            seq_printf(m, "%-30s   %-15llu   %-15llu\n",
+                       ku_pkt_type_str[pkt_type],
+                       dev->stats.tx_by_pkt_type[0][pkt_type],
+                       dev->stats.tx_by_pkt_type_bytes[0][pkt_type]);
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-4s   %-15s   %-15s",
+                       "trap", "RX-packets", "RX-bytes");
+
+    for (synd = 0; synd < NUM_HW_SYNDROMES; synd++) {
+        if (dev->stats.rx_by_synd[0][synd]) {
+            seq_printf(m, "%-4d   %-15llu   %-15llu\n",
+                       synd,
+                       dev->stats.rx_by_synd[0][synd],
+                       dev->stats.rx_by_synd_bytes[0][synd]);
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-3s   %-15s   %-15s",
+                       "RDQ", "RX-packets", "RX-bytes");
+
+    for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
+        if (dev->stats.rx_by_rdq[0][rdq]) {
+            seq_printf(m, "%-3d   %-15llu   %-15llu\n",
+                       rdq,
+                       dev->stats.rx_by_rdq[0][rdq],
+                       dev->stats.rx_by_rdq_bytes[0][rdq]);
+        }
+    }
+
+    print_empty_line(m);
     return 0;
 }
 
 
-static int sx_dbg_unconsumed_pkt_dump_proc_show(struct seq_file *m, void *v)
+static int __unconsumed_pkt_dump(struct seq_file *m, void *v)
 {
     u16 synd = 0;
     u64 total_cnt = 0;
@@ -549,10 +777,9 @@ static int sx_dbg_unconsumed_pkt_dump_proc_show(struct seq_file *m, void *v)
 
     print_header(m, "Unconsumed packets");
 
-    seq_printf(m, "%-40s|%-8s| %s\n", "Trap Name",
-               "Trap ID", "Total Unconsumed packets");
-    seq_printf(m, "---------------------------------------"
-               "---------------------------------------\n");
+    print_table_header(m, "%-40s|%-8s| %s",
+                       "Trap Name", "Trap ID", "Total Unconsumed packets");
+
     for (synd = 0; synd < NUM_HW_SYNDROMES + 1; synd++) {
         total_cnt = 0;
         for (pkt_ind = 0; pkt_ind < PKT_TYPE_NUM; pkt_ind++) {
@@ -563,11 +790,12 @@ static int sx_dbg_unconsumed_pkt_dump_proc_show(struct seq_file *m, void *v)
         }
     }
 
+    print_empty_line(m);
     return 0;
 }
 
 
-static int sx_dbg_cq_dump_proc_show(struct seq_file *m, void *v)
+static int __cq_dump(struct seq_file *m, void *v)
 {
     u8                           cqn = 0;
     unsigned long                flags;
@@ -577,7 +805,8 @@ static int sx_dbg_cq_dump_proc_show(struct seq_file *m, void *v)
     struct sx_dev               *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
     struct cpu_traffic_priority *cpu_traffic_prio;
     struct sx_priv              *priv;
-    u32                          diff;
+    u32                          cons_index;
+    char                         diff[10];
 
     if (!dev) {
         return 0;
@@ -597,46 +826,31 @@ static int sx_dbg_cq_dump_proc_show(struct seq_file *m, void *v)
 
     print_header(m, "CQ dump");
 
-    seq_printf(m, "\n\n");
-
     if (atomic_read(&cpu_traffic_prio->high_prio_cq_in_load) == 1) {
         seq_printf(m, "*** CPU is under storm traffic! ***\n");
     }
 
-    seq_printf(m,
-               "%-14s | %-4s | %-8s | %-8s | %-5s | %-8s | %-6s | %-7s | %-10s | %-10s\n",
-               "CQ #",
-               "CPU ",
-               "cons_idx",
-               "diff",
-               "nent",
-               "cons_idx",
-               "refcnt",
-               "CQE    ",
-               "Last time  ",
-               "Last time  ");
+    if (priv->pause_cqn >= 0) {
+        seq_printf(m, "CQN %d is paused!\n", priv->pause_cqn);
+    }
 
-    seq_printf(m,
-               "%-14s | %-4s | %-8s | %-8s | %-5s | %-8s | %-6s | %-7s | %-10s | %-10s\n",
-               "    ",
-               "prio",
-               "        ",
-               "    ",
-               "    ",
-               "modulo  ",
-               "      ",
-               "version",
-               "armed (sec)",
-               "event (sec)");
-
-    seq_printf(m, "===================================================================="
-               "======================================\n");
+    print_table_header(m,
+                       "%-18s | %-4s | %-8s | %-8s | %-5s | %-8s | %-6s | %-7s | %-10s | %-11s",
+                       "CQ #",
+                       "prio",
+                       "cons_idx",
+                       "diff",
+                       "nent",
+                       "cons_mod",
+                       "refcnt",
+                       "CQE-ver",
+                       "arm (sec) ",
+                       "event (sec)");
 
     spin_lock_irqsave(&cq_table->lock, flags);
     for (cqn = 0; cqn < dev->dev_cap.max_num_cqs; cqn++) {
         if (cqn == NUMBER_OF_SDQS) {
-            seq_printf(m, "------------------------------------------------------------------"
-                       "--------------------------------------\n");
+            print_separate_line(m);
         }
 
         if (cq_table->cq[cqn] != NULL) {
@@ -646,17 +860,19 @@ static int sx_dbg_cq_dump_proc_show(struct seq_file *m, void *v)
             last_time_event = (priv->cq_last_time_event[cqn] != 0) ?
                               (jiffies_to_msecs(now - priv->cq_last_time_event[cqn]) / 1000) : 0;
 
-            if (cq_table->cq[cqn]->cons_index > cq_table->cq[cqn]->cons_index_snapshot) {
-                diff = cq_table->cq[cqn]->cons_index - cq_table->cq[cqn]->cons_index_snapshot;
+            cons_index = cq_table->cq[cqn]->cons_index;
+            if (cons_index >= cq_table->cq[cqn]->cons_index_snapshot) {
+                snprintf(diff, sizeof(diff), "%u", cons_index - cq_table->cq[cqn]->cons_index_snapshot);
             } else {
-                diff = 0xffffffff - cq_table->cq[cqn]->cons_index_snapshot + 1 + cq_table->cq[cqn]->cons_index;
+                snprintf(diff, sizeof(diff), "N/A");
             }
 
-            cq_table->cq[cqn]->cons_index_snapshot = cq_table->cq[cqn]->cons_index;
+            cq_table->cq[cqn]->cons_index_snapshot = cons_index;
 
-            seq_printf(m, "CQ %02u (%s %02u) | %-4s | %-8u | %-8u | %-5u | %-8u | %-6u | %-7u | %-10u | %-10u\n",
+            seq_printf(m, "CQ %02u (%s %02u) %3s | %-4s | %-8u | %-8s | %-5u | %-8u | %-6u | %-7u | %-10u | %-10u\n",
                        cqn, ((cqn < NUMBER_OF_SDQS) ? "SDQ" : "RDQ"),
                        ((cqn < NUMBER_OF_SDQS) ? cqn : cqn - NUMBER_OF_SDQS),
+                       (sx_bitmap_test(&priv->monitor_cq_bitmap, cqn) ? "[M]" : ""),
                        (sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, cqn) ? "high" : "low"),
                        cq_table->cq[cqn]->cons_index,
                        diff,
@@ -670,6 +886,7 @@ static int sx_dbg_cq_dump_proc_show(struct seq_file *m, void *v)
     }
     spin_unlock_irqrestore(&cq_table->lock, flags);
 
+    print_empty_line(m);
     return 0;
 }
 
@@ -692,105 +909,68 @@ static struct proc_info * __name_to_info(const char *name)
 }
 
 
-static int sx_dbg_ber_monitor_dump_proc_show(struct seq_file *m, void *v)
+static int __ber_monitor_dump(struct seq_file *m, void *v)
 {
-    u8             i = 0;
-    unsigned long  flags;
-    const char   * state_2_str[] = {"Disable", "Normal", "Warning", "Alarm"};
-    const char   * bitmask_2_str[] = {"Disable", "N", "W", "NW", "A", "AN", "AW", "ANW"};
-    struct sx_dev *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_dev *dev = sx_glb.tmp_dev_ptr;
 
-    if (!dev) {
-        return -ENODEV;
+    if (dev) {
+        sx_core_ber_monitor_dump(m, v);
     }
-
-    print_header(m, "BER monitor dump");
-
-    seq_printf(m, "%-11s| %-11s| %-11s\n",
-               "local_port", "bitmask", "state");
-    seq_printf(m, "-------------------------------------\n");
-    spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-
-    for (i = 0; i < MAX_PHYPORT_NUM + 1; i++) {
-        if (sx_priv(dev)->port_ber_monitor_bitmask[i] != 0) {
-            if ((sx_priv(dev)->port_ber_monitor_bitmask[i] < 8)
-                && (sx_priv(dev)->port_ber_monitor_state[i] < 4)) {
-                seq_printf(m, "%-11d| %-11s| %-11s\n",
-                           i,
-                           bitmask_2_str[sx_priv(dev)->port_ber_monitor_bitmask[i]],
-                           state_2_str[sx_priv(dev)->port_ber_monitor_state[i]]);
-            } else {
-                seq_printf(m, "%-11d| %-11d| %-11d\n",
-                           i,
-                           sx_priv(dev)->port_ber_monitor_bitmask[i],
-                           sx_priv(dev)->port_ber_monitor_state[i]);
-            }
-        }
-    }
-    spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
     return 0;
 }
 
 
-static int __sx_dbg_dump_proc_open(struct inode *inode, struct file *file)
-{
-    const char      * name = (const char*)PDE_DATA(inode);
-    struct proc_info *iter = __name_to_info(name);
-
-    if (!iter) {
-        printk(KERN_ERR "could not find proc file '%s' information\n", name);
-        return -ENOENT;
-    }
-
-    return single_open_size(file, iter->show_cb, NULL, iter->size_cb ? iter->size_cb() : SEQ_FILE_SIZE);
-}
-
-
-static int sx_dbg_tele_thrs_dump_proc_show(struct seq_file *m, void *v)
+static int __tele_thrs_dump(struct seq_file *m, void *v)
 {
     u8             i = 0;
     unsigned long  flags;
     struct sx_dev *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
 
     if (!dev) {
-        return -ENODEV;
+        return 0;
     }
 
     print_header(m, "TELE threshold dump");
 
-    seq_printf(m, "%-11s| %-11s| %s\n", "local_port", "state", "tc_vec");
-    seq_printf(m, "-------------------------------------\n");
+    print_table_header(m, "%-11s| %-11s| %s", "local_port", "state", "tc_pg_vec");
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
     for (i = 0; i < MAX_PHYPORT_NUM + 1; i++) {
-        if (sx_priv(dev)->tele_thrs_state[i]) {
-            seq_printf(m, "%-11u| %-11u| %llx\n",
+        if (sx_priv(dev)->tele_thrs_state[i][TELE_DIR_ING_EGRESS_E]) {
+            seq_printf(m, "%-11u| %-11u| [tc] %llx\n",
                        i,
-                       sx_priv(dev)->tele_thrs_state[i],
-                       sx_priv(dev)->tele_thrs_tc_vec[i]);
+                       sx_priv(dev)->tele_thrs_state[i][TELE_DIR_ING_EGRESS_E],
+                       sx_priv(dev)->tele_thrs_tc_vec[i][TELE_DIR_ING_EGRESS_E]);
+        }
+        if (sx_priv(dev)->tele_thrs_state[i][TELE_DIR_ING_INGRESS_E]) {
+            seq_printf(m, "%-11u| %-11u| [pg] %llx\n",
+                       i,
+                       sx_priv(dev)->tele_thrs_state[i][TELE_DIR_ING_INGRESS_E],
+                       sx_priv(dev)->tele_thrs_tc_vec[i][TELE_DIR_ING_INGRESS_E]);
         }
     }
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
+    print_empty_line(m);
     return 0;
 }
 
 
-void __sx_dbg_dump_monitor_rdq(struct seq_file *m, struct sx_dev *dev, int rdq_n)
+static void __monitor_rdq_dump_one(struct seq_file *m, struct sx_dev *dev, int rdq_n)
 {
     struct sx_priv     *priv = sx_priv(dev);
     struct sx_dq_table *rdq_table = &priv->rdq_table;
     struct sx_dq       *rdq;
 
     if (rdq_table == NULL) {
-        printk(KERN_INFO "rdq table is empty \n");
+        seq_printf(m, "rdq table is empty\n");
         return;
     }
 
     if (rdq_n > (dev->dev_cap.max_num_rdqs - 1)) {
-        printk(KERN_INFO "rdq_n %d is out of range [0..%d]\n",
-               rdq_n, dev->dev_cap.max_num_rdqs);
+        seq_printf(m, "rdq_n %d is out of range [0..%d]\n",
+                   rdq_n, dev->dev_cap.max_num_rdqs);
         return;
     }
 
@@ -813,7 +993,8 @@ void __sx_dbg_dump_monitor_rdq(struct seq_file *m, struct sx_dev *dev, int rdq_n
                rdq->cpu_tclass);
 }
 
-int sx_dbg_dump_monitor_rdq_show(struct seq_file *m, void *v)
+
+static int __monitor_rdq_dump(struct seq_file *m, void *v)
 {
     int                 rdq_n;
     struct sx_priv     *priv = NULL;
@@ -821,20 +1002,23 @@ int sx_dbg_dump_monitor_rdq_show(struct seq_file *m, void *v)
     struct sx_dev      *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
 
     if (!dev) {
-        return -ENODEV;
+        return 0;
     }
 
     priv = sx_priv(dev);
     rdq_table = &priv->rdq_table;
+    print_header(m, "Monitor RDQ dump");
 
     for (rdq_n = 0; rdq_n < dev->dev_cap.max_num_rdqs; rdq_n++) {
-        __sx_dbg_dump_monitor_rdq(m, dev, rdq_n);
+        __monitor_rdq_dump_one(m, dev, rdq_n);
     }
 
+    print_empty_line(m);
     return 0;
 }
 
-int sx_dbg_dump_fid_to_hwfid_show(struct seq_file *m, void *v)
+
+static int __fid_to_hwfid_dump(struct seq_file *m, void *v)
 {
     u16             i = 0;
     u16             fid = 0;
@@ -843,15 +1027,14 @@ int sx_dbg_dump_fid_to_hwfid_show(struct seq_file *m, void *v)
     unsigned long   flags;
 
     if (!dev) {
-        return -ENODEV;
+        return 0;
     }
 
     priv = sx_priv(dev);
 
     print_header(m, "FID to HW_FID mapping dump");
 
-    seq_printf(m, "%-7s| %-7s| %-7s\n", "#", "FID", "HW_FID");
-    seq_printf(m, "-----------------------\n");
+    print_table_header(m, "%-7s| %-7s| %-7s", "#", "FID", "HW_FID");
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
@@ -868,10 +1051,12 @@ int sx_dbg_dump_fid_to_hwfid_show(struct seq_file *m, void *v)
 
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
+    print_empty_line(m);
     return 0;
 }
 
-int sx_dbg_dump_rif_to_hwfid_show(struct seq_file *m, void *v)
+
+static int __rif_to_hwfid_dump(struct seq_file *m, void *v)
 {
     u16             i = 0;
     u16             rif_id = 0;
@@ -880,15 +1065,14 @@ int sx_dbg_dump_rif_to_hwfid_show(struct seq_file *m, void *v)
     unsigned long   flags;
 
     if (!dev) {
-        return -ENODEV;
+        return 0;
     }
 
     priv = sx_priv(dev);
 
     print_header(m, "RIF to HW_FID mapping dump");
 
-    seq_printf(m, "%-7s| %-7s| %-7s\n", "#", "RIF", "HW_FID");
-    seq_printf(m, "-----------------------\n");
+    print_table_header(m, "%-7s| %-7s| %-7s", "#", "RIF", "HW_FID");
 
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
@@ -905,8 +1089,817 @@ int sx_dbg_dump_rif_to_hwfid_show(struct seq_file *m, void *v)
 
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
+    print_empty_line(m);
     return 0;
 }
+
+
+static int __sdq_completion_dump(struct seq_file *m, void *v)
+{
+    u16             sdqn = 0;
+    struct sx_dq   *sdq = NULL;
+    struct sx_priv *priv = NULL;
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "SDQ completion dump");
+
+    print_table_header(m, "%-5s   %-15s   %-15s   %-15s   %-15s   %-15s",
+                       "SDQ", "Sent", "Removed", "Recv Comp", "Not Recv Comp", "Late Comp");
+
+    for (sdqn = 0; sdqn < dev->dev_cap.max_num_sdqs; sdqn++) {
+        sdq = priv->sdq_table.dq[sdqn];
+        if (sdq) {
+            seq_printf(m, "%-5u   %-15llu   %-15llu   %-15llu   %-15llu   %-15llu\n",
+                       sdqn,
+                       (u64)atomic64_read(&sdq->pkts_sent_to_sdq),
+                       (u64)atomic64_read(&sdq->pkts_removed_from_sdq),
+                       (u64)atomic64_read(&sdq->pkts_recv_completion),
+                       (u64)atomic64_read(&sdq->pkts_no_rev_completion),
+                       (u64)atomic64_read(&sdq->pkts_late_completion));
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+static int __rdq_to_filter_ebpf_prog_dump(struct seq_file *m, void *v)
+{
+    u16             i = 0;
+    u16             rdq = 0;
+    struct sx_priv *priv = NULL;
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    unsigned long   flags;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "RDQ to filter eBPF program mapping dump");
+
+    print_table_header(m, "%-7s| %-7s| %-20s", "#", "RDQ", "Filter eBPF program");
+
+    spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
+
+    i = 0;
+    for (rdq = 0; rdq < (NUMBER_OF_RDQS); rdq++) {
+        if (priv->filter_ebpf_progs[rdq] != NULL) {
+            i++;
+            seq_printf(m, "%-7u| %-7u| %-20p\n",
+                       i,
+                       rdq,
+                       priv->filter_ebpf_progs[rdq]);
+        }
+    }
+
+    spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+
+    print_empty_line(m);
+    return 0;
+}
+#endif
+
+
+static int __sys_to_local_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "system-port to local-port dump");
+
+    print_table_header(m, "%-7s   %-5s   %-4s",
+                       "system", "local", "PVID");
+
+    for (i = 0; i < MAX_SYSPORT_NUM; i++) {
+        if (priv->system_to_local_db[i] != 0) {
+            seq_printf(m, "0x%-5x   %-5d   %-4d\n",
+                       i, priv->system_to_local_db[i], priv->pvid_sysport_db[i]);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __local_to_sys_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "local-port to system-port dump");
+
+    print_table_header(m, "%-5s   %-7s   %-4s",
+                       "local", "system", "PVID");
+
+    for (i = 0; i < MAX_PHYPORT_NUM + 1; i++) {
+        if (priv->local_to_system_db[i] != 0) {
+            seq_printf(m, "%-5d   0x%-5x   %-4d\n",
+                       i, priv->local_to_system_db[i], priv->pvid_sysport_db[priv->local_to_system_db[i]]);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __lag_to_pvid_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "LAG to PVID dump");
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-6s   %-4s",
+                       "LAG ID", "PVID");
+
+    for (i = 0; i < lag_max; i++) {
+        if (priv->pvid_lag_db[i] != 0) {
+            seq_printf(m, "%-6d   %-4d\n",
+                       i, priv->pvid_lag_db[i]);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __lag_member_to_local_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0;
+    u8              is_printed;
+    int             i, j;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "LAG member to local dump");
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-6s   %-10s   %-5s",
+                       "LAG ID", "LAG-member", "local");
+
+    for (i = 0; i < lag_max; i++) { /* lag id */
+        is_printed = 0;
+
+        for (j = 0; j < lag_member_max; j++) { /* lag member id */
+            if (priv->lag_member_to_local_db[i][j] != 0) {
+                if (!is_printed) {
+                    seq_printf(m, "%-6d   %-10d   %-5d\n",
+                               i, j, priv->lag_member_to_local_db[i][j]);
+                } else {
+                    seq_printf(m, "%-6s   %-10d   %-5d\n",
+                               "", j, priv->lag_member_to_local_db[i][j]);
+                    is_printed = 1;
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __router_port_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0, phy_port_max = 0;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "router port dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    for (i = 0; i < phy_port_max; i++) { /* system port */
+        if (priv->local_is_rp[i] != 0) {
+            seq_printf(m, "local: %d\n", i);
+        }
+    }
+
+    print_empty_line(m);
+
+    for (i = 0; i < lag_max; i++) { /* LAG ID */
+        if (priv->lag_is_rp[i] != 0) {
+            seq_printf(m, "LAG: %d\n", i);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __local_to_swid_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        phy_port_max = 0;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "local to swid dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-5s   %-4s",
+                       "local", "swid");
+
+    for (i = 0; i < (phy_port_max + 1); i++) { /* system port */
+        seq_printf(m, "%-5d   %-4d\n",
+                   i, priv->local_to_swid_db[i]);
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __truncate_size_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "truncate size dump");
+
+    print_table_header(m, "%-3s   %-13s",
+                       "RDQ", "truncate-size");
+
+    for (i = 0; i < NUMBER_OF_RDQS; i++) { /* rdq */
+        if (priv->truncate_size_db[i] != 0) {
+            seq_printf(m, "%-3d   %-13d\n",
+                       i, priv->truncate_size_db[i]);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __trap_filter_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    u8              printed;
+    int             i, j;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "trap filter dump");
+
+    print_table_header(m, "%-40s   %-7s   %-7s",
+                       "trap-name", "trap-id", "sysport");
+
+    for (i = 0; i < NUM_HW_SYNDROMES; i++) { /* trap id */
+        printed = 0;
+
+        for (j = 0; j < MAX_SYSTEM_PORTS_IN_FILTER; j++) { /* system port */
+            if (priv->sysport_filter_db[i][j] != 0) {
+                if (!printed) {
+                    seq_printf(m, "%-40s   %-7d   0x%-5x\n",
+                               trap_id_str(i),
+                               i,
+                               priv->sysport_filter_db[i][j]);
+                    printed = 1;
+                } else {
+                    seq_printf(m, "%-40s   %-7s   0x%-5x\n",
+                               "",
+                               "",
+                               priv->sysport_filter_db[i][j]);
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-40s   %-7s   %-6s",
+                       "trap-name", "trap-id", "LAG ID");
+
+    for (i = 0; i < NUM_HW_SYNDROMES; i++) { /* trap id */
+        printed = 0;
+
+        for (j = 0; j < MAX_LAG_PORTS_IN_FILTER; j++) { /* system port */
+            if (priv->lag_filter_db[i][j] != LAG_ID_INVALID) {
+                if (!printed) {
+                    seq_printf(m, "%-40s   %-7d   %-6d\n",
+                               trap_id_str(i),
+                               i,
+                               priv->lag_filter_db[i][j]);
+                    printed = 1;
+                } else {
+                    seq_printf(m, "%-40s   %-7s   %-6d\n",
+                               "",
+                               "",
+                               priv->lag_filter_db[i][j]);
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __prio_to_tc_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0, phy_port_max = 0;
+    int             i, j;
+    u8              is_printed;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "prio to tc dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-7s   %-4s   %-2s",
+                       "sysport", "prio", "tc");
+
+    for (i = 0; i < (phy_port_max + 1); i++) { /* system port */
+        is_printed = 0;
+
+        for (j = 0; j < (MAX_PRIO_NUM + 1); j++) { /* prio */
+            if (priv->port_prio2tc[i][j]) {
+                if (!is_printed) {
+                    seq_printf(m, "0x%-5x   %-4d   %-2d\n",
+                               i,
+                               j,
+                               priv->port_prio2tc[i][j]);
+                    is_printed = 1;
+                } else {
+                    seq_printf(m, "%-7s   %-4d   %-2d\n",
+                               "",
+                               j,
+                               priv->port_prio2tc[i][j]);
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-6s   %-4s   %-2s",
+                       "LAG ID", "prio", "tc");
+
+    for (i = 0; i < (lag_max + 1); i++) { /* LAG ID */
+        is_printed = 0;
+
+        for (j = 0; j < (MAX_PRIO_NUM + 1); j++) { /* prio */
+            if (priv->lag_prio2tc[i][j]) {
+                if (!is_printed) {
+                    seq_printf(m, "%-6d   %-4d   %-2d\n",
+                               i,
+                               j,
+                               priv->lag_prio2tc[i][j]);
+                    is_printed = 1;
+                } else {
+                    seq_printf(m, "%-6s   %-4d   %-2d\n",
+                               "",
+                               j,
+                               priv->lag_prio2tc[i][j]);
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __vtag_mode_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0, phy_port_max = 0;
+    int             i, j;
+    u8              is_printed;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "vtag mode dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-7s   %-4s",
+                       "sysport", "vlan");
+
+    for (i = 0; i < (phy_port_max + 1); i++) { /* system port */
+        is_printed = 0;
+
+        for (j = 0; j < SXD_MAX_VLAN_NUM; j++) { /* vlan */
+            if (priv->port_vtag_mode[i][j]) {
+                if (!is_printed) {
+                    seq_printf(m, "0x%-5x   %-4d\n",
+                               i,
+                               j);
+                    is_printed = 1;
+                } else {
+                    seq_printf(m, "%-7s   %-4d\n",
+                               "",
+                               j);
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-6s   %-4s",
+                       "LAG ID", "vlan");
+
+    for (i = 0; i < (lag_max + 1); i++) { /* LAG ID */
+        is_printed = 0;
+
+        for (j = 0; j < SXD_MAX_VLAN_NUM; j++) { /* vlan */
+            if (priv->lag_vtag_mode[i][j]) {
+                if (!is_printed) {
+                    seq_printf(m, "%-6d   %-4d\n",
+                               i,
+                               j);
+                    is_printed = 1;
+                } else {
+                    seq_printf(m, "%-6s   %-4d\n",
+                               "",
+                               j);
+                }
+            }
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __prio_tag_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0, phy_port_max = 0;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "prio tag dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-7s",
+                       "sysport");
+
+    for (i = 0; i < (phy_port_max + 1); i++) { /* system port */
+        if (priv->port_prio_tagging_mode[i]) {
+            seq_printf(m, "0x%-5x\n", i);
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-6s",
+                       "LAG ID");
+
+    for (i = 0; i < (lag_max + 1); i++) { /* LAG ID */
+        if (priv->lag_prio_tagging_mode[i]) {
+            seq_printf(m, "%-6d\n", i);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __vid_to_ip_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "vid to ip dump");
+
+    print_table_header(m, "%-4s   %-10s",
+                       "vlan", "ip");
+
+    for (i = 0; i < (SXD_MAX_VLAN_NUM - 1); i++) { /* vlan */
+        if (priv->icmp_vlan2ip_db[i]) {
+            seq_printf(m, "%-4d   0x%08x\n",
+                       i, priv->icmp_vlan2ip_db[i]);
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __vport_rif_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0, phy_port_max = 0;
+    int             i, j;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "vport rif dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-5s   %-4s   %-5s",
+                       "local", "vlan", "rif");
+
+    for (i = 0; i < (phy_port_max + 1); i++) {
+        for (j = 0; j < SXD_MAX_VLAN_NUM; j++) {
+            if (priv->port_rp_rif_valid[i][j]) {
+                seq_printf(m, "%-5d   %-4d   %-5u\n",
+                           i, j, priv->port_rp_rif[i][j]);
+            }
+        }
+    }
+
+    print_empty_line(m);
+
+    print_table_header(m, "%-6s   %-4s   %-5s",
+                       "LAG ID", "vlan", "rif");
+
+    for (i = 0; i < lag_max; i++) {
+        for (j = 0; j < SXD_MAX_VLAN_NUM; j++) {
+            if (priv->lag_rp_rif_valid[i][j]) {
+                seq_printf(m, "%-6d   %-4d   %-5u\n",
+                           i, j, priv->lag_rp_rif[i][j]);
+            }
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __vid_to_fid_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        phy_port_max = 0;
+    int             i, j;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "vid to fid dump");
+
+    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
+        seq_printf(m, "failed to get max number of PHY ports.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-5s   %-4s   %-5s",
+                       "local", "vlan", "fid");
+
+    for (i = 0; i < phy_port_max; i++) {
+        for (j = 0; j < SXD_MAX_VLAN_NUM; j++) {
+            if (priv->port_vid_to_fid[i][j]) {
+                seq_printf(m, "%-5d   %-4d    %-5u\n",
+                           i, j, priv->port_vid_to_fid[i][j]);
+            }
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __lag_oper_state_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+    uint16_t        lag_max = 0, lag_member_max = 0;
+    int             i;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "LAG oper state dump");
+
+    if (sx_core_get_lag_max(dev, &lag_max, &lag_member_max)) {
+        seq_printf(m, "failed to get max number of LAGs.\n");
+        return 0;
+    }
+
+    print_table_header(m, "%-6s   %-10s",
+                       "LAG ID", "oper-state");
+
+    for (i = 0; i < lag_max; i++) { /* lag id */
+        if (priv->lag_oper_state[i]) {
+            seq_printf(m, "%-6d   %-10s\n",
+                       i, "up");
+        } else {
+            seq_printf(m, "%-6d   %-10s\n",
+                       i, "down");
+        }
+    }
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+static int __fw_and_board_info_dump(struct seq_file *m, void *v)
+{
+    struct sx_dev  *dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    struct sx_priv *priv;
+
+    if (!dev) {
+        return 0;
+    }
+
+    priv = sx_priv(dev);
+
+    print_header(m, "FW and BoardInfo dump");
+
+    seq_printf(m, "PSID              : %s\n", dev->board_id);
+    seq_printf(m, "FW release version: %d.%d.%04d\n",
+               (int)(priv->fw.fw_ver >> 32),
+               (int)((priv->fw.fw_ver >> 16) & 0xffff),
+               (int)(priv->fw.fw_ver & 0xffff));
+    seq_printf(m, "FW release date   : %02x/%02x/%04x %02x:%02x\n",
+               priv->fw.fw_day,
+               priv->fw.fw_month,
+               priv->fw.fw_year,
+               priv->fw.fw_hour,
+               priv->fw.fw_minutes);
+
+    print_empty_line(m);
+    return 0;
+}
+
+
+/* ******************************************************************************* */
+/* PROC DUMP INFRA FUNCTIONS                                                       */
+/* ******************************************************************************* */
+
+static int __sx_dbg_dump_proc_open(struct inode *inode, struct file *file)
+{
+    const char      * name = (const char*)PDE_DATA(inode);
+    struct proc_info *iter = __name_to_info(name);
+
+    if (!iter) {
+        printk(KERN_ERR "could not find proc file '%s' information\n", name);
+        return -ENOENT;
+    }
+
+    return single_open_size(file, iter->show_cb, NULL, iter->size_cb ? iter->size_cb() : SEQ_FILE_SIZE);
+}
+
 
 int sx_dbg_dump_proc_fs_register(const char *name, dbg_dump_proc_show_cb_t show_cb, dbg_dump_proc_size_cb_t size_cb)
 {
@@ -985,8 +1978,10 @@ error:
     goto out;
 }
 
-int sx_dbg_ptp_dump_proc_show(struct seq_file *m, void *v);
 
+int sx_dbg_ptp_dump_proc_show(struct seq_file *m, void *v);
+int sx_dbg_clock_dump_proc_show(struct seq_file *m, void *v);
+int sx_dbg_clock_and_ptp_log_dump_proc_show(struct seq_file *m, void *v);
 
 void __sx_dbg_dump_proc_fs_unregister(struct proc_info *proc_info)
 {
@@ -1035,15 +2030,40 @@ int __init sx_dbg_dump_proc_fs_init(void)
 
     sx_dbg_dump_proc_registered = 1;
 
-    sx_dbg_dump_proc_fs_register("trap_reg_dump", sx_dbg_trap_reg_dump_proc_show, NULL);
-    sx_dbg_dump_proc_fs_register("unconsumed_pkt_dump", sx_dbg_unconsumed_pkt_dump_proc_show, NULL);
-    sx_dbg_dump_proc_fs_register("cq_dump", sx_dbg_cq_dump_proc_show, NULL);
-    sx_dbg_dump_proc_fs_register("ber_monitor_dump", sx_dbg_ber_monitor_dump_proc_show, NULL);
-    sx_dbg_dump_proc_fs_register("tele_thrs_dump", sx_dbg_tele_thrs_dump_proc_show, NULL);
+    sx_dbg_dump_proc_fs_register("trap_reg_dump", __trap_reg_dump, NULL);
+    sx_dbg_dump_proc_fs_register("trap_filter_register_dump", __trap_filter_register_dump, NULL);
+    sx_dbg_dump_proc_fs_register("host_ifc_stats_dump", __host_ifc_stats_dump, NULL);
+    sx_dbg_dump_proc_fs_register("unconsumed_pkt_dump", __unconsumed_pkt_dump, NULL);
+    sx_dbg_dump_proc_fs_register("cq_dump", __cq_dump, NULL);
+    sx_dbg_dump_proc_fs_register("ber_monitor_dump", __ber_monitor_dump, NULL);
+    sx_dbg_dump_proc_fs_register("tele_thrs_dump", __tele_thrs_dump, NULL);
     sx_dbg_dump_proc_fs_register("ptp_dump", sx_dbg_ptp_dump_proc_show, NULL);
-    sx_dbg_dump_proc_fs_register("monitor_rdq_dump", sx_dbg_dump_monitor_rdq_show, NULL);
-    sx_dbg_dump_proc_fs_register("fid_to_hwfid_dump", sx_dbg_dump_fid_to_hwfid_show, NULL);
-    sx_dbg_dump_proc_fs_register("rif_to_hwfid_dump", sx_dbg_dump_rif_to_hwfid_show, NULL);
+    sx_dbg_dump_proc_fs_register("clock_dump", sx_dbg_clock_dump_proc_show, NULL);
+    sx_dbg_dump_proc_fs_register("clock_and_ptp_log_dump", sx_dbg_clock_and_ptp_log_dump_proc_show, NULL);
+    sx_dbg_dump_proc_fs_register("monitor_rdq_dump", __monitor_rdq_dump, NULL);
+    sx_dbg_dump_proc_fs_register("fid_to_hwfid_dump", __fid_to_hwfid_dump, NULL);
+    sx_dbg_dump_proc_fs_register("rif_to_hwfid_dump", __rif_to_hwfid_dump, NULL);
+    sx_dbg_dump_proc_fs_register("sdq_completion_dump", __sdq_completion_dump, NULL);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    sx_dbg_dump_proc_fs_register("rdq_to_filter_ebpf_prog_dump", __rdq_to_filter_ebpf_prog_dump, NULL);
+#endif
+    sx_dbg_dump_proc_fs_register("sys_to_local_dump", __sys_to_local_dump, NULL);
+    sx_dbg_dump_proc_fs_register("local_to_sys_dump", __local_to_sys_dump, NULL);
+    sx_dbg_dump_proc_fs_register("lag_to_pvid_dump", __lag_to_pvid_dump, NULL);
+    sx_dbg_dump_proc_fs_register("lag_member_to_local_dump", __lag_member_to_local_dump, NULL);
+    sx_dbg_dump_proc_fs_register("router_port_dump", __router_port_dump, NULL);
+    sx_dbg_dump_proc_fs_register("local_to_swid_dump", __local_to_swid_dump, NULL);
+    sx_dbg_dump_proc_fs_register("truncate_size_dump", __truncate_size_dump, NULL);
+    sx_dbg_dump_proc_fs_register("trap_filter_dump", __trap_filter_dump, NULL);
+    sx_dbg_dump_proc_fs_register("prio_to_tc_dump", __prio_to_tc_dump, NULL);
+    sx_dbg_dump_proc_fs_register("vtag_mode_dump", __vtag_mode_dump, NULL);
+    sx_dbg_dump_proc_fs_register("prio_tag_dump", __prio_tag_dump, NULL);
+    sx_dbg_dump_proc_fs_register("vid_to_ip_dump", __vid_to_ip_dump, NULL);
+    sx_dbg_dump_proc_fs_register("vport_rif_dump", __vport_rif_dump, NULL);
+    sx_dbg_dump_proc_fs_register("vid_to_fid_dump", __vid_to_fid_dump, NULL);
+    sx_dbg_dump_proc_fs_register("lag_oper_state_dump", __lag_oper_state_dump, NULL);
+    sx_dbg_dump_proc_fs_register("fw_and_board_info_dump", __fw_and_board_info_dump, NULL);
+    sx_dbg_dump_proc_fs_register("mmap_dump", sx_mmap_dump, NULL);
 
     sx_core_counters_init();
 
