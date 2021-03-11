@@ -1033,6 +1033,7 @@ static void get_specific_data_version_1(enum ku_pkt_type          type,
                                         u8                        rx_is_router,
                                         u8                        fid_valid,
                                         u16                       fid,
+                                        u8                        rx_is_tunnel,
                                         struct isx_specific_data *data)
 {
     switch (type) {
@@ -1057,6 +1058,7 @@ static void get_specific_data_version_1(enum ku_pkt_type          type,
         data->rx_is_router = rx_is_router;
         data->fid_valid = fid_valid;
         data->fid = fid;
+        data->rx_is_tunnel = rx_is_tunnel;
         break;
 
     case SX_PKT_TYPE_DROUTE_EMAD_CTL:
@@ -1141,7 +1143,8 @@ int sx_get_sdq(struct isx_meta *meta,
                u8               etclass,
                u8              *stclass,
                u8              *sdq,
-               u8              *max_cpu_etclass_for_unlimited_mtu)
+               u8              *max_cpu_etclass_for_unlimited_mtu,
+               u16             *cap_max_mtu_p)
 {
     u8  hw_etclass = 0;
     int ret = 0;
@@ -1170,14 +1173,24 @@ int sx_get_sdq(struct isx_meta *meta,
         *max_cpu_etclass_for_unlimited_mtu = 1; /* default */
     }
 
+    if (sx_priv(dev)->dev_specific_cb.cap_max_mtu_get_cb != NULL) {
+        *cap_max_mtu_p = sx_priv(dev)->dev_specific_cb.cap_max_mtu_get_cb();
+    } else {
+        PRINTK_ERR("Error retrieving cap_max_mtu_get_cb callback structure!\n");
+        ret = -EINVAL;
+        goto out;
+    }
+
     if (sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb != NULL) {
         sx_priv(dev)->dev_specific_cb.sx_get_sdq_cb(dev, type, swid,
                                                     etclass, stclass, sdq);
     } else {
         PRINTK_ERR("Error retrieving sx_get_sdq_cb callback structure!\n");
         ret = -EINVAL;
+        goto out;
     }
 
+out:
     __sx_core_dev_specific_cb_release_reference(dev);
 
     return ret;
@@ -1343,7 +1356,7 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
     memset(&specific_meta, 0, sizeof(specific_meta));
     get_specific_data_version_1(meta->type, meta->to_cpu,
                                 meta->etclass, meta->lp, meta->rx_is_router,
-                                meta->fid_valid, meta->fid, &specific_meta);
+                                meta->fid_valid, meta->fid, meta->rx_is_tunnel, &specific_meta);
 
     p_hdr->version_ctl |=
         TO_FIELD(TX_HDR_VER_MASK_V1,
@@ -1353,17 +1366,22 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
         TO_FIELD(TX_HDR_CTL_MASK,
                  TX_HDR_CTL_SHIFT, specific_meta.ctl);
 
-    p_hdr->protocol_rx_is_router_fid_valid |=
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
         TO_FIELD(TX_HDR_PROTOCOL_MASK,
                  TX_HDR_PROTOCOL_SHIFT,
                  specific_meta.protocol);
 
-    p_hdr->protocol_rx_is_router_fid_valid |=
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
         TO_FIELD(TX_HDR_RX_IS_ROUTER_MASK_V1,
                  TX_HDR_RX_IS_ROUTER_SHIFT_V1,
                  specific_meta.rx_is_router);
 
-    p_hdr->protocol_rx_is_router_fid_valid |=
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
+        TO_FIELD(TX_HDR_RX_IS_TUNNEL_MASK_V1,
+                 TX_HDR_RX_IS_TUNNEL_SHIFT_V1,
+                 specific_meta.rx_is_tunnel);
+
+    p_hdr->protocol_rx_is_router_rx_is_tunnel_fid_valid |=
         TO_FIELD(TX_HDR_FID_VALID_MASK_V1,
                  TX_HDR_FID_VALID_SHIFT_V1,
                  specific_meta.fid_valid);
@@ -1404,11 +1422,12 @@ int sx_build_isx_header_v1(struct isx_meta *meta, struct sk_buff *skb, u8 stclas
                "specific_meta.version: %d , swid: %d , sysport:0x%x, specific_meta.ctl: %d,"
                "specific_meta.protocol: %d, specific_meta.rx_is_router:%d, type: %d, "
                "specific_meta.fid_valid: %d,  specific_meta.use_control_tclass: %d, specific_meta.etclass :%d,"
-               "specific_meta.fid: %d\n",
+               "specific_meta.fid: %d, specific_meta.rx_is_tunnel: %d\n",
                specific_meta.version, meta->swid,
                meta->system_port_mid,
                specific_meta.ctl, specific_meta.protocol, specific_meta.rx_is_router, specific_meta.type,
-               specific_meta.fid_valid, specific_meta.use_control_tclass, specific_meta.etclass, specific_meta.fid);
+               specific_meta.fid_valid, specific_meta.use_control_tclass, specific_meta.etclass, specific_meta.fid,
+               specific_meta.rx_is_tunnel);
     }
 
     return 0;
@@ -1570,7 +1589,7 @@ int sx_dpt_get_cmd_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
     if (sx_glb.sx_dpt.dpt_info[sx_dev_id].cmd_path == DPT_PATH_PCI_E) {
         if (sx_glb.sx_dpt.dpt_info[sx_dev_id].is_ifc_valid[DPT_PATH_PCI_E] == true) {
             *dev = (struct sx_dev *)sx_glb.sx_dpt.dpt_info[sx_dev_id].sx_pcie_info.sx_dev;
-            if (!dev) {
+            if (!*dev) {
                 PRINTK_ERR("PCIE path is configured but there is no PCI device\n");
                 ret = -ENODEV;
             }
@@ -1581,7 +1600,7 @@ int sx_dpt_get_cmd_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev)
         }
     } else {
         *dev = sx_glb.tmp_dev_ptr;
-        if (!dev) {
+        if (!*dev) {
             PRINTK_ERR("There is no device attached\n");
             ret = -ENODEV;
         }
@@ -1643,9 +1662,6 @@ int sx_dpt_i2c_writel(int dev_id, u32 reg, u32 value)
         return -EINVAL;
     }
 
-    printk(KERN_INFO "sx_dpt_i2c_writel for dev_id: %d succeeded "
-           "after %d tries!\n", dev_id, i);
-
     EXIT_FUNC();
     return err;
 }
@@ -1679,9 +1695,6 @@ int sx_dpt_i2c_write_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf
                "failed after %d tries! err: %d\n", dev_id, i2c_offset, i, err);
         return -EINVAL;
     }
-
-    printk(KERN_INFO "sx_dpt_i2c_write_buf for dev_id: %d "
-           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -1717,9 +1730,6 @@ int sx_dpt_i2c_read_buf(int dev_id, unsigned int i2c_offset, unsigned char *buf,
                    "after %d tries! err: %d \n", dev_id, i, err);
         return -EINVAL;
     }
-
-    printk(KERN_INFO "sx_dpt_i2c_read_buf for dev_id: %d "
-           "succeeded after %d tries!\n", dev_id, i);
 
     EXIT_FUNC();
     return err;
@@ -2000,7 +2010,8 @@ int sx_dpt_cr_space_read(int dev_id, unsigned int address, unsigned char *buf, i
     case DPT_PATH_SGMII:
         err = sgmii_send_cr_space_read(dev_id, address, buf, size);
         if (err) {
-            printk(KERN_ERR "failed to send CR-Space read-request over SGMII (err=%d)\n", err);
+            printk(KERN_ERR "failed to send CR-Space read-request device:[%d], address:[0x%x] over SGMII (err=%d)\n",
+                   dev_id, address, err);
             goto out;
         }
 
@@ -2079,7 +2090,8 @@ int sx_dpt_cr_space_write(int dev_id, unsigned int address, unsigned char *buf, 
     case DPT_PATH_SGMII:
         err = sgmii_send_cr_space_write(dev_id, address, buf, size);
         if (err) {
-            printk(KERN_ERR "failed to send CR-Space write-request over SGMII (err=%d)\n", err);
+            printk(KERN_ERR "failed to send CR-Space write-request device:[%d], address:[0x%x] over SGMII (err=%d)\n",
+                   dev_id, address, err);
             goto out;
         }
 
@@ -2152,32 +2164,23 @@ static int __cr_pcie_access(int              dev_id,
 
     pcie_dev = (struct sx_dev*)pcie_info->sx_dev;
 
-    pci_addr_start = pci_resource_start(pcie_dev->pdev, 0);
-    pci_addr_end = pci_resource_end(pcie_dev->pdev, 0);
 
-    if ((pci_addr_start + address) > pci_addr_end) {
+    /* address is offset in cr_space, so need to validate the boundaries */
+    if (address > pcie_dev->cr_space_size) {
         err = -EINVAL;
         sx_err(pcie_dev, "__cr_pcie_access: Couldn't access address %u, exceeds PCI device size %lu, aborting.\n",
                address, (pci_addr_end - pci_addr_start));
         goto out;
     }
 
-    pci_addr_start += address;
-
-    if ((unsigned long)size > (pci_addr_end - pci_addr_start)) {
+    if ((address + (unsigned long)size) > pcie_dev->cr_space_size) {
         err = -EINVAL;
-        sx_err(pcie_dev, "__cr_pcie_access: Block size %d exceeds CR sapce size %lu, aborting.\n",
-               size, (pci_addr_end - pci_addr_start));
+        sx_err(pcie_dev, "__cr_pcie_access: Block at addr %d with size %d exceeds CR space size %d, aborting.\n",
+               address, size, pcie_dev->cr_space_size);
         goto out;
     }
 
-    cr_addr = ioremap(pci_addr_start, size);
-    if (!cr_addr) {
-        err = -ENOMEM;
-        sx_err(pcie_dev, "__cr_pcie_access: Couldn't map CR access register, aborting.\n");
-        goto out;
-    }
-
+    cr_addr = pcie_dev->cr_space_start + address;
 
     switch (access_method) {
     case CR_ACCESS_METHOD_READ:
@@ -2194,6 +2197,7 @@ static int __cr_pcie_access(int              dev_id,
         }
         break;
 
+    /* coverity[dead_error_begin] */
     default:
         printk(KERN_ERR PFX "__cr_pcie_access: Can't access CR space "
                "of device %u because access method %d is invalid\n", dev_id, access_method);
@@ -2205,8 +2209,6 @@ out:
     if (locked) {
         spin_unlock(&sx_glb.pci_devs_lock);
     }
-    if (cr_addr) {
-        iounmap(cr_addr);
-    }
+
     return err;
 }

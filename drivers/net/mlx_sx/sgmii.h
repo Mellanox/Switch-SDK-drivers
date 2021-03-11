@@ -79,6 +79,7 @@ int sgmii_send_mad(int                    dev_id,
 int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
                                 int            dev_id,
                                 u32            in_modifier,
+                                u8             op_modifier,
                                 void          *in_mad,
                                 int            in_size,
                                 void          *out_mad,
@@ -103,6 +104,7 @@ int sgmii_send_cr_space_write(int      dev_id,
 /* *************************************************************************************** */
 
 int sgmii_emad_access_spzr(int dev_id, const struct ku_spzr_reg *reg_spzr);
+int sgmii_emad_access_ppbmc(int dev_id, u8 method, struct ku_ppbmc_reg *reg_ppbmc);
 
 /* *************************************************************************************** */
 /* Misc functions                                                                          */

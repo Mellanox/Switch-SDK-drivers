@@ -53,6 +53,7 @@ extern int      cpu_traffic_tasklet_reschedule_enable;
 extern atomic_t cq_backup_polling_enabled;
 extern int      handle_monitor_rdq_in_timer;
 static void sx_intr_tasklet_handler(unsigned long data);
+extern int enable_cpu_port_loopback;
 
 /************************************************
  * Functions                                    *
@@ -99,6 +100,12 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
 
     getnstimeofday(&timestamp);
 
+    /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if (priv->pause_cqn >= 0 && !priv->pause_cqn_completed && sx_is_cq_idle(dev, priv->pause_cqn)) {
+        complete(&priv->pause_cqn_completion);
+        priv->pause_cqn_completed = 1;
+    }
+
     /* In Pelican it's possible that we get an interrupt
      * before the EQe is written. So we will ignore it and
      * just update the ci, so another interrupt will happen
@@ -127,11 +134,22 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
                 break; /* SHOULD NEVER HAPPEN */
             }
 
+            /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
+            if (eqe->cqn == priv->pause_cqn) {
+                break;
+            }
+
             if (handle_monitor_rdq_in_timer &&
-                sx_bitmap_test(&priv->active_monitor_cq_bitmap, eqe->cqn)) {
+                sx_bitmap_test(&priv->monitor_cq_bitmap, eqe->cqn)) {
+                if (sx_bitmap_test(&priv->active_monitor_cq_bitmap, eqe->cqn)) {
+                    break; /* This CQ's bit is already set */
+                }
+
+                sx_bitmap_set(&priv->active_monitor_cq_bitmap, eqe->cqn);
                 active_wjh_bitmap_changes = 1;
-            } else if (!cpu_traffic_priority_active ||
-                       sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, eqe->cqn)) {
+            } else if (!enable_cpu_port_loopback &&    /* in case loopback enabled move all traffic to be handled by kernel thread */
+                       (!cpu_traffic_priority_active ||
+                        sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, eqe->cqn))) {
                 if (sx_bitmap_test(&cpu_traffic_prio->active_high_prio_cq_bitmap, eqe->cqn)) {
                     break; /* This CQ's bit is already set */
                 }

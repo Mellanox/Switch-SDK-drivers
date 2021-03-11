@@ -1,0 +1,13 @@
+diff --git a/drivers/net/sx_netdev/sx_netdev_main.c b/drivers/net/sx_netdev/sx_netdev_main.c
+index c650e79..5fdd26b 100644
+--- a/drivers/net/sx_netdev/sx_netdev_main.c
++++ b/drivers/net/sx_netdev/sx_netdev_main.c
+@@ -1106,7 +1106,7 @@ static int sx_netdev_hard_start_xmit(struct sk_buff *skb, struct net_device *net
+     if (sx_netdev_tx_debug) {
+         printk(KERN_DEBUG PFX "%s called for (%s)\n", __func__, netdev->name);
+     }
+-    netdev->trans_start = jiffies; /* save the timestamp */
++    netif_trans_update(netdev); /* save the timestamp */
+ 
+     memset(&meta, 0, sizeof(meta));
+     meta.dev_id = net_priv->dev->device_id;

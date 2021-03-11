@@ -1,0 +1,12 @@
+diff --git a/drivers/net/sx_netdev/sx_netdev_rtnetlink.c b/drivers/net/sx_netdev/sx_netdev_rtnetlink.c
+index 6564ee9f09..80b0497ecd 100644
+--- a/drivers/net/sx_netdev/sx_netdev_rtnetlink.c
++++ b/drivers/net/sx_netdev/sx_netdev_rtnetlink.c
+@@ -66,6 +66,7 @@ static void sx_netdev_setup(struct net_device *dev)
+     memset(net_priv, 0, sizeof(*net_priv));
+     ether_setup(dev);
+     dev->hard_header_len = ETH_HLEN + ISX_HDR_SIZE;
++    dev->needs_free_netdev = true;
+     net_priv->netdev = dev;
+     INIT_DELAYED_WORK(&net_priv->pude_dwork, sx_netdev_dwork_func);
+ }

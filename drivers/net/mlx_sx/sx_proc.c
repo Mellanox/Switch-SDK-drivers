@@ -108,7 +108,7 @@ extern unsigned int       credit_thread_vals[100];
 extern unsigned long long arr_count;
 extern atomic_t           cq_backup_polling_enabled;
 extern int                debug_cq_backup_poll_cqn;
-static const char        *ku_pkt_type_str[] = {
+const char               *ku_pkt_type_str[] = {
     "SX_PKT_TYPE_ETH_CTL_UC", /**< Eth control unicast */
     "SX_PKT_TYPE_ETH_CTL_MC", /**< Eth control multicast */
     "SX_PKT_TYPE_ETH_DATA", /**< Eth data */
@@ -249,8 +249,11 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
             goto print_err;
         }
 
-        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %s\n",
-                  reg_data.mgir_reg.fw_info.psid);
+        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %d%d%d%d\n",
+                  reg_data.mgir_reg.fw_info.psid[0],
+                  reg_data.mgir_reg.fw_info.psid[1],
+                  reg_data.mgir_reg.fw_info.psid[2],
+                  reg_data.mgir_reg.fw_info.psid[3]);
         break;
     }
 
@@ -873,12 +876,22 @@ void __query_cq(struct sx_dev *my_dev, char *running)
 
 void __query_board_info(struct sx_dev *my_dev, char *running)
 {
-    struct sx_board board;
+    int                        i;
+    struct ku_query_board_info board;
 
     memset(&board, 0, sizeof(board));
     PROC_DUMP("Executing QUERY_BOARDINFO Command\n");
     sx_QUERY_BOARDINFO(my_dev, &board);
     PROC_DUMP("Finished Executing QUERY_BOARDINFO Command:\n");
+    PROC_DUMP("xm_exists = %d\n", board.xm_exists);
+    PROC_DUMP("xm_num_local_ports = %d\n", board.xm_num_local_ports);
+
+    if (board.xm_num_local_ports <= SX_XM_MAX_LOCAL_PORTS_LEN) {
+        for (i = 0; i < board.xm_num_local_ports; i++) {
+            PROC_DUMP("xm_local_ports[%d] = 0x%x\n", i, board.xm_local_ports[i]);
+        }
+    }
+
     PROC_DUMP("vsd_vendor_id = 0x%x\n", board.vsd_vendor_id);
     PROC_DUMP("board_id = %s\n", board.board_id);
     PROC_DUMP("inta_pin = 0x%x\n", board.inta_pin);
@@ -1816,7 +1829,7 @@ void __sx_proc_dump_rdq(struct sx_dev *dev)
                    rdq_table->dq[i]->cq->cons_index,
                    rdq_table->dq[i]->cq->nent,
                    atomic_read(&rdq_table->dq[i]->cq->refcount),
-                   (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, cqn) ? 1 : 0),
+                   IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn),
                    (int)rdq_table->dq[i]->is_monitor);
         }
     }
@@ -1966,6 +1979,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
     struct profile_driver_params addition_params;
 
     addition_params.cqe_version = 0;
+    addition_params.cqe_time_stamp_type = 0;
 
     sx_SET_PROFILE(dev, &single_part_eth_device_profile, &addition_params);
 }
@@ -1973,7 +1987,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
 
 void __dump_stats(struct sx_dev* sx_dev)
 {
-    int swid, pkt_type, synd;
+    int swid, pkt_type, synd, rdq;
 
     for (swid = 0; swid < NUMBER_OF_SWIDS + 1; swid++) {
         printk("=========================\n");
@@ -2006,11 +2020,32 @@ void __dump_stats(struct sx_dev* sx_dev)
                        sx_dev->stats.rx_by_synd_bytes[swid][synd]);
             }
 
-            if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
-                printk("events on synd [%d]: %llu\n", synd,
-                       sx_dev->stats.rx_eventlist_by_synd[synd]);
+            /* this counters aren't per swid so print them for swid 0 only */
+            if (swid == 0) {
+                if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
+                    printk("events on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.rx_eventlist_by_synd[synd]);
+                }
+
+                if (0 != sx_dev->stats.tx_loopback_ok_by_synd[synd]) {
+                    printk("tx loopback_ok on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.tx_loopback_ok_by_synd[synd]);
+                }
+
+                if (0 != sx_dev->stats.tx_loopback_dropped_by_synd[synd]) {
+                    printk("tx loopback_dropped on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.tx_loopback_dropped_by_synd[synd]);
+                }
             }
         }     /* for (synd=0; synd<PKT_TYPE_NUM; synd++) { */
+
+        for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
+            if (0 != sx_dev->stats.rx_by_rdq[swid][rdq]) {
+                printk("rx pkt on rdq [%d]: %llu (%llu bytes)\n", rdq,
+                       sx_dev->stats.rx_by_rdq[swid][rdq],
+                       sx_dev->stats.rx_by_rdq_bytes[swid][rdq]);
+            }
+        }    /* for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) { */
     }
 
     printk("=========================\n");
@@ -2500,6 +2535,9 @@ void __dump_kdbs(void)
             printk("%u\t| DOWN\t|\n", i);
         }
     }
+
+    printk("============================\n");
+    printk("warm_boot_mode: %d\n", priv->warm_boot_mode);
 }
 
 
