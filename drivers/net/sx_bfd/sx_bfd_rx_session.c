@@ -371,7 +371,7 @@ static int rx_sess_add(struct bfd_offload_info *request_hdr, char *data, int upd
          * done in spinlock */
         spin_unlock_bh(&rx_sess_lock);
 
-        entry_vrf = sx_bfd_rx_vrf_init(session->vrf_id, request_hdr->bfd_pid);
+        entry_vrf = sx_bfd_rx_vrf_init(session->vrf_id, request_hdr->use_vrf_device, request_hdr->linux_vrf_name, request_hdr->bfd_pid);
         if (!entry_vrf) {
             printk(KERN_ERR "Initialization of VRF/socket FAILED.\n");
             err = -EINVAL;

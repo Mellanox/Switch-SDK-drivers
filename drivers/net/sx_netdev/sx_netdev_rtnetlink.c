@@ -197,7 +197,7 @@ static int sx_netdev_oper_state_get(struct sx_dev *dev, u32 log_port, u8 *is_ope
         printk(KERN_INFO PFX "%s: LAG port state for 0x%x = %d\n", __func__,
                log_port, *is_oper_state_up);
     } else { /* the port is a system port */
-            /* Query port state via PAOS register */
+             /* Query port state via PAOS register */
         CALL_SX_CORE_FUNC_WITHOUT_RET(sx_cmd_set_op_tlv, &paos_reg_data.op_tlv, MLXSW_PAOS_ID, EMAD_METHOD_QUERY);
 
         paos_reg_data.paos_reg.local_port = SX_PORT_PHY_ID_GET(log_port);
@@ -345,23 +345,14 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
     /* mark as alloc in DB */
     port_type = net_priv->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
     spin_lock(&g_netdev_resources->rsc_lock);
-    if (g_netdev_resources->port_allocated[port_type][net_priv->port]) {
+    if (g_netdev_resources->port_allocated[port_type][net_priv->port] == MAX_PORT_NETDEV_NUM) {
         spin_unlock(&g_netdev_resources->rsc_lock);
-        printk(KERN_ERR PFX  "Net Device for port %u was already"
+        printk(KERN_ERR PFX  "No more resources - Max Net Device for port %u was already"
                " allocated\n", sys_port);
         return -EEXIST;
     }
-    g_netdev_resources->port_allocated[port_type][net_priv->port] = 1;
+    g_netdev_resources->port_allocated[port_type][net_priv->port]++;
     spin_unlock(&g_netdev_resources->rsc_lock);
-
-    /* Get operational state */
-    err = sx_netdev_oper_state_get(net_priv->dev, logical_port, &oper_state);
-    if (err) {
-        printk(KERN_INFO PFX "%s: Unable to get port state, port = %d,"
-               " is_lag = %d, err = %d\n", __func__, net_priv->port, net_priv->is_lag, err);
-        oper_state = 0;
-    }
-    net_priv->is_oper_state_up = oper_state;
 
     /* Get MAC address */
     err = sx_netdev_port_mac_get(net_priv->dev, logical_port, &mac);
@@ -371,6 +362,8 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
         mac = 0;
     }
     net_priv->mac = mac;
+
+    net_priv->skip_tunnel = g_skip_tunnel;
 
     printk(KERN_INFO PFX "%s: Newly device %s log port 0x%x MAC address = %llx\n",
            __func__,
@@ -400,19 +393,28 @@ static int sx_netdev_newlink(struct net *net, struct net_device *dev, struct nla
     if (err) {
         printk(KERN_INFO PFX "%s: sx_netdev_register_device() failed error - %d\n", __func__, err);
         spin_lock(&g_netdev_resources->rsc_lock);
-        g_netdev_resources->port_allocated[port_type][net_priv->port] = 0;
+        g_netdev_resources->port_allocated[port_type][net_priv->port]--;
         spin_unlock(&g_netdev_resources->rsc_lock);
-        return ENXIO;
+        return -ENXIO;
     }
 
     /* Add netdev to resources db */
-    if (net_priv->is_lag) {
-        lag_netdev_db[net_priv->port] = dev;
-        g_netdev_resources->sx_lag_netdevs[net_priv->port] = dev;
-    } else {
-        port_netdev_db[net_priv->port] = dev;
-        g_netdev_resources->sx_port_netdevs[net_priv->port] = dev;
+    port_type = net_priv->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
+    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+        if (g_netdev_resources->port_netdev[port_type][net_priv->port][i] == NULL) {
+            g_netdev_resources->port_netdev[port_type][net_priv->port][i] = dev;
+            break;
+        }
     }
+
+    /* Get operational state */
+    err = sx_netdev_oper_state_get(net_priv->dev, logical_port, &oper_state);
+    if (err) {
+        printk(KERN_INFO PFX "%s: Unable to get port state, port = %d,"
+               " is_lag = %d, err = %d\n", __func__, net_priv->port, net_priv->is_lag, err);
+        oper_state = 0;
+    }
+    net_priv->is_oper_state_up = oper_state;
 
     printk(KERN_INFO PFX "%s: exit\n", __func__);
 
@@ -423,21 +425,20 @@ static void sx_netdev_dellink(struct net_device *dev, struct list_head *head)
 {
     unsigned long       flags;
     struct sx_net_priv *net_priv = netdev_priv(dev);
-    u8                  port_type = 0;
+    u8                  port_type = 0, i = 0;
 
     printk(KERN_INFO PFX "%s: called for %s\n", __func__, dev->name);
 
     port_type = net_priv->is_lag ? PORT_TYPE_LAG : PORT_TYPE_SINGLE;
 
     spin_lock_irqsave(&g_netdev_resources->rsc_lock, flags);
-    if (net_priv->is_lag) {
-        lag_netdev_db[net_priv->port] = NULL;
-        g_netdev_resources->sx_lag_netdevs[net_priv->port] = NULL;
-    } else {
-        port_netdev_db[net_priv->port] = NULL;
-        g_netdev_resources->sx_port_netdevs[net_priv->port] = NULL;
+    for (i = 0; i < MAX_PORT_NETDEV_NUM; i++) {
+        if (g_netdev_resources->port_netdev[port_type][net_priv->port][i] == dev) {
+            g_netdev_resources->port_netdev[port_type][net_priv->port][i] = NULL;
+            break;
+        }
     }
-    g_netdev_resources->port_allocated[port_type][net_priv->port] = 0;
+    g_netdev_resources->port_allocated[port_type][net_priv->port]--;
     spin_unlock_irqrestore(&g_netdev_resources->rsc_lock, flags);
 
     netif_tx_disable(dev);

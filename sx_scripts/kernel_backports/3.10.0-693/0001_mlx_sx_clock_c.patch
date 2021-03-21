@@ -1,0 +1,21 @@
+diff --git a/drivers/net/mlx_sx/sx_clock.c b/drivers/net/mlx_sx/sx_clock.c
+index 4713988..e6297d2 100644
+--- a/drivers/net/mlx_sx/sx_clock.c
++++ b/drivers/net/mlx_sx/sx_clock.c
+@@ -138,6 +138,7 @@ int sx_clock_register(struct sx_priv              *priv,
+     struct sx_tstamp *tstamp = &priv->tstamp;
+     struct sx_dev    *dev = &priv->dev;
+     u64               ns;
++    u64               frac = 0;
+ 
+     spin_lock_init(&tstamp->lock);
+     tstamp->cycles.read = read_cb;
+@@ -167,7 +168,7 @@ int sx_clock_register(struct sx_priv              *priv,
+      * sure counter is checked at least once every wrap around.
+      */
+ 
+-    ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask);
++    ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask, frac, &frac);
+     do_div(ns, NSEC_PER_SEC / 2 / HZ);
+ 
+     /* keep periodic read from clock every 1/8 second and avoid it from wrap-around */

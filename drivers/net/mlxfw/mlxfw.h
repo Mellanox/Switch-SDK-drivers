@@ -34,16 +34,8 @@
 #define _MLXFW_H
 
 #include <linux/firmware.h>
+#include <linux/mlx_sx/kernel_user.h>
 
-enum mlxfw_fsm_state {
-    MLXFW_FSM_STATE_IDLE,
-    MLXFW_FSM_STATE_LOCKED,
-    MLXFW_FSM_STATE_INITIALIZE,
-    MLXFW_FSM_STATE_DOWNLOAD,
-    MLXFW_FSM_STATE_VERIFY,
-    MLXFW_FSM_STATE_APPLY,
-    MLXFW_FSM_STATE_ACTIVATE,
-};
 enum mlxfw_fsm_state_err {
     MLXFW_FSM_STATE_ERR_OK,
     MLXFW_FSM_STATE_ERR_ERROR,
@@ -77,7 +69,7 @@ struct mlxfw_dev_ops {
     int (*fsm_activate)(struct mlxfw_dev *mlxfw_dev, u32 fwhandle);
 
     int (*fsm_query_state)(struct mlxfw_dev *mlxfw_dev, u32 fwhandle,
-                           enum mlxfw_fsm_state *fsm_state,
+                           enum sxd_mcc_control_state *fsm_state,
                            enum mlxfw_fsm_state_err *fsm_state_err);
 
     void (*fsm_cancel)(struct mlxfw_dev *mlxfw_dev, u32 fwhandle);
