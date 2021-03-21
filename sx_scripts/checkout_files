@@ -21,5 +21,3 @@ debian/changelog
 debian/control
 debian/rules
 debian/copyright
-debian/sx-kernel.prerm
-debian/sx-kernel.postinst
