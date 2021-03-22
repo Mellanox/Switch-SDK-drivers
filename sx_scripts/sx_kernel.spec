@@ -48,13 +48,13 @@
 
 Summary: SwitchX drivers for SX
 Name: %{_name}
-Version: %{_version}
+Version: %(echo @SED_VERSION@ | sed 's/-/_/g')
 Release: %{_release}%{?extra_release}
 License: GPL/BSD
 Url: http://www.mellanox.com
 Group: System Environment/Base
 Source: %{_name}-%{_version}-%{_release}.tar.gz
-BuildRoot: %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+BuildRoot: %(mktemp -ud %{_tmppath}/%{name}-%{_version}-%{release}-XXXXXX)
 Vendor: Mellanox
 %description 
 SwitchX low level drivers
@@ -66,7 +66,7 @@ PreReq: coreutils
 PreReq: kernel
 Prereq: pciutils
 Requires: sx_kernel
-Version: %{_version}
+Version: %(echo @SED_VERSION@ | sed 's/-/_/g')
 Release: %{_release}
 Summary: SwitchX Driver symvers
 Group: System Environment/Libraries

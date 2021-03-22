@@ -83,6 +83,8 @@ static void poll_catas(unsigned long dev_ptr)
     if (__raw_readl(priv->catas_err.map)) {
         dump_err_buf(dev);
 
+        sx_send_health_event(dev->device_id, SXD_HEALTH_CAUSE_CATAS);
+
         sx_core_dispatch_event(dev,
                                SX_DEV_EVENT_CATASTROPHIC_ERROR, NULL);
 
