@@ -56,7 +56,8 @@ MODULE_PARM_DESC(reset_trigger, "a trigger to perform chip reset");
 #endif
 #define SX_HCA_HEADERS_SIZE 256
 
-static int legacy_sx_reset(struct sx_dev *dev);
+static int legacy_reset_SwitchX(struct sx_dev *dev);
+static int legacy_reset(struct sx_dev *dev);
 static int reset_dev_by_mrsr_reg(struct sx_dev *dev);
 static int sdk_sx_reset(struct sx_dev *dev);
 
@@ -76,9 +77,9 @@ static int perform_dev_sw_reset(struct sx_dev *dev)
     switch (dev->pdev->device) {
     /* SwitchX */
     case SWITCHX_PCI_DEV_ID:
-        err = legacy_sx_reset(dev);
+        err = legacy_reset_SwitchX(dev);
         if (err) {
-            sx_err(dev, "legacy_sx_reset failed, err [%d]\n", err);
+            sx_err(dev, "legacy reset for SwitchX failed, err [%d]\n", err);
             goto out;
         }
 
@@ -88,14 +89,19 @@ static int perform_dev_sw_reset(struct sx_dev *dev)
     case SPECTRUM_PCI_DEV_ID:     /* no break */
     case SPECTRUM2_PCI_DEV_ID:     /* no break */
     case SPECTRUM3_PCI_DEV_ID: /* no break */
+    case SPECTRUM4_PCI_DEV_ID: /* no break */
     case SWITCH_IB_PCI_DEV_ID:     /* no break */
     case SWITCH_IB2_PCI_DEV_ID:
     case QUANTUM_PCI_DEV_ID:
+    case QUANTUM2_PCI_DEV_ID:
         err = sdk_sx_reset(dev);
         if (err) {
-            sx_err(dev, "%s: sdk_sx_reset failed, err [%d]\n", __func__, err);
-            err = legacy_sx_reset(dev);
-            goto out;
+            sx_err(dev, "chip reset failed, err [%d]. Running legacy reset.\n", err);
+            err = legacy_reset(dev);
+            if (err) {
+                sx_err(dev, "chip legacy reset failed, err [%d]\n", err);
+                goto out;
+            }
         }
 
         break;
@@ -142,16 +148,93 @@ out:
     return err;
 }
 
+static int __wait_for_system_ready(struct sx_dev *dev, u32 wait_for_reset_msec, u32 *time_waited_msec)
+{
+    void __iomem *sys_status = NULL;
+    unsigned long start;
+    unsigned long end;
+    int           ret = -ETIME;
+    u32           val;
+
+    sys_status = ioremap(pci_resource_start(dev->pdev, 0) + SX_SYSTEM_STATUS_REG_OFFSET, SX_SYSTEM_STATUS_REG_SIZE);
+    if (!sys_status) {
+        printk(KERN_ERR "could not map system status register in BAR0\n");
+        return -ENOMEM;
+    }
+
+    start = jiffies;
+    end = jiffies + msecs_to_jiffies(wait_for_reset_msec);
+
+    printk(KERN_INFO "device=%u, wait_for_reset=%u, start=%lu, end=%lu, HZ=%u (diff=%lu sec)\n",
+           dev->pdev->device,
+           wait_for_reset_msec,
+           start,
+           end,
+           HZ,
+           (end - start) / HZ);
+
+    do {
+        val = ioread32be(sys_status);
+        if (SX_SYSTEM_STATUS_ENABLED == (val & SX_SYSTEM_STATUS_REG_MASK)) {
+            *time_waited_msec = jiffies_to_msecs(jiffies - start);
+            ret = 0;
+            break;
+        }
+
+        msleep(1);
+    } while (time_before(jiffies, end));
+
+    iounmap(sys_status);
+    return ret;
+}
+
+
+static u32 __get_chip_reset_duration(struct sx_dev *dev)
+{
+    u32 duration;
+
+    switch (dev->pdev->device) {
+    case QUANTUM_PCI_DEV_ID:
+    case QUANTUM2_PCI_DEV_ID:
+        duration = 15 * 1000; /* 15 seconds */
+        break;
+
+    case SPECTRUM2_PCI_DEV_ID:
+    case SPECTRUM3_PCI_DEV_ID:
+    case SPECTRUM4_PCI_DEV_ID:
+        /* for now, until we do it in a proper way, always wait up to 15 minutes (!) for switch reset.
+         * we have a special case with Tigris or Spectrum 3 setup, in which there is an upgrade for the
+         * gearbox FWs and it might take up to 10 minutes.
+         * here in the SDK, will give a grace of 5 more minutes for the switch to reset.
+         */
+        duration = 15 * 60 * 1000; /* 15 minutes */
+        break;
+
+    default:
+        duration = SX_SW_RESET_TIMEOUT_MSECS;
+        break;
+    }
+
+    return duration;
+}
+
+
 static int sdk_sx_reset(struct sx_dev *dev)
 {
-    int           err = 0;
-    unsigned long end = 0, start = 0;
-    void __iomem *sys_status = NULL;
-    bool          system_enabled = false;
-    u32           val = 0;
-    u32           wait_for_reset = 0;
+    u32 wait_for_reset, time_waited;
+    int err = 0;
 
-    printk(KERN_INFO PFX "performing SW reset\n");
+    wait_for_reset = __get_chip_reset_duration(dev);
+
+    printk(KERN_INFO "wait for system to be ready before reset\n");
+
+    err = __wait_for_system_ready(dev, wait_for_reset, &time_waited);
+    if (err) {
+        printk(KERN_ERR "system is not ready and cannot be reset (err=%d)!\n", err);
+        goto out;
+    }
+
+    printk(KERN_INFO "system is ready for reset [waited %u msec], performing reset now\n", time_waited);
 
     /* actually hit reset */
     dev->dev_sw_rst_flow = 1;
@@ -161,68 +244,25 @@ static int sdk_sx_reset(struct sx_dev *dev)
         goto out;
     }
 
-    sys_status = ioremap(pci_resource_start(dev->pdev, 0) + SX_SYSTEM_STATUS_REG_OFFSET, SX_SYSTEM_STATUS_REG_SIZE);
-    if (!sys_status) {
-        err = -ENOMEM;
-        sx_err(dev, "%s: Couldn't map HCA reset register, err [%d]\n", __func__, err);
+    /* verify that system status is not enabled due to MRSR */
+    err = __wait_for_system_ready(dev, 0, &time_waited);
+    if (err != -ETIME) {
+        /* we've got a problem. system is enabled immediately after reset.
+         * it means that the reset did not actually work. */
+
+        printk(KERN_ERR "system is ready immediately after a reset command has been sent (err=%d)\n", err);
+        err = -EFAULT;
         goto out;
     }
 
-    /* first, verify system status is not enabled, due to MRSR emad */
-    system_enabled = true;
-    val = ioread32be(sys_status);
-    if (SX_SYSTEM_STATUS_ENABLED != (val & SX_SYSTEM_STATUS_REG_MASK)) {
-        system_enabled = false;
-    }
-
-    if (system_enabled) {
-        err = -ETIME;
-        sx_err(dev, "%s: system is still enabled after sending MRSR SW reset emad, err [%d]\n", __func__, err);
-        iounmap(sys_status);
+    /* now wait for reset to be completed */
+    err = __wait_for_system_ready(dev, wait_for_reset, &time_waited);
+    if (err) {
+        printk(KERN_ERR "system status timeout after reset! (err=%d)\n", err);
         goto out;
     }
 
-    /* Wait before accessing device */
-#ifndef INCREASED_TIMEOUT
-    msleep(2000);
-#else
-#define WAIT_FOR_PCI_RESET 1500000 /* timeout should be greater than the time needed by the model to complete PCI Reset */
-
-    printk(KERN_INFO PFX "Waiting %u ms before accessing the device", WAIT_FOR_PCI_RESET);
-    msleep(WAIT_FOR_PCI_RESET);
-#endif
-
-    if (dev->pdev->device == QUANTUM_PCI_DEV_ID) {
-        wait_for_reset = 12000; /* Timeout for Quantum was increased to 12s until FW stabilizes its flow. */
-    } else if (dev->pdev->device == SPECTRUM2_PCI_DEV_ID) {
-        /* for now, until we do it in a proper way, always wait up to 15 minutes (!) for switch reset.
-         * we have a special case with Tigris, in which there is an upgrade for the gearbox FWs and it might take up to 10 minutes.
-         * here in the SDK, will give a grace of 5 more minutes for the switch to reset.
-         */
-        wait_for_reset = 15 * 60 * 1000; /* 15 minutes */
-    } else {
-        wait_for_reset = SX_SW_RESET_TIMEOUT_MSECS;
-    }
-
-    start = jiffies;
-    end = jiffies + msecs_to_jiffies(wait_for_reset);
-    do {
-        val = ioread32be(sys_status);
-        if (SX_SYSTEM_STATUS_ENABLED == (val & SX_SYSTEM_STATUS_REG_MASK)) {
-            system_enabled = true;
-            printk(KERN_INFO "reset: system_enabled change to [true], time: %u[ms]\n",
-                   jiffies_to_msecs(jiffies - start));
-            break;
-        }
-        cond_resched();
-    } while (time_before(jiffies, end));
-
-    if (system_enabled == false) {
-        err = -ETIME;
-        sx_err(dev, "%s: system status timeout, err [%d]\n", __func__, err);
-    }
-
-    iounmap(sys_status);
+    printk(KERN_INFO "system is ready after reset [waited %u msec]\n", time_waited);
 
 out:
     dev->dev_sw_rst_flow = 0;
@@ -251,8 +291,8 @@ static int __save_headers_data(struct sx_dev *dev, u32* hca_header_p)
 
     /* SwitchX */
     if (!hca_header_p) {
-        return -EINVAL;
         printk(KERN_ERR "%s: hca_header_p argument is null, err [%d]\n", __func__, err);
+        return -EINVAL;
     }
     memset(hca_header_p, 0, SX_HCA_HEADERS_SIZE);
 
@@ -301,8 +341,8 @@ static int __restore_headers_data(struct sx_dev *dev, u32* hca_header_p)
 
     /* SwitchX */
     if (!hca_header_p) {
-        return -EINVAL;
         printk(KERN_ERR "%s: hca_header_p argument is null, err [%d]\n", __func__, err);
+        return -EINVAL;
     }
 
     /* restore PCIE headers to restore after reset from hca_header_p */
@@ -391,37 +431,15 @@ out:
     return err;
 }
 
-/* taken as is from the IS4 driver, we might need to remove the part where we
- * save the pci config headers before the reset, and restore them afterwards.
- * Depends on the decision of the FW guys. */
-int legacy_sx_reset(struct sx_dev *dev)
+
+static int __do_legacy_reset(struct sx_dev *dev)
 {
     void __iomem *reset;
-    u16           vendor = 0xffff;
-    unsigned long end;
     int           err = 0;
 
-    printk(KERN_INFO PFX "performing legacy SW reset\n");
-
-    if (!dev->pdev) {
-        sx_err(dev, "SW reset will not be executed since PCI device is not present");
-        err = -ENODEV;
-        goto out;
-    }
-
-#define SX_RESET_BASE   0xf0000
-#define SX_RESET_SIZE   0x404
-#define SX_SEM_OFFSET   0x400
-#define SX_SEM_BIT      (1 << 31)
-#define SX_RESET_OFFSET 0x10
-#define SX_RESET_VALUE  swab32(1)
-
-#ifndef INCREASED_TIMEOUT
-#define SX_SEM_TIMEOUT_JIFFIES (10 * HZ)
-#else
-#define SX_SEM_TIMEOUT_JIFFIES (100 * HZ)
-#endif
-#define SX_RESET_TIMEOUT_JIFFIES (2 * HZ)
+#define SX_RESET_BASE  0xf0010
+#define SX_RESET_SIZE  (4)
+#define SX_RESET_VALUE swab32(1)
 
     /*
      * Reset the chip.  This is somewhat ugly because we have to
@@ -429,16 +447,15 @@ int legacy_sx_reset(struct sx_dev *dev)
      * after the chip reboots.  We skip config space offsets 22
      * and 23 since those have a special meaning.
      */
-    reset = ioremap(pci_resource_start(dev->pdev, 0) + SX_RESET_BASE,
-                    SX_RESET_SIZE);
+    reset = ioremap(pci_resource_start(dev->pdev, 0) + SX_RESET_BASE, SX_RESET_SIZE);
     if (!reset) {
         err = -ENOMEM;
-        sx_err(dev, "Couldn't map HCA reset register, aborting.\n");
+        sx_err(dev, "Couldn't map reset register, aborting.\n");
         goto out;
     }
 
     /* actually hit reset */
-    writel(SX_RESET_VALUE, reset + SX_RESET_OFFSET);
+    writel(SX_RESET_VALUE, reset);
     iounmap(reset);
 
     /* Wait three seconds before accessing device */
@@ -448,10 +465,35 @@ int legacy_sx_reset(struct sx_dev *dev)
     msleep(180000);
 #endif
 
+out:
+    return err;
+}
+
+
+static int legacy_reset_SwitchX(struct sx_dev *dev)
+{
+    u16           vendor = 0xffff;
+    unsigned long end;
+    int           err = 0;
+
+    printk(KERN_INFO PFX "performing SwitchX legacy reset\n");
+
+    if (!dev->pdev) {
+        sx_err(dev, "SW reset will not be executed since PCI device is not present");
+        err = -ENODEV;
+        goto out;
+    }
+
+    err = __do_legacy_reset(dev);
+    if (err) {
+        sx_err(dev, "failed SwitchX legacy reset [err=%d]\n", err);
+        goto out;
+    }
+
+    /* SwitchX does not support System_Status register, so we will poll the vendor-id */
     end = jiffies + SX_RESET_TIMEOUT_JIFFIES;
     do {
-        if (!pci_read_config_word(dev->pdev, PCI_VENDOR_ID, &vendor) &&
-            (vendor != 0xffff)) {
+        if (!pci_read_config_word(dev->pdev, PCI_VENDOR_ID, &vendor) && (vendor != 0xffff)) {
             break;
         }
 
@@ -467,6 +509,59 @@ int legacy_sx_reset(struct sx_dev *dev)
 out:
     return err;
 }
+
+
+static int legacy_reset(struct sx_dev *dev)
+{
+    int err = 0;
+    u32 wait_for_reset, time_waited;
+
+    printk(KERN_INFO PFX "performing legacy SW reset\n");
+
+    if (!dev->pdev) {
+        sx_err(dev, "SW reset will not be executed since PCI device is not present");
+        err = -ENODEV;
+        goto out;
+    }
+
+    wait_for_reset = __get_chip_reset_duration(dev);
+
+    /* we fall-back from MRSR to legacy reset. it is not a common flow.
+     * in legacy reset we will wait double the time that we did on MRSR! */
+    wait_for_reset *= 2;
+
+    printk(KERN_INFO "wait for system to be ready before legacy reset\n");
+
+    err = __wait_for_system_ready(dev, wait_for_reset, &time_waited);
+    if (err) {
+        printk(KERN_ERR "system is not ready and cannot be reset (err=%d)!\n", err);
+        goto out;
+    }
+
+    printk(KERN_INFO "system is ready for reset [waited %u msec], performing legacy reset now\n", time_waited);
+
+    dev->dev_sw_rst_flow = 1;
+
+    err = __do_legacy_reset(dev);
+    if (err) {
+        sx_err(dev, "failed chip legacy reset [err=%d]\n", err);
+        goto out;
+    }
+
+    /* now wait for reset to be completed */
+    err = __wait_for_system_ready(dev, wait_for_reset, &time_waited);
+    if (err) {
+        printk(KERN_ERR "system status timeout after legacy reset! (err=%d)\n", err);
+        goto out;
+    }
+
+    printk(KERN_INFO "system is ready after legacy reset [waited %u msec]\n", time_waited);
+
+out:
+    dev->dev_sw_rst_flow = 0;
+    return err;
+}
+
 
 int sx_reset(struct sx_dev *dev, u8 perform_chip_reset)
 {
