@@ -1,0 +1,20 @@
+--- a/drivers/net/sx_bfd/sx_bfd_socket.c     2020-01-13 18:35:00.312290000 +0300
++++ b/drivers/net/sx_bfd/sx_bfd_socket.c     2020-01-13 18:35:00.547706000 +0300
+@@ -175,7 +175,6 @@ int sx_bfd_socket_recv(struct socket *sock, char* buf, size_t buf_len, struct me
+     static char         ctrl_buf[512];
+     struct cmsghdr     *cmsghdr = NULL;
+     int                 size = 0, hdr_state = 0;
+-    int                 peer_addr_size;
+     struct sockaddr_in  peer_in;
+     struct in_pktinfo  *pkt_info;
+     struct in6_pktinfo *pkt_info6;
+@@ -274,8 +273,7 @@ int sx_bfd_socket_recv(struct socket *sock, char* buf, size_t buf_len, struct me
+     }
+ 
+     /* Peer address */
+-    sock->ops->getname(sock, (struct sockaddr *)&metadata->peer_addr,
+-                       &peer_addr_size, 1);
++    sock->ops->getname(sock, (struct sockaddr *)&metadata->peer_addr, 1);
+ 
+     if (ipv6_addr_type(&(metadata->peer_addr.peer_in6.sin6_addr)) == IPV6_ADDR_MAPPED) {
+         memset(&peer_in, 0, sizeof(struct sockaddr_in));

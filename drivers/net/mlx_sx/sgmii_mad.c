@@ -36,10 +36,6 @@
 #include "sgmii_internal.h"
 #include "map.h"
 
-#define INFINIBAND_QP0_TRAP_ID       (0xf0)
-#define INFINIBAND_QP1_TRAP_ID       (0xf1)
-#define INFINIBAND_OTHER_QPS_TRAP_ID (0xf2)
-
 #define MAD_HDR_LEN (0x18)                  /* length of MAD header */
 
 #define UNRELIABLE_DATAGRAM_MAD_HDR_OFFSET (0x1c) /* LRH + BTH + DETH */
@@ -47,6 +43,8 @@
 #define MAD_HDR_TR_ID_OFFSET               (0x8)
 #define MAD_HDR_STATUS_OFFSET              (0x4)
 #define MAD_HDR_ATTR_ID_OFFSET             (0x10)
+
+#define MAD_IFC_TR_ID_BITS (28)                 /* 28bit [the rest 4bits (MSB) reserved for op-modifier] */
 
 static struct sgmii_transaction_db __mad_tr_db;
 static atomic_t                    __sgmii_mad_transactions_in_progress = ATOMIC_INIT(0);
@@ -162,8 +160,9 @@ struct send_mad_info {
 };
 static void __sgmii_send_mad_deferred(void *task_param)
 {
-    struct send_mad_info *info;
-    int                   ret = 0, should_free_skb = 1;
+    struct send_mad_info         *info;
+    int                           ret = 0, should_free_skb = 1;
+    struct sgmii_transaction_meta tr_meta;
 
     info = (struct send_mad_info*)task_param;
 
@@ -189,9 +188,12 @@ static void __sgmii_send_mad_deferred(void *task_param)
      * transaction will free the SKB when it completes (or upon failure), so we should not worry about it */
     should_free_skb = 0;
 
-    ret = sgmii_send_transaction(&__mad_tr_db,
-                                 info->skb,
-                                 info->tr_id,
+    tr_meta.skb = info->skb;
+    tr_meta.tr_db = &__mad_tr_db;
+    tr_meta.tr_id = info->tr_id;
+    tr_meta.transport_type = SXD_COMMAND_TYPE_MAD;
+
+    ret = sgmii_send_transaction(&tr_meta,
                                  info->sgmii_dev,
                                  &info->meta,
                                  info->sync_context);
@@ -326,6 +328,7 @@ static int __sgmii_send_mad_ifc_cb(int                                    dev_id
 int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
                                 int            dev_id,
                                 u32            in_modifier,
+                                u8             op_modifier,
                                 void          *in_mad,
                                 int            in_size,
                                 void          *out_mad,
@@ -380,7 +383,18 @@ int sgmii_simulate_sync_mad_ifc(struct sx_dev* dev,
         return err;
     }
 
-    tid_low = ++packet_seq_number;
+    /*
+     * MAD_IFC transaction ID (64bit):
+     *
+     *    6         5         4         3         2         1
+     * 3210987654321098765432109876543210987654321098765432109876543210
+     * ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                  0xC001D00D (SGMII MAD_IFC prefix)
+     *                                 ^^^^                              Opcode modifier (4bits)
+     *                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  Running transaction ID (28bits)
+     *
+     */
+    tid_low = (((u32)op_modifier) & 0xf) << MAD_IFC_TR_ID_BITS;
+    tid_low |= (++packet_seq_number) & ((1U << MAD_IFC_TR_ID_BITS) - 1);
 
     tid_low = cpu_to_be32(tid_low);
     psn = tid_low;
@@ -438,10 +452,6 @@ static void __sgmii_mad_transaction_completion(struct sk_buff                   
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_timeout);
         break;
 
-    case SGMII_TR_COMP_ST_TERMINATED:
-        SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, mad_terminated);
-        break;
-
     default:
         break;
     }
@@ -482,24 +492,24 @@ int sgmii_mad_init(void)
     }
 
     crit.ib.qpn = 0;
-    ret = sx_core_add_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+    ret = sx_core_add_synd(0, SXD_TRAP_ID_INFINIBAND_QP0, L2_TYPE_IB, 0, 0, crit, __sgmii_rx_mad,
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD QP0 handler (ret=%d)\n", ret);
         goto mad_qp0_failed;
     }
 
     crit.ib.qpn = 1;
-    ret = sx_core_add_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+    ret = sx_core_add_synd(0, SXD_TRAP_ID_INFINIBAND_QP1, L2_TYPE_IB, 0, 0, crit, __sgmii_rx_mad,
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD QP1 handler (ret=%d)\n", ret);
         goto mad_qp1_failed;
     }
 
     crit.ib.qpn = QPN_MULTICAST_VALUE;
-    ret = sx_core_add_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, crit, __sgmii_rx_mad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+    ret = sx_core_add_synd(0, SXD_TRAP_ID_INFINIBAND_OTHER_QPS, L2_TYPE_IB, 0, 0, crit, __sgmii_rx_mad,
+                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register MAD other-QPs handler (ret=%d)\n", ret);
         goto mad_other_qps_failed;
@@ -509,11 +519,13 @@ int sgmii_mad_init(void)
 
 mad_other_qps_failed:
     crit.ib.qpn = 1;
-    sx_core_remove_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, SXD_TRAP_ID_INFINIBAND_QP1, L2_TYPE_IB, 0, crit, NULL, NULL,
+                        __sgmii_rx_mad, NULL, 1);
 
 mad_qp1_failed:
     crit.ib.qpn = 0;
-    sx_core_remove_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, SXD_TRAP_ID_INFINIBAND_QP0, L2_TYPE_IB, 0, crit, NULL, NULL,
+                        __sgmii_rx_mad, NULL, 1);
 
 mad_qp0_failed:
     return ret;
@@ -528,11 +540,14 @@ void sgmii_mad_deinit(void)
     crit.ib.is_oob_originated_mad = 255; /* don't care */
 
     crit.ib.qpn = 0;
-    sx_core_remove_synd(0, INFINIBAND_QP0_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, SXD_TRAP_ID_INFINIBAND_QP0, L2_TYPE_IB, 0, crit, NULL, NULL,
+                        __sgmii_rx_mad, NULL, 1);
 
     crit.ib.qpn = 1;
-    sx_core_remove_synd(0, INFINIBAND_QP1_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, SXD_TRAP_ID_INFINIBAND_QP1, L2_TYPE_IB, 0, crit, NULL, NULL,
+                        __sgmii_rx_mad, NULL, 1);
 
     crit.ib.qpn = QPN_MULTICAST_VALUE;
-    sx_core_remove_synd(0, INFINIBAND_OTHER_QPS_TRAP_ID, L2_TYPE_IB, 0, crit, NULL, NULL, __sgmii_rx_mad, NULL);
+    sx_core_remove_synd(0, SXD_TRAP_ID_INFINIBAND_OTHER_QPS, L2_TYPE_IB, 0, crit, NULL, NULL,
+                        __sgmii_rx_mad, NULL, 1);
 }
