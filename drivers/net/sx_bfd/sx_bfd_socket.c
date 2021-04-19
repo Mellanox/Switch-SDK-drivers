@@ -46,6 +46,8 @@
 #include "sx_bfd_socket.h"
 #include "sx_bfd_engine_data.h"
 
+#include <linux/sx_bfd/sx_bfd_ctrl_cmds.h>
+
 #define SX_BFD_SINGLEHOP_PORT 3784
 #define SX_BFD_MULTIHOP_PORT  4784
 
@@ -114,7 +116,8 @@ static bool g_initialized = false;
 struct sockets_scheduler {
     struct list_head scheduler_list;
     struct semaphore scheduler_sem;
-    spinlock_t       sceduler_lock;
+    spinlock_t       scheduler_lock;
+    uint8_t          scheduler_thread_active;
 };
 static struct sockets_scheduler scheduler;
 static struct task_struct      *bfd_thread = NULL;
@@ -300,7 +303,7 @@ static void sk_data_ready_custom(struct sock *sk)
     int                                lst_empty = 0;
 
     /* Lock scheduler DS from other manipulation on this DS */
-    spin_lock_bh(&scheduler.sceduler_lock);
+    spin_lock_bh(&scheduler.scheduler_lock);
 
     /*Get user_info which is saved in creation of the socket. */
     if (sk && sk->sk_user_data) {
@@ -320,7 +323,7 @@ static void sk_data_ready_custom(struct sock *sk)
         if (user_info->sock_state == sx_bfd_sock_state_dead) {
             /* If socket signed as DEAD - means there is process of delete socket -
              * don't take care. */
-            spin_unlock_bh(&scheduler.sceduler_lock);
+            spin_unlock_bh(&scheduler.scheduler_lock);
             return;
         }
 
@@ -350,7 +353,7 @@ static void sk_data_ready_custom(struct sock *sk)
         sock_hold(sk);
     }
     /* Unlock scheduler DS to allow other manipulation on this DS */
-    spin_unlock_bh(&scheduler.sceduler_lock);
+    spin_unlock_bh(&scheduler.scheduler_lock);
 }
 
 
@@ -358,15 +361,16 @@ static void sk_data_ready_custom(struct sock *sk)
 int sk_thread_sockets_scheduler(void *data)
 {
     struct sx_bfd_rx_socket_user_info *user_info = NULL;
-    int                                rc = 0;
 
-    while (!kthread_should_stop()) {
+    scheduler.scheduler_thread_active = 1;
+
+    while (scheduler.scheduler_thread_active) {
         /* Lock scheduler DS from other manipulation on this DS */
-        spin_lock_bh(&scheduler.sceduler_lock);
+        spin_lock_bh(&scheduler.scheduler_lock);
         /* Get the entry from LL of the sockets to be manged  */
         user_info = list_first_entry_or_null(&scheduler.scheduler_list, struct sx_bfd_rx_socket_user_info, list);
         /* Unlock scheduler DS to allow other manipulation on this DS */
-        spin_unlock_bh(&scheduler.sceduler_lock);
+        spin_unlock_bh(&scheduler.scheduler_lock);
         if (user_info) {
             BUG_ON(user_info->t_sock == NULL);
             BUG_ON(user_info->t_sock->sk == NULL);
@@ -381,7 +385,7 @@ int sk_thread_sockets_scheduler(void *data)
             sock_put(user_info->t_sock->sk);
 
             /* Lock scheduler DS from other manipulation on this DS */
-            spin_lock_bh(&scheduler.sceduler_lock);
+            spin_lock_bh(&scheduler.scheduler_lock);
 
             /* Decrement the number of packets waiting on this specific socket
              * being on the head of the LL  - as now we are going to manage
@@ -405,14 +409,17 @@ int sk_thread_sockets_scheduler(void *data)
                 list_move_tail(&user_info->list, &scheduler.scheduler_list);
             }
             /* Unlock scheduler DS to allow other manipulation on this DS */
-            spin_unlock_bh(&scheduler.sceduler_lock);
+            spin_unlock_bh(&scheduler.scheduler_lock);
         } else {
             /* Wait on scheduler_sem which will be "upped" by
              * sk_data_ready_custom callback when any socket notification
              * Rx Data will be arrived. */
-            rc = down_timeout(&scheduler.scheduler_sem, HZ);
-            if ((rc != 0) && (rc != -ETIME)) {
+            if (down_interruptible(&scheduler.scheduler_sem)) {
                 printk(KERN_ERR "unexpected return value of down_timeout \n");
+            }
+
+            if (!scheduler.scheduler_thread_active) {
+                break;
             }
         }
     }
@@ -438,7 +445,39 @@ void sk_user_destruct(struct sock *sk)
     }
 }
 
-int sx_bfd_rx_socket_init(uint16_t port, struct socket ** sock, uint32_t vrf_id, unsigned long bfd_user_space_pid)
+static int sk_bfd_socket_bindtodevice(struct socket *sock, char *linux_vrf_name)
+{
+    int          err = 0;
+    mm_segment_t oldfs;
+
+    if (linux_vrf_name == NULL) {
+        err = -EIO;
+        goto bail;
+    }
+
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+
+    err = sock_setsockopt(sock,
+                          SOL_SOCKET,
+                          SO_BINDTODEVICE,
+                          linux_vrf_name, BFD_LINUX_VRF_NAME_LENGTH);
+    if (err < 0) {
+        printk(KERN_WARNING "Failed to set BFD socket SO_BINDTODEVICE option. Err = %d\n", err);
+    }
+
+    set_fs(oldfs);
+
+bail:
+    return err;
+}
+
+int sx_bfd_rx_socket_init(uint16_t         port,
+                          struct socket ** sock,
+                          uint32_t         vrf_id,
+                          unsigned long    bfd_user_space_pid,
+                          uint8_t          use_vrf_device,
+                          char            *linux_vrf_name)
 {
     int                                err = 0;
     struct sockaddr_in6                s6addr;
@@ -449,10 +488,22 @@ int sx_bfd_rx_socket_init(uint16_t port, struct socket ** sock, uint32_t vrf_id,
     struct sx_bfd_rx_socket_user_info *sk_user_data = NULL;
     int                                rcvbuf;
 
+    if (linux_vrf_name == NULL) {
+        printk(KERN_ERR "Unexpected NULL <linux_vrf_name>.\n");
+        return -EIO;
+    }
+
     /* Create Socket */
     if (sock_create(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, &t_sock) < 0) {
         printk(KERN_ERR "Failed to create BFD socket.\n");
         return -EIO;
+    }
+
+    if (use_vrf_device) {
+        if (sk_bfd_socket_bindtodevice(t_sock, linux_vrf_name) < 0) {
+            printk(KERN_ERR "Failed to bind rx BFD socket to vrf device: %s.\n", linux_vrf_name);
+            return -EIO;
+        }
     }
 
     /* Set reuse flag */
@@ -571,7 +622,9 @@ int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
                             uint8_t           ttl,
                             uint8_t           dscp,
                             struct socket  ** sock,
-                            uint16_t          sa_family)
+                            uint16_t          sa_family,
+                            uint8_t           use_vrf_device,
+                            char            * linux_vrf_name)
 {
     uint32_t        addr_size;
     struct socket * t_sock = NULL;
@@ -589,6 +642,12 @@ int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
         goto bail;
     }
 
+    if (linux_vrf_name == NULL) {
+        printk(KERN_ERR "Unexpected NULL <linux_vrf_name>.\n");
+        err = -EIO;
+        goto bail;
+    }
+
     /* Create Socket */
     if (sock_create(sa_family, SOCK_DGRAM, IPPROTO_UDP, &t_sock) < 0) {
         printk(KERN_ERR "Failed to create BFD socket.\n");
@@ -596,11 +655,21 @@ int sx_bfd_tx_socket_create(struct sockaddr * local_addr,
         goto bail;
     }
 
+    if (use_vrf_device) {
+        if (sk_bfd_socket_bindtodevice(t_sock, linux_vrf_name) < 0) {
+            printk(KERN_ERR "Failed to bind tx BFD socket to vrf device: %s.\n", linux_vrf_name);
+            err = -EIO;
+            goto bail;
+        }
+    }
+
     addr_size = (sa_family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
     if (t_sock->ops->bind(t_sock,
                           local_addr,
                           addr_size) < 0) {
-        printk(KERN_DEBUG "Failed to bind BFD socket, continue without socket bind. \n");
+        printk(KERN_ERR "Failed to bind BFD socket, non exist IP address.\n");
+        err = -EIO;
+        goto bail;
     }
 
     /* set TTL */
@@ -687,7 +756,7 @@ void sx_bfd_rx_vrf_hash_add(void *rx_vrf_entry)
 }
 
 /* Function which initializes VRF. */
-void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
+void * sx_bfd_rx_vrf_init(uint32_t vrf_id, uint8_t use_vrf_device, char *linux_vrf_name, unsigned long bfd_pid)
 {
     struct sx_bfd_rx_vrf       *vrf = NULL;
     struct sx_bfd_rx_vrf_entry *entry_vrf = NULL;
@@ -717,7 +786,12 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
     vrf->vrf_id = vrf_id;
 
     /* Initialize Rx_socket for single_port. */
-    err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT, &vrf->sock_single_hop, vrf->vrf_id, bfd_pid);
+    err = sx_bfd_rx_socket_init(SX_BFD_SINGLEHOP_PORT,
+                                &vrf->sock_single_hop,
+                                vrf->vrf_id,
+                                bfd_pid,
+                                use_vrf_device,
+                                linux_vrf_name);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_SINGLEHOP_PORT socket failed.\n");
         err = -EIO;
@@ -725,7 +799,12 @@ void * sx_bfd_rx_vrf_init(uint32_t vrf_id, unsigned long bfd_pid)
     }
 
     /* Initialize Rx_socket for multihop_port. */
-    err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT, &vrf->sock_multi_hop, vrf->vrf_id, bfd_pid);
+    err = sx_bfd_rx_socket_init(SX_BFD_MULTIHOP_PORT,
+                                &vrf->sock_multi_hop,
+                                vrf->vrf_id,
+                                bfd_pid,
+                                use_vrf_device,
+                                linux_vrf_name);
     if (err) {
         printk(KERN_ERR "Create SX_BFD_MULTIHOP_PORT socket failed.\n");
         err = -EIO;
@@ -816,14 +895,14 @@ void sx_bfd_rx_socket_destroy(struct socket * sock)
     int                                wait = 1;
 
     /* Lock scheduler DS from other manipulation on this DS */
-    spin_lock_bh(&scheduler.sceduler_lock);
+    spin_lock_bh(&scheduler.scheduler_lock);
     BUG_ON(sock == NULL);
     BUG_ON(sock->sk == NULL);
     sk_user_data = (struct sx_bfd_rx_socket_user_info *)sock->sk->sk_user_data;
     BUG_ON(sk_user_data == NULL);
     sk_user_data->sock_state = sx_bfd_sock_state_dead;
     wait = (sk_user_data->ref_count == 0) ? 0 : 1;
-    spin_unlock_bh(&scheduler.sceduler_lock);
+    spin_unlock_bh(&scheduler.scheduler_lock);
     /* Wait to notification from sx_bfd_rx_sess_put_no_lock that
      * no one is looking on rx_session*/
     if (wait) {
@@ -839,7 +918,7 @@ int sx_bfd_socket_init(void)
     if (!g_initialized) {
         INIT_LIST_HEAD(&scheduler.scheduler_list);
         sema_init(&scheduler.scheduler_sem, 0);
-        spin_lock_init(&scheduler.sceduler_lock);
+        spin_lock_init(&scheduler.scheduler_lock);
 
         if (bfd_thread == NULL) {
             bfd_thread = kthread_run(sk_thread_sockets_scheduler, (void*)NULL, "BFD thread");
@@ -863,6 +942,8 @@ bail:
 void sx_bfd_socket_deinit(void)
 {
     if (g_initialized) {
+        scheduler.scheduler_thread_active = 0;
+        up(&scheduler.scheduler_sem);
         kthread_stop(bfd_thread);
 
         g_initialized = false;

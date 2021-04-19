@@ -1,0 +1,13 @@
+diff --git a/drivers/net/mlx_sx/sx_clock_spc1.c b/drivers/net/mlx_sx/sx_clock_spc1.c
+index fb0a2ec..995c858 100644
+--- a/drivers/net/mlx_sx/sx_clock_spc1.c
++++ b/drivers/net/mlx_sx/sx_clock_spc1.c
+@@ -39,6 +39,8 @@
+ 
+ #define SPC1_CLOCK_FREQ_KHZ (156257)  /* 6.4 nSec/cycle */
+ 
++typedef u64 cycle_t;
++
+ static struct delayed_work __set_hw_time_dwork;
+ static u64 __read_hw_clock_spc1(const struct cyclecounter *cc)
+ {
