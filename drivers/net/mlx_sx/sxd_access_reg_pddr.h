@@ -1,5 +1,5 @@
 /*
- * Copyright (C) Mellanox Technologies, Ltd. 2010-2019 ALL RIGHTS RESERVED.
+ * Copyright (C) Mellanox Technologies, Ltd. 2010-2021 ALL RIGHTS RESERVED.
  *
  * This software product is a proprietary product of Mellanox Technologies, Ltd.
  * (the "Company") and all right, title, and interest in and to the software product,
@@ -143,11 +143,11 @@ typedef struct sxd_emad_pddr_module_info {
     uint8_t  rx_tx_cdr_cap;
     uint8_t  rx_cdr_state;
     uint8_t  tx_cdr_state;
-    uint32_t vendor_name;
-    uint32_t vendor_pn;
-    uint16_t vendor_rev;
-    uint16_t fw_version;
-    uint32_t vendor_sn;
+    uint32_t vendor_name[SXD_VENDOR_NAME_LEN];
+    uint32_t vendor_pn[SXD_VENDOR_PN_LEN];
+    uint32_t vendor_rev;
+    uint32_t fw_version;
+    uint32_t vendor_sn[SXD_VENDOR_SN_LEN];
     uint16_t temperature;
     uint16_t voltage;
     uint16_t rx_power_lane[NUMBER_OF_SERDESES];

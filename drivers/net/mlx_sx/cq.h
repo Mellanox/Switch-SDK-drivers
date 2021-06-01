@@ -43,18 +43,25 @@
 #define CQN_INVALID 255
 
 #define ETH_CRC_LENGTH 4
-#define IB_CRC_LENGTH  6
+
+/* do we need to put timestamp on packets? */
+#define IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn) \
+    (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, (cqn)))
+
+/* do we need to put HW (not Linux) timestamp on packets? */
+#define IS_CQ_WORKING_WITH_HW_TIMESTAMP(dev, cqn) \
+    (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, (cqn)))
 
 /************************************************
  * Enums
  ***********************************************/
 
 enum {
-    SX_CQE_OWNER_MASK = 0x01,
-    SX_CQE_IS_SEND_MASK = 0x40,
-    SX_CQE_IS_ERR_MASK = 0x80,
-    SX_CQE_DQN_MASK = 0x1f,
-    SX_CQE_DQN_MSB_MASK = 0x4000,
+    SX_CQE_OWNER_MASK    = 0x01,
+    SX_CQE_IS_SEND_MASK  = 0x40,
+    SX_CQE_IS_ERR_MASK   = 0x80,
+    SX_CQE_DQN_MASK      = 0x1f,
+    SX_CQE_DQN_MSB_MASK  = 0x4000,
     SX_CQE_DQN_MSB_SHIFT = 5,
 };
 
@@ -184,8 +191,8 @@ void sx_core_destroy_cq(struct sx_dev *dev, struct sx_cq *cq);
 int sx_cq_completion(struct sx_dev *dev, u32 cqn, u16 weight, const struct timespec *timestamp,
                      struct sx_bitmap *prio_bitmap);
 void sx_core_dump_synd_tbl(struct sx_dev *dev);
-int rx_skb(void *context, struct sk_buff *skb, union sx_cqe *u_cqe, const struct timespec *timestamp,
-           int is_from_monitor_rdq, struct listener_entry* force_listener);
+int rx_skb(void *context, struct sk_buff *skb, union sx_cqe *u_cqe, const struct sx_rx_timestamp *rx_timestamp,
+           int is_from_monitor_rdq, struct listener_entry* force_listener, u8 dev_id);
 void sx_get_cqe_all_versions(struct sx_cq *cq, uint32_t n, union sx_cqe *cqe_p);
 int sx_cq_credit_thread_handler(void *cq_ctx);
 void wqe_sync_for_cpu(struct sx_dq *dq, int idx);
@@ -204,6 +211,13 @@ void sx_fill_params_from_cqe_v2(union sx_cqe *u_cqe, u16 *hw_synd_p, u8  *is_isx
 void sx_init_cq_db_v0(struct sx_cq *tcq, u8 cqn, u8 *cqe_ver);
 void sx_init_cq_db_spc(struct sx_cq *tcq, u8 cqn, u8 *cqe_ver);
 void sx_init_cq_db_v2(struct sx_cq *tcq, u8 cqn, u8 *cqe_ver);
+
+void set_timestamp_of_rx_packet(struct sx_cq                 *cq,
+                                const struct timespec        *linux_ts,
+                                const struct sx_rx_timestamp *cqe_ts,
+                                struct sx_rx_timestamp       *rx_ts);
+
+u8 sx_is_cq_idle(struct sx_dev *dev, int cqn);
 
 #endif /* SX_CQ_H */
 

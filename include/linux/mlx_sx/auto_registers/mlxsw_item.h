@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (c) 2010-2020,  Mellanox Technologies. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -29,6 +29,7 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 
 #ifndef _MLXSW_ITEM_H
 #define _MLXSW_ITEM_H
@@ -77,7 +78,7 @@ __mlxsw_item_offset(const struct mlxsw_item *item, unsigned short index,
         BUG();
     }
 
-    return ((item->offset + item->step * index + item->in_step_offset) /
+    return ((item->offset + (unsigned int)item->step * index + item->in_step_offset) /
         typesize);
 }
 

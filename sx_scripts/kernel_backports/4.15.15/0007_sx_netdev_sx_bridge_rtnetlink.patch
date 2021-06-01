@@ -1,8 +1,14 @@
 diff --git a/drivers/net/sx_netdev/sx_bridge_rtnetlink.c b/drivers/net/sx_netdev/sx_bridge_rtnetlink.c
-index 1c1a007..07cd168 100644
+index a9645979bc..4ee0017f06 100644
 --- a/drivers/net/sx_netdev/sx_bridge_rtnetlink.c
 +++ b/drivers/net/sx_netdev/sx_bridge_rtnetlink.c
-@@ -67,7 +67,7 @@ static void sx_bridge_setup(struct net_device *dev)
+@@ -63,12 +63,13 @@ static void sx_bridge_setup(struct net_device *dev)
+ 
+     memset(net_priv, 0, sizeof(*net_priv));
+     ether_setup(dev);
++    dev->max_mtu = 0; /* do not limit the max MTU */
+     dev->hard_header_len = ETH_HLEN + ISX_HDR_SIZE;
+     dev->needs_free_netdev = true;
      net_priv->netdev = dev;
  }
  
@@ -11,7 +17,7 @@ index 1c1a007..07cd168 100644
  {
      __u16 id;
  
-@@ -125,7 +125,8 @@ nla_put_failure:
+@@ -126,7 +127,8 @@ nla_put_failure:
      return -EMSGSIZE;
  }
  

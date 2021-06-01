@@ -30,40 +30,32 @@
  * SOFTWARE.
  */
 
-#undef TRACE_SYSTEM
-#define TRACE_SYSTEM sx_core
+#ifndef SX_PSAMPLE_H
+#define SX_PSAMPLE_H
 
-#if !defined(_SX_CORE_TRACE_H) || defined(TRACE_HEADER_MULTI_READ)
-#define _SX_CORE_TRACE_H
+#if IS_ENABLED(CONFIG_PSAMPLE)
 
-#include <linux/tracepoint.h>
+void sx_psample_set_synd(struct sx_dev       *dev,
+                         u16                  synd,
+                         enum sx_dev_event    event,
+                         union sx_event_data *event_data);
+void sx_psample_set_port_sample_ret(u8  local_port,
+                                    u32 rate);
+void sx_psample_cleanup(void);
 
-TRACE_EVENT(monitor_rdq_rx,
-            TP_PROTO(const struct sk_buff *skb, uint16_t trap_id, const struct timespec *timestamp),
+#else /* IS_ENABLED(CONFIG_PSAMPLE) */
 
-            TP_ARGS(skb, trap_id, timestamp),
+void sx_psample_set_synd(struct sx_dev *dev, u16 synd, enum sx_dev_event event, union sx_event_data *event_data)
+{
+}
 
-            TP_STRUCT__entry(
-                __field(const void *, skb)
-                __field(uint16_t,     trap_id)
-                __field(const void *, timestamp)
-                ),
+void sx_psample_set_port_sample_ret(u8 local_port, u32 rate)
+{
+}
 
-            TP_fast_assign(
-                __entry->skb = skb;
-                __entry->trap_id = trap_id;
-                __entry->timestamp = timestamp;
-                ),
+void sx_psample_cleanup(void)
+{
+}
+#endif /* IS_ENABLED(CONFIG_PSAMPLE) */
 
-            TP_printk("trap_id %u tv_sec %ld tv_nsec %ld", __entry->trap_id,
-                      (long)(((const struct timespec*)__entry->timestamp)->tv_sec),
-                      ((const struct timespec*)__entry->timestamp)->tv_nsec)
-            );
-
-#endif /* _SX_CORE_TRACE_H */
-
-/* This part must be outside protection */
-#undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH .
-#define TRACE_INCLUDE_FILE trace
-#include <trace/define_trace.h>
+#endif /* SX_PSAMPLE_H */

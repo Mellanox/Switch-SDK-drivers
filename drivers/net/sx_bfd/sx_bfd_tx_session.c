@@ -206,7 +206,9 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
                                   request_hdr.ttl,
                                   request_hdr.dscp,
                                   &session->sock,
-                                  ((struct sockaddr *)&request_hdr.peer_addr)->sa_family);
+                                  ((struct sockaddr *)&request_hdr.peer_addr)->sa_family,
+                                  request_hdr.use_vrf_device,
+                                  request_hdr.linux_vrf_name);
     if (err < 0) {
         printk(KERN_ERR "Failed to create TX socket.\n");
         goto bail;
