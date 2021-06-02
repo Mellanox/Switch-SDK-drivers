@@ -83,6 +83,13 @@ static void poll_catas(unsigned long dev_ptr)
     if (__raw_readl(priv->catas_err.map)) {
         dump_err_buf(dev);
 
+        /* Health event will be generate only if enabled. Then, to prevent endless calls, trap is disabled. */
+        printk(KERN_ERR PFX "CATAS for device:[%d] sending SDK health event (if enabled). \n", dev->device_id);
+
+        if (sdk_health_test_and_disable(dev->device_id)) {
+            sx_send_health_event(dev->device_id, SXD_HEALTH_CAUSE_CATAS);
+        }
+
         sx_core_dispatch_event(dev,
                                SX_DEV_EVENT_CATASTROPHIC_ERROR, NULL);
 

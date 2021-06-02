@@ -187,7 +187,7 @@ static const char                *rsc_free_names[MEMTRACK_NUM_OF_MEMTYPES] = {
     "vfree",
     "kmem_cache_free",
     "io_unmap",
-    "destory_workqueue",
+    "destroy_workqueue",
     "free_pages",
     "ib_dma_unmap_single",
     "ib_dma_unmap_page",

@@ -268,7 +268,8 @@ int sgmii_send(struct sgmii_dev               *sgmii_dev,
         return -EINVAL;
     }
 
-    if (!meta || ((meta->type < SX_PKT_TYPE_MIN) || (meta->type > SX_PKT_TYPE_MAX))) {
+    /* meta can be NULL (for instance when getting here from CR-Space access) */
+    if (meta && ((((int)meta->type) < SX_PKT_TYPE_MIN) || (((int)meta->type) > SX_PKT_TYPE_MAX))) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_invalid_metadata);
         return -EINVAL;
     }
@@ -279,7 +280,7 @@ int sgmii_send(struct sgmii_dev               *sgmii_dev,
         return -ENONET;
     }
 
-    if (tx_debug) {
+    if (tx_debug && meta) {
         printk(KERN_DEBUG PFX
                "%s: Sending pkt with meta: "
                "et: %d , swid: %d , sysport:0x%x, rdq: %d,"
@@ -422,16 +423,23 @@ out:
 
 static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev, struct sk_buff *skb, struct timespec *timestamp)
 {
-    struct sx_cqe_v0 cqe_v0;
-    union sx_cqe     cqe = {
+    struct sx_cqe_v0       cqe_v0;
+    union sx_cqe           cqe = {
         .v0 = &cqe_v0
     };
-    int              err;
+    struct sx_rx_timestamp rx_ts;
+    int                    err;
+
+    if (timestamp) {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, timestamp->tv_sec, timestamp->tv_nsec, SXD_TS_TYPE_LINUX);
+    } else {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+    }
 
     memcpy(&cqe_v0, skb->data, sizeof(cqe_v0));
     skb_pull(skb, sizeof(cqe_v0));
 
-    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, timestamp, 0, NULL);
+    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL, sgmii_dev_get_id(sgmii_dev));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev0_handler_failed);
     } else {
@@ -442,16 +450,23 @@ static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev, struct sk
 
 static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev, struct sk_buff *skb, struct timespec *timestamp)
 {
-    struct sx_cqe_v2 cqe_v2;
-    union sx_cqe     cqe = {
+    struct sx_cqe_v2       cqe_v2;
+    union sx_cqe           cqe = {
         .v2 = &cqe_v2
     };
-    int              err;
+    struct sx_rx_timestamp rx_ts;
+    int                    err;
+
+    if (timestamp) {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, timestamp->tv_sec, timestamp->tv_nsec, SXD_TS_TYPE_LINUX);
+    } else {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+    }
 
     memcpy(&cqe_v2, skb->data, sizeof(cqe_v2));
     skb_pull(skb, sizeof(cqe_v2));
 
-    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, timestamp, 0, NULL);
+    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL, sgmii_dev_get_id(sgmii_dev));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev2_handler_failed);
     } else {

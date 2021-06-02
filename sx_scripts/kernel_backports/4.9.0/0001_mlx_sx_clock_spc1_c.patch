@@ -1,0 +1,23 @@
+diff --git a/drivers/net/mlx_sx/sx_clock_spc1.c b/drivers/net/mlx_sx/sx_clock_spc1.c
+index 34b4922..db03b63 100644
+--- a/drivers/net/mlx_sx/sx_clock_spc1.c
++++ b/drivers/net/mlx_sx/sx_clock_spc1.c
+@@ -272,7 +272,7 @@ static const struct ptp_clock_info __clock_info_spc1 = {
+ int sx_clock_init_spc1(struct sx_priv *priv)
+ {
+     struct sx_tstamp *tstamp = &priv->tstamp;
+-    u64               ns;
++    u64               ns, frac = 0;
+     int err;
+ 
+     spin_lock_init(&tstamp->lock);
+@@ -304,7 +304,7 @@ int sx_clock_init_spc1(struct sx_priv *priv)
+      * sure counter is checked at least once every wrap around.
+      */
+ 
+-    ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask);
++    ns = cyclecounter_cyc2ns(&tstamp->cycles, tstamp->cycles.mask, frac, &frac);
+     do_div(ns, NSEC_PER_SEC / 2 / HZ);
+ 
+     /* keep periodic read from clock every 1/8 second and avoid it from wrap-around */
+-
