@@ -43,7 +43,7 @@
 
 enum {
     SX_ICM_PAGE_SHIFT = 12,
-    SX_ICM_PAGE_SIZE = 1 << SX_ICM_PAGE_SHIFT,
+    SX_ICM_PAGE_SIZE  = 1 << SX_ICM_PAGE_SHIFT,
 };
 
 struct sx_icm_chunk {
