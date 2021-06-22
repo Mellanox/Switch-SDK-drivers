@@ -50,6 +50,12 @@
 #include <linux/skbuff.h>       /* For skbufs handling */
 #include <asm/uaccess.h>    /* For copy from/to user */
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+#undef ioremap
+#undef iounmap
+#undef ioremap_nocache
+#endif
+
 #define MEMTRACK_ERROR_INJECTION_MESSAGE(file, line, func)                    \
     ({                                                                        \
          printk(KERN_ERR "%s failure injected at %s:%d\n", func, file, line); \
