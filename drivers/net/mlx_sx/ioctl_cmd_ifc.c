@@ -112,13 +112,19 @@ long ctrl_cmd_query_board_info(struct file *file, unsigned int cmd, unsigned lon
 {
     struct ku_query_board_info board_info;
     struct sx_dev             *dev;
+    int                        err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
-    board_info.vsd_vendor_id = dev->vsd_vendor_id;
-    memcpy(board_info.board_id, dev->board_id, sizeof(dev->board_id));
+    err = sx_QUERY_BOARDINFO(dev, &board_info);
+    if (err) {
+        goto out;
+    }
 
-    return 0;
+    err = copy_to_user((void*)data, &board_info, sizeof(board_info));
+
+out:
+    return err;
 }
 
 

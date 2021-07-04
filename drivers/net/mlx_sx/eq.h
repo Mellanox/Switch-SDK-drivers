@@ -38,21 +38,21 @@
  ***********************************************/
 
 enum SX_NUM_EQE {
-    SX_NUM_COMP_EQE = 0x100,
+    SX_NUM_COMP_EQE  = 0x100,
     SX_NUM_ASYNC_EQE = 0x100,
     SX_NUM_SPARE_EQE = 0x80
 };
 enum SX_EQ_STATE {
-    SX_EQ_STATE_ARMED = 0x01,
-    SX_EQ_STATE_FIRED = 0x00,
+    SX_EQ_STATE_ARMED        = 0x01,
+    SX_EQ_STATE_FIRED        = 0x00,
     SX_EQ_STATE_ALWAYS_ARMED = 0x03
 };
 enum SX_EQ_PKT_TYPE {
-    SX_EQ_PKT_TYPE_RAW_IB = 0x000,
+    SX_EQ_PKT_TYPE_RAW_IB   = 0x000,
     SX_EQ_PKT_TYPE_IB_TRANS = 0x001, /* IB transport  */
-    SX_EQ_PKT_TYPE_ETH = 0x010,
-    SX_EQ_PKT_TYPE_FC_IB = 0x100,    /* Fibre Channel over IB */
-    SX_EQ_PKT_TYPE_FC_ETH = 0x101   /* Fibre Channel over Ethernet */
+    SX_EQ_PKT_TYPE_ETH      = 0x010,
+    SX_EQ_PKT_TYPE_FC_IB    = 0x100, /* Fibre Channel over IB */
+    SX_EQ_PKT_TYPE_FC_ETH   = 0x101 /* Fibre Channel over Ethernet */
 };
 enum SX_EQ_TYPE {
     SX_EQ_ASYNC,
