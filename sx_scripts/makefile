@@ -37,8 +37,8 @@ configure.mk.kernel:
 
 # Option -Wno-date-time is needed only for GCC 4.9 or higher
 # Currently only native compiler is checked
-c1 = $(shell cat /proc/version |sed 's/^.*gcc version //'|cut -d' ' -f1|cut -d'.' -f1)
-c2 = $(shell cat /proc/version |sed 's/^.*gcc version //'|cut -d' ' -f1|cut -d'.' -f2)
+c1 = $(shell gcc -v 2>&1 | grep 'gcc version' | sed 's/^.*gcc version //'|cut -d' ' -f1|cut -d'.' -f1)
+c2 = $(shell gcc -v 2>&1 | grep 'gcc version' | sed 's/^.*gcc version //'|cut -d' ' -f1|cut -d'.' -f2)
 gcc_4_9 =  $(shell [ $(c1) -gt 4 -o \( $(c1) -eq 4 -a $(c2) -ge 9 \) ] && echo 1)
 ifeq ($(gcc_4_9),1)
 	export GCC_NO_DATE_TIME = -Wno-date-time
@@ -111,7 +111,7 @@ endif
 
 V ?= 1
 
-ifneq ($(findstring 3.10,$(KVERSION))$(findstring 3.13,$(KVERSION))$(findstring 3.14,$(KVERSION))$(findstring 3.16,$(KVERSION))$(findstring 4.9,$(KVERSION))$(findstring 4.15,$(KVERSION)),)
+ifneq ($(findstring 3.10,$(KVERSION))$(findstring 3.13,$(KVERSION))$(findstring 3.14,$(KVERSION))$(findstring 3.16,$(KVERSION))$(findstring 4.9,$(KVERSION))$(findstring 4.15,$(KVERSION))$(findstring 4.19,$(KVERSION))$(findstring 5.10,$(KVERSION)),)
 MLNX_LINUX_AUTOCONF_FILE = include/generated/autoconf.h
 MLNX_LINUX_KCONFIG_FILE =  $(KCONFIG_H)
 ifeq (exists, $(shell [ -d "/lib/modules/${KVERSION}/source" ] && echo exists ))
@@ -151,7 +151,7 @@ kernel:
 	if [ "x" != "x$(EXTRA_SWITCHX_SDK_KERNEL_SYMVERS)" ] ; then \cp -fv $(EXTRA_SWITCHX_SDK_KERNEL_SYMVERS) . || exit 1 ; fi
 	@echo "Using GCC_NO_DATE_TIME=$(GCC_NO_DATE_TIME)"		
 	env CWD=$(CWD) BACKPORT_INCLUDES=$(BACKPORT_INCLUDES) \
-		$(MAKE) -C $(KBLD) SUBDIRS="$(CWD)" \
+		$(MAKE) -C $(KBLD) M="$(CWD)" \
 		V=$(V) $(WITH_MAKE_PARAMS) \
 		CONFIG_SX_CORE_DEBUG=$(CONFIG_SX_CORE_DEBUG) \
 		CONFIG_SX_CORE=$(CONFIG_SX_CORE) \
@@ -175,8 +175,9 @@ kernel:
 		-I$$(srctree)/arch/$$(SRCARCH)/include \
 		$(MLNX_LINUX_EXTRA_INCLUDE_FOLDERS) \
 		$(KERNEL_MEMTRACK_CFLAGS) \
+		-I$(CWD)/include/stub \
 		' \
-		KCFLAGS="-DSYSTEM_PCI $(KCFLAGS) -Werror -Wall -Wswitch -Wunused -Wno-format-truncation -Wno-stringop-truncation $(GCC_NO_DATE_TIME)" \
+		KCFLAGS="-DSYSTEM_PCI $(KCFLAGS) -Werror -Wall -Wswitch -Wunused -Wno-format-truncation -Wno-stringop-truncation -Wframe-larger-than=4096 $(GCC_NO_DATE_TIME)" \
 		modules
 
 
@@ -188,7 +189,7 @@ install_modules: kernel
 	@echo "Installing kernel modules"
 	rm -rfv $(KERNEL_MODS_STAGING_FOLDER)
 	mkdir -p $(KERNEL_MODS_STAGING_FOLDER)
-	$(MAKE) -C $(KBLD) SUBDIRS="$(CWD)" \
+	$(MAKE) -C $(KBLD) M="$(CWD)" \
 		INSTALL_MOD_PATH=$(KERNEL_MODS_STAGING_FOLDER) \
 		$(WITH_MAKE_PARAMS) modules_install;
 
@@ -303,7 +304,7 @@ install_kernel_mlxfw: install_modules
 clean: clean_kernel
 
 clean_kernel:
-	$(MAKE) -C $(KBLD) SUBDIRS="$(CWD)" $(WITH_MAKE_PARAMS) clean
+	$(MAKE) -C $(KBLD) M="$(CWD)" $(WITH_MAKE_PARAMS) clean
 
 help:
 	@echo
