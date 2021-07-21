@@ -1,0 +1,2 @@
+Copy the whole directory which contains this README to some folder on the machine where you plan to build the linux kernel,
+then execute "./apply_patches_example.sh -d <your_linux_kernel_source_folder>".

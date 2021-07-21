@@ -37,7 +37,6 @@
 #include "sgmii_internal.h"
 #include "map.h"
 
-#define EMAD_TRAP_ID                     (0x5)
 #define EMAD_FRAME_TRANSACTION_ID_OFFSET (0x18)
 
 static struct sgmii_transaction_db __emad_tr_db;
@@ -81,9 +80,10 @@ static int __sgmii_send_emad(int                                    dev_id,
                              const struct isx_meta                 *meta,
                              struct sgmii_sync_transaction_context *sync_context)
 {
-    struct sgmii_dev      *sgmii_dev;
-    sgmii_transaction_id_t tr_id;
-    int                    ret;
+    struct sgmii_dev             *sgmii_dev;
+    sgmii_transaction_id_t        tr_id;
+    int                           ret;
+    struct sgmii_transaction_meta tr_meta;
 
     ret = sgmii_dev_get_by_id(dev_id, &sgmii_dev);
     if (ret) {
@@ -102,7 +102,12 @@ static int __sgmii_send_emad(int                                    dev_id,
         sync_context->tr_id = tr_id;
     }
 
-    ret = sgmii_send_transaction(&__emad_tr_db, skb, tr_id, sgmii_dev, meta, sync_context);
+    tr_meta.skb = skb;
+    tr_meta.tr_db = &__emad_tr_db;
+    tr_meta.tr_id = tr_id;
+    tr_meta.transport_type = SXD_COMMAND_TYPE_EMAD;
+
+    ret = sgmii_send_transaction(&tr_meta, sgmii_dev, meta, sync_context);
     if (ret == 0) {
         atomic_inc(&__sgmii_emad_transactions_in_progress);
         goto dec_ref;
@@ -128,9 +133,12 @@ int sgmii_send_emad(int dev_id, struct sk_buff *skb, const struct isx_meta *meta
 }
 
 
-static int __sgmii_send_emad_sync(int dev_id, struct sk_buff *skb, const struct isx_meta *meta)
+static int __sgmii_send_emad_sync(int                    dev_id,
+                                  struct sk_buff        *skb,
+                                  const struct isx_meta *meta,
+                                  struct sk_buff       **reply_skb)
 {
-    return sgmii_send_transaction_sync(dev_id, skb, meta, __sgmii_send_emad, NULL);
+    return sgmii_send_transaction_sync(dev_id, skb, meta, __sgmii_send_emad, reply_skb);
 }
 
 
@@ -150,10 +158,6 @@ static void __sgmii_emad_transaction_completion(struct sk_buff                  
 
     case SGMII_TR_COMP_ST_TIMEDOUT:
         SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_timeout);
-        break;
-
-    case SGMII_TR_COMP_ST_TERMINATED:
-        SGMII_DEV_INC_COUNTER(tr_info->orig_tx_dev, emad_terminated);
         break;
 
     default:
@@ -263,11 +267,12 @@ static int __sgmii_emad_build(int              dev_id,
 }
 
 
-int __sgmii_emad_build_and_send_sync(int            dev_id,
-                                     const uint8_t* reg_buff,
-                                     uint32_t       reg_buff_len,
-                                     uint16_t       reg_id,
-                                     uint8_t        method)
+static int __sgmii_emad_build_and_send_sync(int              dev_id,
+                                            const uint8_t  * reg_buff,
+                                            uint32_t         reg_buff_len,
+                                            uint16_t         reg_id,
+                                            uint8_t          method,
+                                            struct sk_buff **reply_skb)
 {
     struct isx_meta meta;
     struct sk_buff *skb;
@@ -291,7 +296,7 @@ int __sgmii_emad_build_and_send_sync(int            dev_id,
                              method);
 
     if (!err) {
-        err = __sgmii_send_emad_sync(dev_id, skb, &meta);
+        err = __sgmii_send_emad_sync(dev_id, skb, &meta, reply_skb);
     }
 
     return err;
@@ -306,7 +311,12 @@ int sgmii_emad_access_ppad(int dev_id, const struct ku_ppad_reg *reg_ppad)
     ppad[1] = reg_ppad->local_port;
     memcpy(&ppad[2], reg_ppad->mac, 6);
 
-    return __sgmii_emad_build_and_send_sync(dev_id, ppad, sizeof(ppad), PPAD_REG_ID, EMAD_METHOD_WRITE);
+    return __sgmii_emad_build_and_send_sync(dev_id,
+                                            ppad,
+                                            sizeof(ppad),
+                                            PPAD_REG_ID,
+                                            EMAD_METHOD_WRITE,
+                                            NULL);
 }
 
 
@@ -327,7 +337,12 @@ int sgmii_emad_access_hopf(int dev_id, const struct ku_hopf_reg *reg_hopf)
     vid = cpu_to_be16((reg_hopf->pcp << 12) | reg_hopf->vid);
     memcpy(&hopf[18], &vid, 2);
 
-    return __sgmii_emad_build_and_send_sync(dev_id, hopf, sizeof(hopf), HOPF_REG_ID, EMAD_METHOD_WRITE);
+    return __sgmii_emad_build_and_send_sync(dev_id,
+                                            hopf,
+                                            sizeof(hopf),
+                                            HOPF_REG_ID,
+                                            EMAD_METHOD_WRITE,
+                                            NULL);
 }
 
 
@@ -379,7 +394,52 @@ int sgmii_emad_access_spzr(int dev_id, const struct ku_spzr_reg *reg_spzr)
                                             (uint8_t*)spzr_dwords,
                                             sizeof(spzr_dwords),
                                             SPZR_REG_ID,
-                                            EMAD_METHOD_WRITE);
+                                            EMAD_METHOD_WRITE,
+                                            NULL);
+}
+
+
+int sgmii_emad_access_ppbmc(int dev_id, u8 method, /* EMAD_METHOD_QUERY / EMAD_METHOD_WRITE */
+                            struct ku_ppbmc_reg *reg_ppbmc)
+{
+    uint32_t                         ppbmc_dwords[4] = { 0 };
+    struct sk_buff                  *reply_skb = NULL;
+    const struct sxd_emad_ppbmc_reg *ppbmc_reply = NULL;
+    int                              ret = 0;
+
+    __sgmii_bit_field_set(&ppbmc_dwords[0], 8, 11, reg_ppbmc->monitor_type);
+    __sgmii_bit_field_set(&ppbmc_dwords[0], 14, 15, reg_ppbmc->pnat);
+    __sgmii_bit_field_set(&ppbmc_dwords[0], 16, 23, reg_ppbmc->local_port);
+    CONVERT_TO_NETWORK_ORDER(ppbmc_dwords[0]);
+
+    __sgmii_bit_field_set(&ppbmc_dwords[1], 0, 7, reg_ppbmc->monitor_state);
+    __sgmii_bit_field_set(&ppbmc_dwords[1], 16, 19, reg_ppbmc->monitor_ctrl);
+    __sgmii_bit_field_set(&ppbmc_dwords[1], 24, 27, reg_ppbmc->event_ctrl);
+    __sgmii_bit_field_set(&ppbmc_dwords[1], 30, 31, reg_ppbmc->e);
+    CONVERT_TO_NETWORK_ORDER(ppbmc_dwords[1]);
+
+    ret = __sgmii_emad_build_and_send_sync(dev_id,
+                                           (uint8_t*)ppbmc_dwords,
+                                           sizeof(ppbmc_dwords),
+                                           PPBMC_REG_ID,
+                                           method,
+                                           (method == EMAD_METHOD_QUERY) ? &reply_skb : NULL);
+
+    if ((method == EMAD_METHOD_QUERY) && (ret == 0)) {
+        ppbmc_reply = (struct sxd_emad_ppbmc_reg*)reply_skb->data;
+
+        reg_ppbmc->monitor_type = ppbmc_reply->pnat_monitor_type & 0xf;
+        reg_ppbmc->event_ctrl = ppbmc_reply->e_ievent_event_ctrl & 0xf;
+        reg_ppbmc->e = (ppbmc_reply->e_ievent_event_ctrl >> 6) & 0x3;
+        reg_ppbmc->monitor_ctrl = ppbmc_reply->monitor_ctrl & 0xf;
+        reg_ppbmc->monitor_state = ppbmc_reply->monitor_state;
+    }
+
+    if (reply_skb) {
+        kfree_skb(reply_skb);
+    }
+
+    return ret;
 }
 
 
@@ -399,8 +459,8 @@ int sgmii_emad_init(void)
     }
 
     dummy.dont_care.sysport = SYSPORT_DONT_CARE_VALUE;
-    ret = sx_core_add_synd(0, EMAD_TRAP_ID, L2_TYPE_DONT_CARE, 0, dummy, __sgmii_rx_emad,
-                           NULL, CHECK_DUP_DISABLED_E, NULL, NULL);
+    ret = sx_core_add_synd(0, SXD_TRAP_ID_GENERAL_ETH_EMAD, L2_TYPE_DONT_CARE, 0, 0,
+                           dummy, __sgmii_rx_emad, NULL, CHECK_DUP_DISABLED_E, NULL, NULL, 1);
     if (ret) {
         printk(KERN_ERR "failed to register EMAD handler (ret=%d)\n", ret);
     }
@@ -414,5 +474,6 @@ void sgmii_emad_deinit(void)
     union ku_filter_critireas dummy;
 
     dummy.dont_care.sysport = SYSPORT_DONT_CARE_VALUE;
-    sx_core_remove_synd(0, EMAD_TRAP_ID, L2_TYPE_DONT_CARE, 0, dummy, NULL, NULL, __sgmii_rx_emad, NULL);
+    sx_core_remove_synd(0, SXD_TRAP_ID_GENERAL_ETH_EMAD, L2_TYPE_DONT_CARE, 0, dummy,
+                        NULL, NULL, __sgmii_rx_emad, NULL, 1);
 }
