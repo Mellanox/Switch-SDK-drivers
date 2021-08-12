@@ -129,7 +129,11 @@ static void __emad_dump_setup(struct net_device *dev)
 {
     dev->type = ARPHRD_NETLINK;
     dev->netdev_ops = &__emad_dump_ops;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    dev->priv_destructor = free_netdev;
+#else
     dev->destructor = free_netdev;
+#endif
     dev->features = NETIF_F_SG | NETIF_F_FRAGLIST;
     dev->flags = IFF_NOARP;
     dev->mtu = 8 * 1024;
@@ -263,7 +267,12 @@ int __init sx_emad_dump_init(void)
         goto nl_create_failed;
     }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
+    __nl_dev = alloc_netdev(0, "emad_dump", NET_NAME_UNKNOWN, __emad_dump_setup);
+#else
     __nl_dev = alloc_netdev(0, "emad_dump", __emad_dump_setup);
+#endif
+
     if (!__nl_dev) {
         printk(KERN_ERR "failed to create netlink monitor device\n");
         err = -ENOMEM;

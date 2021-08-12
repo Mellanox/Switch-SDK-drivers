@@ -1,7 +1,7 @@
 Source: sx-kernel
 Priority: extra
 Maintainer: Adir Atias <adira@dev-r-vrt-128-008>
-Build-Depends:
+Build-Depends: debhelper
 Standards-Version:
 Section: net
 Homepage: http://www.mellanox.com

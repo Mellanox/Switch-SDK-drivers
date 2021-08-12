@@ -187,7 +187,7 @@ static const char                *rsc_free_names[MEMTRACK_NUM_OF_MEMTYPES] = {
     "vfree",
     "kmem_cache_free",
     "io_unmap",
-    "destory_workqueue",
+    "destroy_workqueue",
     "free_pages",
     "ib_dma_unmap_single",
     "ib_dma_unmap_page",
@@ -820,9 +820,16 @@ static ssize_t memtrack_read(struct file *filp, char __user *buf, size_t size, l
     }
 }
 
-static const struct file_operations memtrack_proc_fops = {
-    .read = memtrack_read,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static const struct proc_ops memtrack_proc_fops = {
+    .proc_read = memtrack_read
 };
+#else
+static const struct file_operations memtrack_proc_fops = {
+    .read = memtrack_read
+};
+#endif
+
 static const char                  *memtrack_proc_entry_name = "mt_memtrack";
 static int create_procfs_tree(void)
 {
@@ -956,13 +963,7 @@ undo_cache_create:
         }
     }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-    if (kmem_cache_destroy(meminfo_cache) != 0) {
-        printk(KERN_ERR "Failed on kmem_cache_destroy!\n");
-    }
-#else
     kmem_cache_destroy(meminfo_cache);
-#endif
     return -1;
 }
 
@@ -1001,12 +1002,6 @@ void cleanup_module(void)
         }
     }                       /* for memtype */
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-    if (kmem_cache_destroy(meminfo_cache) != 0) {
-        printk(KERN_ERR "memtrack::cleanup_module: Failed on kmem_cache_destroy!\n");
-    }
-#else
     kmem_cache_destroy(meminfo_cache);
-#endif
     printk(KERN_INFO "memtrack::cleanup_module done.\n");
 }
