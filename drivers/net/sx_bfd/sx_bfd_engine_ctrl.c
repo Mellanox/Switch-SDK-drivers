@@ -45,43 +45,33 @@ static int sx_bfd_parse_cmd(char* data, int cmd)
 
     switch (cmd) {
     case SX_BFD_CMD_START_TX_OFFLOAD:
-        printk(KERN_DEBUG "START_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_add(data, NULL);
 
     case SX_BFD_CMD_UPDATE_TX_OFFLOAD:
-        printk(KERN_DEBUG "UPDATE_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_update(data);
 
     case SX_BFD_CMD_STOP_TX_OFFLOAD:
-        printk(KERN_DEBUG "STOP_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_del(data, NULL);
 
     case SX_BFD_CMD_START_RX_OFFLOAD:
-        printk(KERN_DEBUG "START_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_add(data);
 
     case SX_BFD_CMD_UPDATE_RX_OFFLOAD:
-        printk(KERN_DEBUG "UPDATE_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_update(data);
 
     case SX_BFD_CMD_STOP_RX_OFFLOAD:
-        printk(KERN_DEBUG "STOP_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_del(data);
 
     case SX_BFD_CMD_GET_RX_STATS:
-        printk(KERN_DEBUG "Request RX statistics\n");
         return sx_bfd_get_rx_sess_stats(data, false);
 
     case SX_BFD_CMD_GET_TX_STATS:
-        printk(KERN_DEBUG "Request TX statistics\n");
         return sx_bfd_get_tx_sess_stats(data, false);
 
     case SX_BFD_CMD_GET_AND_CLEAR_RX_STATS:
-        printk(KERN_DEBUG "Request & Clear RX statistics\n");
         return sx_bfd_get_rx_sess_stats(data, true);
 
     case SX_BFD_CMD_GET_AND_CLEAR_TX_STATS:
-        printk(KERN_DEBUG "Request & Clear TX statistics\n");
         return sx_bfd_get_tx_sess_stats(data, true);
 
     default:

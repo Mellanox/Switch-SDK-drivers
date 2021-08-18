@@ -75,13 +75,29 @@ static void dump_err_buf(struct sx_dev *dev)
     }
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+static void poll_catas(struct timer_list *t)
+#else
 static void poll_catas(unsigned long dev_ptr)
+#endif
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    struct sx_priv *priv = from_timer(priv, t, catas_err.timer);
+    struct sx_dev  *dev = &priv->dev;
+#else
     struct sx_dev  *dev = (struct sx_dev *)dev_ptr;
     struct sx_priv *priv = sx_priv(dev);
+#endif
 
     if (__raw_readl(priv->catas_err.map)) {
         dump_err_buf(dev);
+
+        /* Health event will be generate only if enabled. Then, to prevent endless calls, trap is disabled. */
+        printk(KERN_ERR PFX "CATAS for device:[%d] sending SDK health event (if enabled). \n", dev->device_id);
+
+        if (sdk_health_test_and_disable(dev->device_id)) {
+            sx_send_health_event(dev->device_id, SXD_HEALTH_CAUSE_CATAS);
+        }
 
         sx_core_dispatch_event(dev,
                                SX_DEV_EVENT_CATASTROPHIC_ERROR, NULL);
@@ -131,7 +147,13 @@ void sx_core_start_catas_poll(struct sx_dev *dev)
     }
 
     INIT_LIST_HEAD(&priv->catas_err.list);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    timer_setup(&priv->catas_err.timer, poll_catas, 0);
+#else
     init_timer(&priv->catas_err.timer);
+    priv->catas_err.timer.data = (unsigned long)dev;
+    priv->catas_err.timer.function = poll_catas;
+#endif
     priv->catas_err.map = NULL;
 
     if (!priv->fw.catas_size) {
@@ -148,8 +170,6 @@ void sx_core_start_catas_poll(struct sx_dev *dev)
         return;
     }
 
-    priv->catas_err.timer.data = (unsigned long)dev;
-    priv->catas_err.timer.function = poll_catas;
     priv->catas_err.timer.expires =
         round_jiffies(jiffies + SX_CATAS_POLL_INTERVAL);
     add_timer(&priv->catas_err.timer);
