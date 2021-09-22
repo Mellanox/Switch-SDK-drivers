@@ -46,13 +46,22 @@ static DEFINE_RWLOCK(__sgmii_netdev_lock);
 static struct net_device *__sgmii_netdev = NULL;
 static char               __sgmii_netdev_name[SX_IFNAMSIZ] = "";
 static atomic_t           __sgmii_rx_budget;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+static void __sgmii_rate_limiter_cb(struct timer_list *t);
+static DEFINE_TIMER(__sgmii_rate_limiter_timer, __sgmii_rate_limiter_cb);
+#else
 static void __sgmii_rate_limiter_cb(unsigned long data);
 static DEFINE_TIMER(__sgmii_rate_limiter_timer, __sgmii_rate_limiter_cb, 0, 0);
+#endif
 
 static struct sx_priv *__sgmii_priv = NULL;
 static void            (*handle_rx_by_cqe_version_cb)(struct sgmii_dev *sgmii_dev,
-                                                      struct sk_buff   *skb,
+                                                      struct sk_buff *skb,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                                                      struct timespec64 *timestamp);
+#else
                                                       struct timespec  *timestamp);
+#endif
 static u16 __sgmii_cqe_size;
 struct sgmii_encapsulation_header_rx { /* Linux strips VLAN tag from frame before getting to RX handler */
     struct ethhdr eth_hdr;
@@ -268,7 +277,8 @@ int sgmii_send(struct sgmii_dev               *sgmii_dev,
         return -EINVAL;
     }
 
-    if (!meta || ((meta->type < SX_PKT_TYPE_MIN) || (meta->type > SX_PKT_TYPE_MAX))) {
+    /* meta can be NULL (for instance when getting here from CR-Space access) */
+    if (meta && ((((int)meta->type) < SX_PKT_TYPE_MIN) || (((int)meta->type) > SX_PKT_TYPE_MAX))) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, tx_invalid_metadata);
         return -EINVAL;
     }
@@ -279,7 +289,7 @@ int sgmii_send(struct sgmii_dev               *sgmii_dev,
         return -ENONET;
     }
 
-    if (tx_debug) {
+    if (tx_debug && meta) {
         printk(KERN_DEBUG PFX
                "%s: Sending pkt with meta: "
                "et: %d , swid: %d , sysport:0x%x, rdq: %d,"
@@ -420,18 +430,31 @@ out:
 }
 
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static void __handle_rx_by_cqe_version_v0(struct sgmii_dev  *sgmii_dev,
+                                          struct sk_buff    *skb,
+                                          struct timespec64 *timestamp)
+#else
 static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev, struct sk_buff *skb, struct timespec *timestamp)
+#endif
 {
-    struct sx_cqe_v0 cqe_v0;
-    union sx_cqe     cqe = {
+    struct sx_cqe_v0       cqe_v0;
+    union sx_cqe           cqe = {
         .v0 = &cqe_v0
     };
-    int              err;
+    struct sx_rx_timestamp rx_ts;
+    int                    err;
+
+    if (timestamp) {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, timestamp->tv_sec, timestamp->tv_nsec, SXD_TS_TYPE_LINUX);
+    } else {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+    }
 
     memcpy(&cqe_v0, skb->data, sizeof(cqe_v0));
     skb_pull(skb, sizeof(cqe_v0));
 
-    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, timestamp, 0, NULL);
+    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL, sgmii_dev_get_id(sgmii_dev));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev0_handler_failed);
     } else {
@@ -440,18 +463,31 @@ static void __handle_rx_by_cqe_version_v0(struct sgmii_dev *sgmii_dev, struct sk
 }
 
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static void __handle_rx_by_cqe_version_v2(struct sgmii_dev  *sgmii_dev,
+                                          struct sk_buff    *skb,
+                                          struct timespec64 *timestamp)
+#else
 static void __handle_rx_by_cqe_version_v2(struct sgmii_dev *sgmii_dev, struct sk_buff *skb, struct timespec *timestamp)
+#endif
 {
-    struct sx_cqe_v2 cqe_v2;
-    union sx_cqe     cqe = {
+    struct sx_cqe_v2       cqe_v2;
+    union sx_cqe           cqe = {
         .v2 = &cqe_v2
     };
-    int              err;
+    struct sx_rx_timestamp rx_ts;
+    int                    err;
+
+    if (timestamp) {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, timestamp->tv_sec, timestamp->tv_nsec, SXD_TS_TYPE_LINUX);
+    } else {
+        SX_RX_TIMESTAMP_INIT(&rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+    }
 
     memcpy(&cqe_v2, skb->data, sizeof(cqe_v2));
     skb_pull(skb, sizeof(cqe_v2));
 
-    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, timestamp, 0, NULL);
+    err = rx_skb(&__sgmii_priv->dev, skb, &cqe, &rx_ts, 0, NULL, sgmii_dev_get_id(sgmii_dev));
     if (err) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, rx_cqev2_handler_failed);
     } else {
@@ -464,17 +500,26 @@ static rx_handler_result_t __sgmii_rx_handler(struct sk_buff **pskb)
 {
     const struct sgmii_encapsulation_header_rx *encap_header;
     const struct ku_dpt_sgmii_info             *sgmii_dev_dpt_info;
-    struct timespec                             timestamp;
-    struct sk_buff                             *skb = *pskb;
-    struct sgmii_dev                           *sgmii_dev;
-    int                                         err;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    struct timespec64 timestamp;
+#else
+    struct timespec timestamp;
+#endif
+    struct sk_buff   *skb = *pskb;
+    struct sgmii_dev *sgmii_dev;
+    int               err;
 
     if (atomic_dec_return(&__sgmii_rx_budget) < 0) {
         /* just count, do not drop! */
         COUNTER_INC(&__sgmii_global_counters.rx_rate_limiter);
     }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    ktime_get_real_ts64(&timestamp);
+#else
     getnstimeofday(&timestamp);
+#endif
 
     skb = skb_share_check(skb, GFP_ATOMIC);
     if (!skb) {
@@ -574,7 +619,11 @@ drop_skb:
 }
 
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+static void __sgmii_rate_limiter_cb(struct timer_list *t)
+#else
 static void __sgmii_rate_limiter_cb(unsigned long data)
+#endif
 {
     atomic_set(&__sgmii_rx_budget, sgmii_get_rx_pps());
     mod_timer(&__sgmii_rate_limiter_timer, jiffies + HZ);
@@ -623,8 +672,13 @@ static void __sgmii_dev_removed_cb(void *context)
 
 static int __netdev_notify_cb(struct notifier_block *this, unsigned long event, void *context)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
+    const struct net_device *netdev_notif = netdev_notifier_info_to_dev((struct netdev_notifier_info*)context);
+#else
     const struct net_device *netdev_notif = (struct net_device*)context;
-    struct net_device       *sgmii_netdev;
+#endif
+
+    struct net_device *sgmii_netdev;
 
     sgmii_netdev = __sgmii_get_netdev();
     if (!sgmii_netdev) {
@@ -714,7 +768,11 @@ int sgmii_transport_init(const char       *netdev_name,
 
     rtnl_lock();
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    ret = dev_set_mac_address(netdev, &sa_hwaddr, NULL);
+#else
     ret = dev_set_mac_address(netdev, &sa_hwaddr);
+#endif
     if (ret) {
         printk(KERN_ERR "Failed to set MAC address of SGMII netdev (err=%d)\n", ret);
     } else {
@@ -734,7 +792,11 @@ int sgmii_transport_init(const char       *netdev_name,
     __sgmii_netdev = netdev;
     write_unlock_bh(&__sgmii_netdev_lock);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    __sgmii_rate_limiter_cb(NULL);
+#else
     __sgmii_rate_limiter_cb(0);
+#endif
     strncpy(__sgmii_netdev_name, netdev_name, sizeof(__sgmii_netdev_name));
     return 0;
 
