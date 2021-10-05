@@ -160,8 +160,9 @@ int sx_register_interface(struct sx_interface *intf)
 
     mutex_lock(&intf_mutex);
     list_add_tail(&intf->list, &intf_list);
-    list_for_each_entry(priv, &dev_list, dev_list)
-    sx_core_add_device(intf, priv);
+    list_for_each_entry(priv, &dev_list, dev_list) {
+        sx_core_add_device(intf, priv);
+    }
 
     mutex_unlock(&intf_mutex);
 
@@ -174,8 +175,9 @@ void sx_unregister_interface(struct sx_interface *intf)
     struct sx_priv *priv;
 
     mutex_lock(&intf_mutex);
-    list_for_each_entry(priv, &dev_list, dev_list)
-    sx_core_remove_device(intf, priv);
+    list_for_each_entry(priv, &dev_list, dev_list) {
+        sx_core_remove_device(intf, priv);
+    }
 
     list_del(&intf->list);
 
@@ -286,8 +288,8 @@ void sx_core_dispatch_event(struct sx_dev *dev, enum sx_dev_event type, union sx
     spin_lock(&priv->ctx_lock);
     list_for_each_entry(dev_ctx, &priv->ctx_list, list) {
         if (dev_ctx->intf->event) {
-            printk(KERN_DEBUG PFX "sx_core_dispatch_event: "
-                   "dispatching the event\n");
+            pr_debug(PFX "sx_core_dispatch_event: "
+                     "dispatching the event\n");
             spin_unlock(&priv->ctx_lock);
             mutex_lock(&intf_mutex);
             dev_ctx->intf->event(dev, dev_ctx->context, type, event_data);
@@ -306,8 +308,9 @@ int sx_core_register_device(struct sx_dev *dev)
 
     mutex_lock(&intf_mutex);
     list_add_tail(&priv->dev_list, &dev_list);
-    list_for_each_entry(intf, &intf_list, list)
-    sx_core_add_device(intf, priv);
+    list_for_each_entry(intf, &intf_list, list) {
+        sx_core_add_device(intf, priv);
+    }
 
     mutex_unlock(&intf_mutex);
 
@@ -324,8 +327,9 @@ void sx_core_unregister_device(struct sx_dev *dev)
     }
 
     mutex_lock(&intf_mutex);
-    list_for_each_entry(intf, &intf_list, list)
-    sx_core_remove_device(intf, priv);
+    list_for_each_entry(intf, &intf_list, list) {
+        sx_core_remove_device(intf, priv);
+    }
 
     list_del(&priv->dev_list);
 

@@ -43,18 +43,27 @@
 #define CQN_INVALID 255
 
 #define ETH_CRC_LENGTH 4
-#define IB_CRC_LENGTH  6
+
+/* do we need to put timestamp on packets? */
+#define IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn) \
+    (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, (cqn)))
+
+/* do we need to put HW (not Linux) timestamp on packets? */
+#define IS_CQ_WORKING_WITH_HW_TIMESTAMP(dev, cqn) \
+    (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, (cqn)))
+
+#define MON_CQ_HANDLER_THREAD_CPU_UTIL_PERCENT_DEFAULT 20
 
 /************************************************
  * Enums
  ***********************************************/
 
 enum {
-    SX_CQE_OWNER_MASK = 0x01,
-    SX_CQE_IS_SEND_MASK = 0x40,
-    SX_CQE_IS_ERR_MASK = 0x80,
-    SX_CQE_DQN_MASK = 0x1f,
-    SX_CQE_DQN_MSB_MASK = 0x4000,
+    SX_CQE_OWNER_MASK    = 0x01,
+    SX_CQE_IS_SEND_MASK  = 0x40,
+    SX_CQE_IS_ERR_MASK   = 0x80,
+    SX_CQE_DQN_MASK      = 0x1f,
+    SX_CQE_DQN_MSB_MASK  = 0x4000,
     SX_CQE_DQN_MSB_SHIFT = 5,
 };
 
@@ -151,7 +160,15 @@ static inline void sx_cq_arm(struct sx_cq *cq)
     __raw_writel((__force u32)cpu_to_be32(cq->cons_index & 0xffff),
                  cq->arm_db);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    /* TODO: kernel 5.10 does not have mmiowb() anymore. instead, this function is
+     *       called implicitly by spinlock unlock() functions. need to wrap every
+     *       place that called mmiowb() with spinlock.
+     */
+#else
     mmiowb();
+#endif
+
     spin_unlock_irqrestore(&cq->rearm_lock, flags);
 #endif
 }
@@ -169,8 +186,16 @@ static inline void sx_cq_set_ci(struct sx_cq *cq)
     __raw_writel((__force u32)cpu_to_be32((cq->cons_index + cq->nent) &
                                           0xffff), cq->set_ci_db);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    /* TODO: kernel 5.10 does not have mmiowb() anymore. instead, this function is
+     *       called implicitly by spinlock unlock() functions. need to wrap every
+     *       place that called mmiowb() with spinlock.
+     */
+#else
     mmiowb();
 #endif
+
+#endif /* #ifndef NO_PCI */
 }
 
 /************************************************
@@ -181,11 +206,16 @@ int sx_core_init_cq_table(struct sx_dev *dev);
 void sx_core_destroy_cq_table(struct sx_dev *dev);
 int sx_core_create_cq(struct sx_dev *dev, int nent, struct sx_cq **cq, u8 cqn);
 void sx_core_destroy_cq(struct sx_dev *dev, struct sx_cq *cq);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+int sx_cq_completion(struct sx_dev *dev, u32 cqn, u16 weight, const struct timespec64 *timestamp,
+                     struct sx_bitmap *prio_bitmap);
+#else
 int sx_cq_completion(struct sx_dev *dev, u32 cqn, u16 weight, const struct timespec *timestamp,
                      struct sx_bitmap *prio_bitmap);
+#endif
 void sx_core_dump_synd_tbl(struct sx_dev *dev);
-int rx_skb(void *context, struct sk_buff *skb, union sx_cqe *u_cqe, const struct timespec *timestamp,
-           int is_from_monitor_rdq, struct listener_entry* force_listener);
+int rx_skb(void *context, struct sk_buff *skb, union sx_cqe *u_cqe, const struct sx_rx_timestamp *rx_timestamp,
+           int is_from_monitor_rdq, struct listener_entry* force_listener, u8 dev_id);
 void sx_get_cqe_all_versions(struct sx_cq *cq, uint32_t n, union sx_cqe *cqe_p);
 int sx_cq_credit_thread_handler(void *cq_ctx);
 void wqe_sync_for_cpu(struct sx_dq *dq, int idx);
@@ -204,6 +234,18 @@ void sx_fill_params_from_cqe_v2(union sx_cqe *u_cqe, u16 *hw_synd_p, u8  *is_isx
 void sx_init_cq_db_v0(struct sx_cq *tcq, u8 cqn, u8 *cqe_ver);
 void sx_init_cq_db_spc(struct sx_cq *tcq, u8 cqn, u8 *cqe_ver);
 void sx_init_cq_db_v2(struct sx_cq *tcq, u8 cqn, u8 *cqe_ver);
+
+void set_timestamp_of_rx_packet(struct sx_cq *cq,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                                const struct timespec64      *linux_ts,
+#else
+                                const struct timespec        *linux_ts,
+#endif
+
+                                const struct sx_rx_timestamp *cqe_ts,
+                                struct sx_rx_timestamp       *rx_ts);
+
+u8 sx_is_cq_idle(struct sx_dev *dev, int cqn);
 
 #endif /* SX_CQ_H */
 

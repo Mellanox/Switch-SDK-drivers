@@ -38,6 +38,8 @@
 #include <linux/in6.h>
 #endif
 
+#define BFD_LINUX_VRF_NAME_LENGTH 16
+
 /*
  *  BFD message types
  */
@@ -110,6 +112,8 @@ enum sx_bfd_cmd {
 
 struct __attribute__((__packed__)) bfd_offload_info {
     int      vrf_id;
+    uint8_t  use_vrf_device;
+    char     linux_vrf_name[BFD_LINUX_VRF_NAME_LENGTH + 1];
     uint32_t session_id;
     uint64_t session_opaque_data;
 
