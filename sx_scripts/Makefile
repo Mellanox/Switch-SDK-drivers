@@ -7,4 +7,3 @@ obj-$(CONFIG_MEMTRACK)          += drivers/net/mlx_sx/debug/memtrack/
 obj-$(CONFIG_SX_NETDEV)           += drivers/net/sx_netdev/
 obj-$(CONFIG_SX_EMAD_DUMP)        += drivers/net/sx_emad_dump/
 obj-$(CONFIG_SX_BFD)              += drivers/net/sx_bfd/
-obj-$(CONFIG_MLXFW)               += drivers/net/mlxfw/

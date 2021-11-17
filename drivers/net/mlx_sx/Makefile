@@ -11,7 +11,7 @@
 # detailed in the file "LICENSE.txt".
 #
 #
- 
+
 obj-$(CONFIG_SX_CORE)                   += sx_core.o
 CFLAGS_cq.o = -I$(src)
 CFLAGS_sx_core_main.o = -I$(src)
@@ -41,9 +41,15 @@ sx_core-y := sx_core_main.o      \
              ioctl_pci.o         \
              ioctl_reg.o         \
              ioctl_sgmii.o       \
+             mmap.o              \
              sx_dpt.o            \
              sx_proc.o           \
              sx_clock.o          \
+             sx_clock_spc1.o     \
+             sx_clock_spc2_3.o   \
+             ptp_common.o        \
+             ptp_spc1.o          \
+             ptp_spc2_3.o        \
              sx_dbg_dump_proc.o  \
              sxd_access_reg_pddr.o \
              auto_registers/sx_proc_auto.o \
@@ -57,5 +63,12 @@ sx_core-y := sx_core_main.o      \
              sgmii_mad.o         \
              sgmii_transaction.o \
              sgmii_transport.o   \
-             map.o
+             map.o               \
+             sx_af_counters.o    \
+             sx_af_dbg_info.o    \
+             bulk_cntr_event.o   \
+             bulk_cntr_db.o      \
+             ber_monitor.o       \
+             trace_func.o        \
+             drop_monitor.o
 
