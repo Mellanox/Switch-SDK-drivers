@@ -116,10 +116,28 @@ static void __sgmii_fill_cr_space_control_segment(const struct isx_meta        *
     control_seg->line_3 = 0; /* reserved (so it should not be converted to network order) */
 }
 
-
-enum sgmii_cr_space_size __sgmii_get_code_from_size(int size)
+/* Given the request size see how many bytes we can send */
+/* will need adjustments for QTM2 */
+int __sgmii_get_bytes_from_size(int size)
 {
-    switch (size) {
+    if (16 <= size) {
+        /* Due to HW bug (see PRM) only do 12B
+         * return CR_SPACE_SIZE_16_BYTES;
+         */
+        return 12;
+    } else if (12 <= size) {
+        return 12;
+    } else if (8 <= size) {
+        return 8;
+    } else {
+        return 4;
+    }
+}
+
+
+static enum sgmii_cr_space_size __sgmii_get_code_from_bytes(int bytes)
+{
+    switch (bytes) {
     case 4:
         return CR_SPACE_SIZE_4_BYTES;
 
@@ -129,9 +147,8 @@ enum sgmii_cr_space_size __sgmii_get_code_from_size(int size)
     case 12:
         return CR_SPACE_SIZE_12_BYTES;
 
-    case 16:
-        return CR_SPACE_SIZE_16_BYTES;
-
+/*        case 16: */
+/*            return CR_SPACE_SIZE_16_BYTES; */
     default:
         return CR_SPACE_SIZE_INVALID;
     }
@@ -149,75 +166,77 @@ static void __cr_space_work_entry_status_cb(int err, struct sgmii_transaction_in
     }
 }
 
-
-void __fill_cr_command_line_header(struct sk_buff               *skb,
-                                   uint8_t                       cr_cmd_line_hdr_size,
-                                   uint8_t                       token,
-                                   enum sgmii_cr_space_direction dir,
-                                   uint32_t                      address,
-                                   enum sgmii_cr_space_size      size_code)
+static void __header_to_network_order_token_set(struct sk_buff *skb, uint8_t hdr_size, uint8_t token)
 {
-    if (cr_cmd_line_hdr_size == 4) { /* Switch-IB/2 mode */
+    if (hdr_size == 4) { /* Switch-IB/2 mode */
+        struct sgmii_cr_command_line_v0 *cr_space_header = (struct sgmii_cr_command_line_v0*)skb->data;
+        __sgmii_bit_field_set(&cr_space_header->line0, 24, 31, token); /* __cr_space_token    */
+        CONVERT_TO_NETWORK_ORDER(cr_space_header->line0);
+    } else { /* Quantum mode */
+        struct sgmii_cr_command_line_v1 *cr_space_header = (struct sgmii_cr_command_line_v1*)skb->data;
+        __sgmii_bit_field_set(&cr_space_header->line0, 24, 31, token); /* __cr_space_token    */
+        CONVERT_TO_NETWORK_ORDER(cr_space_header->line0);
+        CONVERT_TO_NETWORK_ORDER(cr_space_header->line1);
+    }
+}
+
+/* fill in the SKB CR header not that this is not converting it to network order
+ * need to call __header_to_network_order_token_set in order to finalize the header */
+static void __fill_cr_command_line_header(struct sk_buff               *skb,
+                                          uint8_t                       hdr_size,
+                                          uint8_t                       token,
+                                          enum sgmii_cr_space_direction dir,
+                                          uint32_t                      address,
+                                          enum sgmii_cr_space_size      size_code)
+{
+    if (hdr_size == 4) { /* Switch-IB/2 mode */
         struct sgmii_cr_command_line_v0 *cr_space_header = (struct sgmii_cr_command_line_v0*)skb->data;
 
-        memset(cr_space_header, 0, cr_cmd_line_hdr_size);
+        memset(cr_space_header, 0, hdr_size);
 
-        __sgmii_bit_field_set(&cr_space_header->line0, 24, 31, __cr_space_token); /* token    */
+        __sgmii_bit_field_set(&cr_space_header->line0, 24, 31, token); /* __cr_space_token    */
         __sgmii_bit_field_set(&cr_space_header->line0, 23, 23, dir);              /* r/w      */
 
         /* 'address' and 'size' share the 2 LSB bits! first comes the address (4bit aligned) and then the size */
         __sgmii_bit_field_set(&cr_space_header->line0, 0, 22, address);           /* address  */
         __sgmii_bit_field_set(&cr_space_header->line0, 0, 1, size_code);          /* size     */
-
-        CONVERT_TO_NETWORK_ORDER(cr_space_header->line0);
     } else { /* Quantum mode */
         struct sgmii_cr_command_line_v1 *cr_space_header = (struct sgmii_cr_command_line_v1*)skb->data;
 
-        memset(cr_space_header, 0, cr_cmd_line_hdr_size);
+        memset(cr_space_header, 0, hdr_size);
 
-        __sgmii_bit_field_set(&cr_space_header->line0, 24, 31, __cr_space_token); /* token */
+        __sgmii_bit_field_set(&cr_space_header->line0, 24, 31, token); /* __cr_space_token */
         __sgmii_bit_field_set(&cr_space_header->line0, 23, 23, dir);              /* r/w   */
         __sgmii_bit_field_set(&cr_space_header->line0, 0, 1, size_code);          /* size  */
 
         /* 'address' is assumed to have 2 LSBs equal 0. The address should be put in offset 0
          * (so the 2 'reserved' bits remain 0). */
         __sgmii_bit_field_set(&cr_space_header->line1, 0, 31, address); /* address */
-
-        CONVERT_TO_NETWORK_ORDER(cr_space_header->line0);
-        CONVERT_TO_NETWORK_ORDER(cr_space_header->line1);
     }
 }
 
-
-static int __sgmii_send_cr_space(struct sgmii_dev             *sgmii_dev,
-                                 uint32_t                      address,
-                                 void                         *buf,
-                                 int                           size,
-                                 enum sgmii_cr_space_direction dir)
+int __fill_skb(struct sk_buff              **skb,
+               enum sgmii_cr_space_direction dir,
+               int                           hdr_size,
+               uint32_t                      address,
+               void                         *buf,
+               int                           bytes_to_send)
 {
-    struct sk_buff                    *skb;
-    uint8_t                           *cr_data, cr_cmd_line_hdr_size;
-    enum sgmii_cr_space_size           size_code;
-    int                                frame_size, ret, cr_space_payload, padding = 0;
-    struct sgmii_cr_space_sync_context context = {
-        .direction = dir,
-        .user_buff = buf,
-        .user_buff_size = size,
-        .ret_val = -EIO
-    };
+    int                      frame_size = 0;
+    int                      cr_space_payload = 0;
+    int                      padding = 0;
+    uint8_t                 *cr_data = NULL;
+    enum sgmii_cr_space_size size_code = CR_SPACE_SIZE_INVALID;
+    struct sk_buff          *my_skb = NULL;
 
-    size_code = __sgmii_get_code_from_size(size);
-    if (size_code == CR_SPACE_SIZE_INVALID) {
-        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_invalid_size);
-        return -EINVAL;
+
+    /* prepare the read */
+    size_code = __sgmii_get_code_from_bytes(bytes_to_send);
+    if (CR_SPACE_SIZE_INVALID == size_code) {
+        return -EBADRQC;
     }
 
-    /* want to get the value of 'oob_cr_command_line_mode' only once per function call and use a local variable
-     * to avoid situations where this parameter is changed in the middle of the function call ...
-     */
-    cr_cmd_line_hdr_size = (oob_cr_command_line_mode == 0) ? 4 /* Switch-IB/2 mode */ : 8 /* Quantum mode */;
-
-    cr_space_payload = cr_cmd_line_hdr_size + size;
+    cr_space_payload = hdr_size + bytes_to_send;
     frame_size = SGMII_HEADROOM + cr_space_payload;
 
     if (frame_size < CR_SPACE_MIN_FRAME_SIZE) {
@@ -225,11 +244,38 @@ static int __sgmii_send_cr_space(struct sgmii_dev             *sgmii_dev,
         frame_size = CR_SPACE_MIN_FRAME_SIZE;
     }
 
-    skb = alloc_skb(frame_size, GFP_KERNEL);
-    if (!skb) {
-        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_skb_alloc_failed);
+    /* need to allocate every time because sending deletes the SKB (might want to not do this) */
+    *skb = alloc_skb(frame_size, GFP_KERNEL);
+    my_skb = *skb;
+    if (!my_skb) {
         return -ENOMEM;
     }
+    skb_reserve(my_skb, SGMII_HEADROOM); /* puts skb->data on CR-Space payload */
+
+    skb_put(my_skb, cr_space_payload + padding);
+    __fill_cr_command_line_header(my_skb, hdr_size, __cr_space_token, dir, address, size_code);
+    /* point to the "SKB cr data", 0 it for read, give the user buffer for write */
+    cr_data = my_skb->data + hdr_size;
+    if (dir == CR_SPACE_DIRECTION_READ_E) {
+        memset(cr_data, 0, bytes_to_send); /* data is reserved */
+    } else {
+        memcpy(cr_data, buf, bytes_to_send);
+    }
+
+    if (padding > 0) {
+        memset(cr_data + bytes_to_send, 0, padding);
+    }
+
+    return 0;
+}
+
+static int __sgmii_send_cr_space_one(struct sgmii_dev                   *sgmii_dev,
+                                     struct sk_buff                     *skb,
+                                     uint8_t                             hdr_size,
+                                     struct sgmii_cr_space_sync_context *context)
+{
+    int                           ret = 0;
+    struct sgmii_transaction_meta tr_meta;
 
     ret = mutex_lock_interruptible(&__cr_space_mutex);
     if (ret) {
@@ -240,27 +286,18 @@ static int __sgmii_send_cr_space(struct sgmii_dev             *sgmii_dev,
         return ret;
     }
 
-    skb_reserve(skb, SGMII_HEADROOM); /* puts skb->data on CR-Space payload */
-    skb_put(skb, cr_space_payload + padding);
-
-    __fill_cr_command_line_header(skb, cr_cmd_line_hdr_size, __cr_space_token, dir, address, size_code);
-
-    cr_data = skb->data + cr_cmd_line_hdr_size;
-    if (dir == CR_SPACE_DIRECTION_READ_E) {
-        memset(cr_data, 0, size); /* data is reserved */
-    } else {
-        memcpy(cr_data, buf, size);
-    }
-
-    if (padding > 0) {
-        memset(cr_data + size, 0, padding);
-    }
-
-    context.token = __cr_space_token;
-    init_completion(&context.completion);
+    __header_to_network_order_token_set(skb, hdr_size, __cr_space_token);
+    context->token = __cr_space_token;
+    init_completion(&(context->completion));
+    /* set the transaction meta data
+     * only the token == id is required in the lock but no real performance issue with setting all */
+    tr_meta.skb = skb;
+    tr_meta.tr_db = &__cr_space_tr_db;
+    tr_meta.tr_id = __cr_space_token;
+    tr_meta.transport_type = SXD_COMMAND_TYPE_CR_ACCESS;
 
     /* sending CR access transaction. skb will be freed in this way or another by the transaction system */
-    ret = sgmii_send_transaction(&__cr_space_tr_db, skb, __cr_space_token, sgmii_dev, NULL, &context);
+    ret = sgmii_send_transaction(&tr_meta, sgmii_dev, NULL, context);
     if (ret) {
         /* skb is already deleted in this point */
         SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_transaction_init_failed);
@@ -269,18 +306,76 @@ static int __sgmii_send_cr_space(struct sgmii_dev             *sgmii_dev,
 
     atomic_inc(&__sgmii_cr_space_transactions_in_progress);
 
-    ret = wait_for_completion_interruptible(&context.completion);
-    if (ret == -ERESTARTSYS) {
-        /* this will synchronously terminate the transaction and fill 'context' */
-        sgmii_transaction_terminate(&__cr_space_tr_db, __cr_space_token);
-        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_interrupted);
-    }
+    do {
+        ret = wait_for_completion_interruptible(&(context->completion));
+    } while (ret == -ERESTARTSYS);
 
-    ret = context.ret_val;
+    ret = context->ret_val;
     __cr_space_token++;
 
 out:
     mutex_unlock(&__cr_space_mutex);
+    return ret;
+}
+
+static int __sgmii_send_cr_space(struct sgmii_dev             *sgmii_dev,
+                                 uint32_t                      address,
+                                 void                         *buf,
+                                 int                           size,
+                                 enum sgmii_cr_space_direction dir)
+{
+    struct sk_buff                    *skb;
+    int                                ret = 0;
+    int                                cr_cmd_line_hdr_size = 0;
+    int                                bytes_to_send = 0;
+    int                                tmp_size = size; /* define the size we will "eat out of" */
+    void                              *tmp_buf = buf; /* we are going to "move" the pointer */
+    uint32_t                           tmp_address = address;
+    struct sgmii_cr_space_sync_context context = {
+        .direction = dir,
+        .user_buff = buf,
+        .user_buff_size = size,
+        .ret_val = -EIO
+    };
+
+    /* want to get the value of 'oob_cr_command_line_mode' only once per function call and use a local variable
+     * to avoid situations where this parameter is changed in the middle of the function call ...
+     */
+    cr_cmd_line_hdr_size = (oob_cr_command_line_mode == 0) ? 4 /* Switch-IB/2 mode */ : 8 /* Quantum mode */;
+
+    while (tmp_size > 0) {
+        bytes_to_send = __sgmii_get_bytes_from_size(tmp_size);
+        ret = __fill_skb(&skb, dir, cr_cmd_line_hdr_size,
+                         tmp_address, tmp_buf, bytes_to_send);
+        if (ret) {
+            SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_skb_alloc_failed);
+            printk(KERN_ERR "failed SKB creation to read CR address:[0x%x] error:[%d]\n",
+                   tmp_address, ret);
+            goto out;
+        }
+        context.direction = dir;
+        context.user_buff = tmp_buf;
+        context.user_buff_size = bytes_to_send;
+        context.ret_val = -EIO;
+
+        /* do one sync read */
+        ret = __sgmii_send_cr_space_one(sgmii_dev, skb, cr_cmd_line_hdr_size, &context);
+        if (ret) {
+            printk(
+                KERN_ERR "failed sending CR address:[0x%x] bytes:[%d] out of remaining request size:[%d] error:[%d]\n",
+                tmp_address,
+                bytes_to_send,
+                tmp_size,
+                ret);
+            goto out;
+        }
+        /* move to the next bytes to read */
+        tmp_size = tmp_size - bytes_to_send;
+        tmp_buf = tmp_buf + bytes_to_send; /* read into the next available location */
+        tmp_address = tmp_address + bytes_to_send; /* read from the next address */
+    }
+
+out:
     return ret;
 }
 
@@ -300,10 +395,12 @@ int sgmii_send_cr_space_read(int dev_id, uint32_t address, void *buf, int size)
     ret = __sgmii_send_cr_space(sgmii_dev, address, buf, size, CR_SPACE_DIRECTION_READ_E);
     if (ret == -ETIMEDOUT) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_timeout);
+    } else if (ret == -EINVAL) {
+        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_transaction_init_failed);
     }
 
     sgmii_dev_dec_ref(sgmii_dev);
-    return 0;
+    return ret;
 }
 
 
@@ -322,10 +419,12 @@ int sgmii_send_cr_space_write(int dev_id, uint32_t address, void *buf, int size)
     ret = __sgmii_send_cr_space(sgmii_dev, address, buf, size, CR_SPACE_DIRECTION_WRITE_E);
     if (ret == -ETIMEDOUT) {
         SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_timeout);
+    } else if (ret == -EINVAL) {
+        SGMII_DEV_INC_COUNTER(sgmii_dev, cr_space_transaction_init_failed);
     }
 
     sgmii_dev_dec_ref(sgmii_dev);
-    return 0;
+    return ret;
 }
 
 
@@ -413,10 +512,6 @@ static void __sgmii_cr_space_transaction_completion(struct sk_buff              
 
     case SGMII_TR_COMP_ST_TIMEDOUT:
         tx_ctx->ret_val = -ETIMEDOUT;
-        break;
-
-    case SGMII_TR_COMP_ST_TERMINATED:
-        tx_ctx->ret_val = -ERESTARTSYS;
         break;
     }
 
