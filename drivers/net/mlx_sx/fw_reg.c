@@ -115,7 +115,7 @@ int sx_ACCESS_REG_internal(struct sx_dev           *dev,
     }
 
     get_operation_tlv(outbox, op_tlv);
-    if (reg_decode_cb && (op_tlv->method == 0x01)) { /* 0x01 = Query */
+    if (reg_decode_cb && ((flags & SX_ACCESS_REG_F_SET_AND_GET) || (op_tlv->method == 0x01))) { /* 0x01 = Query */
         err = reg_decode_cb(outbox + REG_START_OFFSET, ku_reg, context);
         if (err) {
             goto out;
@@ -130,102 +130,19 @@ out_free:
     return err;
 }
 
-
-/************************************************
- * MGIR
- ***********************************************/
-static int __MGIR_decode(u8 *outbox, void *ku_reg, void *context)
-{
-#define REG_HW_INFO_OFFSET                    0x14
-#define REG_HW_INFO_DEVICE_HW_REVISION_OFFSET 0x0
-#define REG_HW_INFO_DEVICE_ID_OFFSET          0x2
-#define REG_HW_INFO_DVFS_OFFSET               0x7
-#define REG_HW_INFO_UPTIME_OFFSET             0x1c
-
-#define REG_FW_INFO_OFFSET                    0x34
-#define REG_FW_INFO_MAJOR_OFFSET              0x01
-#define REG_FW_INFO_MINOR_OFFSET              0x02
-#define REG_FW_INFO_SUB_MINOR_OFFSET          0x03
-#define REG_FW_INFO_BUILD_ID_OFFSET           0x04
-#define REG_FW_INFO_MONTH_OFFSET              0x08
-#define REG_FW_INFO_DAY_OFFSET                0x09
-#define REG_FW_INFO_YEAR_OFFSET               0x0a
-#define REG_FW_INFO_HOUR_OFFSET               0x0e
-#define REG_FW_INFO_PSID_OFFSET               0x10
-#define REG_FW_INFO_INI_FILE_VERSION_OFFSET   0x20
-#define REG_FW_INFO_EXTENDED_MAJOR_OFFSET     0x24
-#define REG_FW_INFO_EXTENDED_MINOR_OFFSET     0x28
-#define REG_FW_INFO_EXTENDED_SUB_MINOR_OFFSET 0x2c
-
-#define REG_SW_INFO_OFFSET           0x74
-#define REG_SW_INFO_MAJOR_OFFSET     0x01
-#define REG_SW_INFO_MINOR_OFFSET     0x02
-#define REG_SW_INFO_SUB_MINOR_OFFSET 0x03
-
-    struct ku_mgir_reg *mgir_reg = (struct ku_mgir_reg*)ku_reg;
-
-    SX_GET_REG_FIELD(mgir_reg->hw_info.device_hw_revision,
-                     outbox,
-                     REG_HW_INFO_OFFSET + REG_HW_INFO_DEVICE_HW_REVISION_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->hw_info.device_id, outbox, REG_HW_INFO_OFFSET + REG_HW_INFO_DEVICE_ID_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->hw_info.dvfs, outbox, REG_HW_INFO_OFFSET + REG_HW_INFO_DVFS_OFFSET);
-    mgir_reg->hw_info.dvfs &= 0x1f;
-
-    SX_GET_REG_FIELD(mgir_reg->hw_info.uptime, outbox, REG_HW_INFO_OFFSET + REG_HW_INFO_UPTIME_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.major, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_MAJOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.minor, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.sub_minor, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_SUB_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.build_id, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_BUILD_ID_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.month, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_MONTH_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.day, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_DAY_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.year, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_YEAR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.hour, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_HOUR_OFFSET);
-    memcpy(mgir_reg->fw_info.psid,
-           outbox - REG_START_OFFSET + REG_FW_INFO_OFFSET + REG_FW_INFO_PSID_OFFSET,
-           SX_PSID_SIZE);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.ini_file_version,
-                     outbox,
-                     REG_FW_INFO_OFFSET + REG_FW_INFO_INI_FILE_VERSION_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.extended_major, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_EXTENDED_MAJOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.extended_minor, outbox, REG_FW_INFO_OFFSET + REG_FW_INFO_EXTENDED_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->fw_info.extended_sub_minor,
-                     outbox,
-                     REG_FW_INFO_OFFSET + REG_FW_INFO_EXTENDED_SUB_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->sw_info.major, outbox, REG_SW_INFO_OFFSET + REG_SW_INFO_MAJOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->sw_info.minor, outbox, REG_FW_INFO_OFFSET + REG_SW_INFO_MINOR_OFFSET);
-    SX_GET_REG_FIELD(mgir_reg->sw_info.sub_minor, outbox, REG_SW_INFO_OFFSET + REG_SW_INFO_SUB_MINOR_OFFSET);
-
-    return 0;
-}
-
-int sx_ACCESS_REG_MGIR(struct sx_dev *dev, struct ku_access_mgir_reg *reg_data)
-{
-#define MGIR_REG_LEN 0x21
-
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  NULL,
-                                  __MGIR_decode,
-                                  MGIR_REG_LEN,
-                                  &reg_data->mgir_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MGIR);
-
-
 /************************************************
  * PLIB
  ***********************************************/
-#define REG_LOCAL_PORT_OFFSET 0x15
-#define REG_IB_PORT_OFFSET    0x17
+#define REG_LOCAL_PORT_OFFSET     0x15
+#define REG_LOCAL_PORT_MSB_OFFSET 0x16
+#define REG_IB_PORT_OFFSET        0x17
 
 static int __PLIB_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_plib_reg *plib_reg = (struct ku_plib_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, plib_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, ((plib_reg->lp_msb & 0x3) << 4), REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, plib_reg->ib_port, REG_IB_PORT_OFFSET);
 
     return 0;
@@ -236,6 +153,9 @@ static int __PLIB_decode(u8 *outbox, void *ku_reg, void *context)
     struct ku_plib_reg *plib_reg = (struct ku_plib_reg*)ku_reg;
 
     SX_GET_REG_FIELD(plib_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(plib_reg->lp_msb, outbox, REG_LOCAL_PORT_MSB_OFFSET);
+    plib_reg->lp_msb >>= 4;
+    plib_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(plib_reg->ib_port, outbox, REG_IB_PORT_OFFSET);
 
     return 0;
@@ -260,14 +180,17 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PLIB);
 /************************************************
  * PMLP
  ***********************************************/
-#define REG_LOCAL_PORT_OFFSET 0x15
-#define REG_DIFF_RX_TX_OFFSET 0x14
-#define REG_WIDTH_OFFSET      0x17
-#define REG_RX_LANE_0_OFFSET  0x18
-#define REG_LANE_0_OFFSET     0x19
-#define REG_MODULE_0_OFFSET   0x1b
-#define PMLP_REG_LEN          0x09
-#define REG_BYTES_PER_ROW     4
+#define REG_LOCAL_PORT_OFFSET         0x15
+#define REG_LOCAL_PORT_MSB_OFFSET     0x16
+#define REG_DIFF_RX_TX_OFFSET         0x14
+#define REG_WIDTH_OFFSET              0x17
+#define REG_RX_LANE_0_OFFSET          0x18
+#define REG_LANE_0_OFFSET             0x19
+#define REG_SLOT_0_OFFSET             0x1a
+#define REG_MODULE_0_OFFSET           0x1b
+#define PMLP_REG_LEN                  0x09
+#define REG_BYTES_PER_ROW             4
+#define PMLP_LANE_MAP_SLOT_INDEX_MASK 0x0F
 
 static int __PMLP_encode(u8 *inbox, void *ku_reg, void *context)
 {
@@ -280,10 +203,14 @@ static int __PMLP_encode(u8 *inbox, void *ku_reg, void *context)
     SX_PUT_REG_FIELD(inbox, tmp_u8, REG_DIFF_RX_TX_OFFSET);
 
     SX_PUT_REG_FIELD(inbox, pmlp_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, pmlp_reg->lp_msb << 4, REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, pmlp_reg->width, REG_WIDTH_OFFSET);
     for (i = 0; i < NUMBER_OF_SERDESES; i++) {
         SX_PUT_REG_FIELD(inbox, pmlp_reg->rx_lane[i], REG_RX_LANE_0_OFFSET + (REG_BYTES_PER_ROW * i));
         SX_PUT_REG_FIELD(inbox, pmlp_reg->lane[i], REG_LANE_0_OFFSET + (REG_BYTES_PER_ROW * i));
+        tmp_u8 = pmlp_reg->slot[i];
+        tmp_u8 = tmp_u8 & PMLP_LANE_MAP_SLOT_INDEX_MASK;
+        SX_PUT_REG_FIELD(inbox, tmp_u8, REG_SLOT_0_OFFSET + (REG_BYTES_PER_ROW * i));
         SX_PUT_REG_FIELD(inbox, pmlp_reg->module[i], REG_MODULE_0_OFFSET + (REG_BYTES_PER_ROW * i));
     }
 
@@ -299,11 +226,16 @@ static int __PMLP_decode(u8 *outbox, void *ku_reg, void *context)
     SX_GET_REG_FIELD(tmp_u8, outbox, REG_DIFF_RX_TX_OFFSET);
     pmlp_reg->use_different_rx_tx = tmp_u8 >> 7;
     SX_GET_REG_FIELD(pmlp_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(pmlp_reg->lp_msb, outbox, REG_LOCAL_PORT_MSB_OFFSET);
+    pmlp_reg->lp_msb >>= 4;
+    pmlp_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(pmlp_reg->width, outbox, REG_WIDTH_OFFSET);
 
     for (i = 0; i < NUMBER_OF_SERDESES; i++) {
         SX_GET_REG_FIELD(pmlp_reg->rx_lane[i], outbox, REG_RX_LANE_0_OFFSET + (REG_BYTES_PER_ROW * i));
         SX_GET_REG_FIELD(pmlp_reg->lane[i], outbox, REG_LANE_0_OFFSET + (REG_BYTES_PER_ROW * i));
+        SX_GET_REG_FIELD(tmp_u8, outbox, REG_SLOT_0_OFFSET + (REG_BYTES_PER_ROW * i));
+        pmlp_reg->slot[i] = tmp_u8 & PMLP_LANE_MAP_SLOT_INDEX_MASK;
         SX_GET_REG_FIELD(pmlp_reg->module[i], outbox, REG_MODULE_0_OFFSET + (REG_BYTES_PER_ROW * i));
     }
 
@@ -367,6 +299,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MHSR);
  ***********************************************/
 #define REG_AN_DISABLE_AND_TX_ABA_OFFSET 0x14
 #define REG_LOCAL_PORT_OFFSET            0x15
+#define REG_LOCAL_PORT_MSB_OFFSET        0x16
 #define REG_PROTO_MASK_OFFSET            0x17
 #define REG_AN_STATUS_OFFSET             0x18
 #define REG_DATA_RATE_OPER_OFFSET        0x1a
@@ -400,6 +333,7 @@ static int __PTYS_encode(u8 *inbox, void *ku_reg, void *context)
     an_disable_tx_aba |= ptys_reg->force_tx_aba_param;
     SX_PUT_REG_FIELD(inbox, an_disable_tx_aba, REG_AN_DISABLE_AND_TX_ABA_OFFSET);
     SX_PUT_REG_FIELD(inbox, ptys_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, ((ptys_reg->lp_msb & 0x3) << 4), REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, ptys_reg->proto_mask, REG_PROTO_MASK_OFFSET);
     an_status = ptys_reg->an_status;
     an_status = an_status << 4;
@@ -440,6 +374,9 @@ static int __PTYS_decode(u8 *outbox, void *ku_reg, void *context)
     ptys_reg->an_disable_cap = (an_disable_tx_aba >> 5) & 0x1;
     ptys_reg->force_tx_aba_param = an_disable_tx_aba & 0x1;
     SX_GET_REG_FIELD(ptys_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(ptys_reg->lp_msb, outbox, REG_LOCAL_PORT_MSB_OFFSET);
+    ptys_reg->lp_msb >>= 4;
+    ptys_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(ptys_reg->proto_mask, outbox, REG_PROTO_MASK_OFFSET);
     SX_GET_REG_FIELD(an_status, outbox, REG_AN_STATUS_OFFSET);
     ptys_reg->an_status = an_status >> 4;
@@ -575,10 +512,11 @@ EXPORT_SYMBOL(sx_ACCESS_REG_QSPTC);
 /************************************************
  * PSPA
  ***********************************************/
-#define REG_SWID_OFFSET       0x14
-#define REG_LOCAL_PORT_OFFSET 0x15
-#define REG_SUB_PORT_OFFSET   0x16
-#define PSPA_REG_LEN          0x03
+#define REG_SWID_OFFSET                0x14
+#define REG_LOCAL_PORT_OFFSET          0x15
+#define REG_SUB_PORT_OFFSET            0x16
+#define PSPA_REG_LOCAL_PORT_MSB_OFFSET 0x17
+#define PSPA_REG_LEN                   0x03
 
 static int __PSPA_encode(u8 *inbox, void *ku_reg, void *context)
 {
@@ -587,6 +525,7 @@ static int __PSPA_encode(u8 *inbox, void *ku_reg, void *context)
     SX_PUT_REG_FIELD(inbox, pspa_reg->swid, REG_SWID_OFFSET);
     SX_PUT_REG_FIELD(inbox, pspa_reg->local_port, REG_LOCAL_PORT_OFFSET);
     SX_PUT_REG_FIELD(inbox, pspa_reg->sub_port, REG_SUB_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, pspa_reg->lp_msb, PSPA_REG_LOCAL_PORT_MSB_OFFSET);
     return 0;
 }
 
@@ -597,6 +536,8 @@ static int __PSPA_decode(u8 *outbox, void *ku_reg, void *context)
     SX_GET_REG_FIELD(pspa_reg->swid, outbox, REG_SWID_OFFSET);
     SX_GET_REG_FIELD(pspa_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
     SX_GET_REG_FIELD(pspa_reg->sub_port, outbox, REG_SUB_PORT_OFFSET);
+    SX_GET_REG_FIELD(pspa_reg->lp_msb, outbox, PSPA_REG_LOCAL_PORT_MSB_OFFSET);
+    pspa_reg->lp_msb &= 0x3;
     return 0;
 }
 
@@ -866,6 +807,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MJTAG);
  * PPSC
  ***********************************************/
 #define PPSC_REG_LOCAL_PORT_OFFSET     0x15
+#define PPSC_REG_LOCAL_PORT_MSB_OFFSET 0x16
 #define PPSC_REG_LOCAL_PORT_N          0x08
 #define PPSC_REG_WRPS_ADMIN_OFFSET     0x27
 #define PPSC_REG_WRPS_ADMIN_N          0x04
@@ -886,6 +828,7 @@ static int __PPSC_encode(u8 *inbox, void *ku_reg, void *context)
     struct ku_ppsc_reg *ppsc_reg = (struct ku_ppsc_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, ppsc_reg->local_port, PPSC_REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (ppsc_reg->lp_msb & 0x3) << 4, PPSC_REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppsc_reg->wrps_admin, PPSC_REG_WRPS_ADMIN_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppsc_reg->wrps_status, PPSC_REG_WRPS_STATUS_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppsc_reg->up_threshold, PPSC_REG_UP_THRESHOLD_OFFSET);
@@ -900,6 +843,9 @@ static int __PPSC_decode(u8 *outbox, void *ku_reg, void *context)
     struct ku_ppsc_reg *ppsc_reg = (struct ku_ppsc_reg*)ku_reg;
 
     SX_GET_REG_FIELD(ppsc_reg->local_port, outbox, PPSC_REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(ppsc_reg->lp_msb, outbox, PPSC_REG_LOCAL_PORT_MSB_OFFSET);
+    ppsc_reg->lp_msb >>= 4;
+    ppsc_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(ppsc_reg->wrps_admin, outbox, PPSC_REG_WRPS_ADMIN_OFFSET);
     SX_GET_REG_FIELD(ppsc_reg->wrps_status, outbox, PPSC_REG_WRPS_STATUS_OFFSET);
     SX_GET_REG_FIELD(ppsc_reg->up_threshold, outbox, PPSC_REG_UP_THRESHOLD_OFFSET);
@@ -927,15 +873,17 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PPSC);
 /************************************************
  * PCNR
  ***********************************************/
-#define REG_TUNING_OFFSET     0x17
-#define REG_LOCAL_PORT_OFFSET 0x15
-#define PCNR_REG_LEN          0x04
+#define REG_TUNING_OFFSET         0x17
+#define REG_LOCAL_PORT_OFFSET     0x15
+#define REG_LOCAL_PORT_MSB_OFFSET 0x16
+#define PCNR_REG_LEN              0x04
 
 static int __PCNR_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_pcnr_reg *pcnr_reg = (struct ku_pcnr_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, pcnr_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (pcnr_reg->lp_msb & 0x03) << 4, REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, pcnr_reg->tuning_override, REG_TUNING_OFFSET);
     return 0;
 }
@@ -945,6 +893,9 @@ static int __PCNR_decode(u8 *outbox, void *ku_reg, void *context)
     struct ku_pcnr_reg *pcnr_reg = (struct ku_pcnr_reg*)ku_reg;
 
     SX_GET_REG_FIELD(pcnr_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(pcnr_reg->lp_msb, outbox, REG_LOCAL_PORT_MSB_OFFSET);
+    pcnr_reg->lp_msb >>= 4;
+    pcnr_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(pcnr_reg->tuning_override, outbox, REG_TUNING_OFFSET);
     return 0;
 }
@@ -968,6 +919,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PCNR);
  * PPLM
  ***********************************************/
 #define REG_LOCAL_PORT_OFFSET            0x15
+#define REG_LOCAL_PORT_MSB_OFFSET        0x16
 #define REG_PORT_PROFILE_MODE_OFFSET     0x1C
 #define REG_STATIC_PORT_PROFILE_OFFSET   0x1D
 #define REG_ACTIVE_PORT_PROFILE_OFFSET   0x1E
@@ -979,6 +931,7 @@ static int __PPLM_encode(u8 *inbox, void *ku_reg, void *context)
     struct ku_pplm_reg *pplm_reg = (struct ku_pplm_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, pplm_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (pplm_reg->lp_msb & 0x03) << 4, REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, pplm_reg->port_profile_mode, REG_PORT_PROFILE_MODE_OFFSET);
     SX_PUT_REG_FIELD(inbox, pplm_reg->static_port_profile, REG_STATIC_PORT_PROFILE_OFFSET);
     return 0;
@@ -990,6 +943,9 @@ static int __PPLM_decode(u8 *outbox, void *ku_reg, void *context)
     u32                 retransmission_active_and_fec_mode_active;
 
     SX_GET_REG_FIELD(pplm_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(pplm_reg->lp_msb, outbox, REG_LOCAL_PORT_MSB_OFFSET);
+    pplm_reg->lp_msb >>= 4;
+    pplm_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(pplm_reg->port_profile_mode, outbox, REG_PORT_PROFILE_MODE_OFFSET);
     SX_GET_REG_FIELD(pplm_reg->static_port_profile, outbox, REG_STATIC_PORT_PROFILE_OFFSET);
     SX_GET_REG_FIELD(pplm_reg->active_port_profile, outbox, REG_ACTIVE_PORT_PROFILE_OFFSET);
@@ -1171,124 +1127,14 @@ int sx_ACCESS_REG_PMPR(struct sx_dev *dev, struct ku_access_pmpr_reg *reg_data)
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_PMPR);
 
-
 /************************************************
- * PMAOS
- ***********************************************/
-#define REG_MODULE_OFFSET       0x15
-#define PMAOS_REG_LEN           0x05
-#define PMAOS_ERROR_TYPE_OFFSET 0x1A
-#define PMAOS_RST_OFFSET        0x14
-#define PMAOS_RST_BIT_N         7
-#define REG_ADMIN_STATUS_OFFSET 0x16
-#define REG_OPER_STATUS_OFFSET  0x17
-#define REG_ASE_OFFSET          0x18
-#define REG_ASE_BIT_N           7
-#define REG_EE_BIT_N            6
-#define REG_E_OFFSET            0x1B
-
-static int __PMAOS_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_pmaos_reg *pmaos_reg = (struct ku_pmaos_reg*)ku_reg;
-    u8                   tmp_val_u8 = 0;
-
-    tmp_val_u8 |= pmaos_reg->rst ? (1 << PMAOS_RST_BIT_N) : 0;
-    SX_PUT_REG_FIELD(inbox, tmp_val_u8, PMAOS_RST_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmaos_reg->module, REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmaos_reg->admin_status, REG_ADMIN_STATUS_OFFSET);
-
-    tmp_val_u8 = 0;
-    tmp_val_u8 |= pmaos_reg->ase ? (1 << REG_ASE_BIT_N) : 0;
-    tmp_val_u8 |= pmaos_reg->ee ? (1 << REG_EE_BIT_N) : 0;
-    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_ASE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmaos_reg->e, REG_E_OFFSET);
-    return 0;
-}
-
-static int __PMAOS_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_pmaos_reg *pmaos_reg = (struct ku_pmaos_reg*)ku_reg;
-    u8                   tmp_val_u8;
-
-    SX_GET_REG_FIELD(pmaos_reg->module, outbox, REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(pmaos_reg->admin_status, outbox, REG_ADMIN_STATUS_OFFSET);
-    SX_GET_REG_FIELD(pmaos_reg->oper_status, outbox, REG_OPER_STATUS_OFFSET);
-    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_ASE_OFFSET);
-    pmaos_reg->ase = tmp_val_u8 & (1 << REG_ASE_BIT_N) ? 1 : 0;
-    pmaos_reg->ee = tmp_val_u8 & (1 << REG_EE_BIT_N) ? 1 : 0;
-    SX_GET_REG_FIELD(pmaos_reg->error_type, outbox, PMAOS_ERROR_TYPE_OFFSET);
-    SX_GET_REG_FIELD(pmaos_reg->e, outbox, REG_E_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_PMAOS(struct sx_dev *dev, struct ku_access_pmaos_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __PMAOS_encode,
-                                  __PMAOS_decode,
-                                  PMAOS_REG_LEN,
-                                  &reg_data->pmaos_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_PMAOS);
-
-
-/************************************************
- * PMTU
- ***********************************************/
-#define REG_LOCAL_PORT_OFFSET 0x15
-#define REG_MAX_MTU_OFFSET    0x18
-#define REG_ADMIN_MTU_OFFSET  0x1c
-#define REG_OPER_MTU_OFFSET   0x20
-#define PMTU_REG_LEN          0x05
-
-static int __PMTU_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_pmtu_reg *pmtu_reg = (struct ku_pmtu_reg*)ku_reg;
-
-    SX_PUT_REG_FIELD(inbox, pmtu_reg->local_port, REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmtu_reg->max_mtu, REG_MAX_MTU_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmtu_reg->admin_mtu, REG_ADMIN_MTU_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmtu_reg->oper_mtu, REG_OPER_MTU_OFFSET);
-    return 0;
-}
-
-static int __PMTU_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_pmtu_reg *pmtu_reg = (struct ku_pmtu_reg*)ku_reg;
-
-    SX_GET_REG_FIELD(pmtu_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(pmtu_reg->max_mtu, outbox, REG_MAX_MTU_OFFSET);
-    SX_GET_REG_FIELD(pmtu_reg->admin_mtu, outbox, REG_ADMIN_MTU_OFFSET);
-    SX_GET_REG_FIELD(pmtu_reg->oper_mtu, outbox, REG_OPER_MTU_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_PMTU(struct sx_dev *dev, struct ku_access_pmtu_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __PMTU_encode,
-                                  __PMTU_decode,
-                                  PMTU_REG_LEN,
-                                  &reg_data->pmtu_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_PMTU);
-
-
-/************************************************
+ *
  * PELC
  ***********************************************/
-#define REG_PELC_OP_OFFSET         0x14
-#define REG_PELC_LOCAL_PORT_OFFSET 0x15
-
-/* 0x16, 0x17 reserved not in use */
+#define REG_PELC_OP_OFFSET             0x14
+#define REG_PELC_LOCAL_PORT_OFFSET     0x15
+#define REG_PELC_LOCAL_PORT_MSB_OFFSET 0x16
+/* 0x17 reserved not in use */
 
 #define REG_PELC_OP_ADMIN_OFFSET      0x18
 #define REG_PELC_OP_CAPABILITY_OFFSET 0x19
@@ -1308,6 +1154,7 @@ static int __PELC_encode(u8 *inbox, void *ku_reg, void *context)
     pelc_reg->op <<= 4;
     SX_PUT_REG_FIELD(inbox, pelc_reg->op, REG_PELC_OP_OFFSET);
     SX_PUT_REG_FIELD(inbox, pelc_reg->local_port, REG_PELC_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (pelc_reg->lp_msb & 0x03) << 4, REG_PELC_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, pelc_reg->op_admin, REG_PELC_OP_ADMIN_OFFSET);
     SX_PUT_REG_FIELD(inbox, pelc_reg->op_capability, REG_PELC_OP_CAPABILITY_OFFSET);
     SX_PUT_REG_FIELD(inbox, pelc_reg->op_request, REG_PELC_OP_REQUEST_OFFSET);
@@ -1326,6 +1173,9 @@ static int __PELC_decode(u8 *outbox, void *ku_reg, void *context)
     SX_GET_REG_FIELD(pelc_reg->op, outbox, REG_PELC_OP_OFFSET);
     pelc_reg->op >>= 4;
     SX_GET_REG_FIELD(pelc_reg->local_port, outbox, REG_PELC_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(pelc_reg->lp_msb, outbox, REG_PELC_LOCAL_PORT_MSB_OFFSET);
+    pelc_reg->lp_msb >>= 4;
+    pelc_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(pelc_reg->op_admin, outbox, REG_PELC_OP_ADMIN_OFFSET);
     SX_GET_REG_FIELD(pelc_reg->op_capability, outbox, REG_PELC_OP_CAPABILITY_OFFSET);
     SX_GET_REG_FIELD(pelc_reg->op_request, outbox, REG_PELC_OP_REQUEST_OFFSET);
@@ -1403,6 +1253,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PVLC);
  ***********************************************/
 #define REG_L_OFFSET                  0x14
 #define REG_MODULE_OFFSET             0x15
+#define REG_SLOT_INDEX_OFFSET         0x16
 #define REG_STATUS_OFFSET             0x17
 #define REG_I2C_DEVICE_ADDRESS_OFFSET 0x18
 #define REG_PAGE_NUMBER_OFFSET        0x19
@@ -1425,9 +1276,13 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PVLC);
 static int __MCIA_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_mcia_reg *mcia_reg = (struct ku_mcia_reg*)ku_reg;
+    u8                  tmp_u8 = 0;
 
-    SX_PUT_REG_FIELD(inbox, mcia_reg->l, REG_L_OFFSET);
+    tmp_u8 = (mcia_reg->l & 0x1) << 7;
+    SX_PUT_REG_FIELD(inbox, tmp_u8, REG_L_OFFSET);
     SX_PUT_REG_FIELD(inbox, mcia_reg->module, REG_MODULE_OFFSET);
+    tmp_u8 = (mcia_reg->slot_index & 0x0F) << 4;
+    SX_PUT_REG_FIELD(inbox, tmp_u8, REG_SLOT_INDEX_OFFSET);
     SX_PUT_REG_FIELD(inbox, mcia_reg->i2c_device_address, REG_I2C_DEVICE_ADDRESS_OFFSET);
     SX_PUT_REG_FIELD(inbox, mcia_reg->page_number, REG_PAGE_NUMBER_OFFSET);
     SX_PUT_REG_FIELD(inbox, mcia_reg->device_address, REG_DEVICE_ADDRESS_OFFSET);
@@ -1450,9 +1305,13 @@ static int __MCIA_encode(u8 *inbox, void *ku_reg, void *context)
 static int __MCIA_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_mcia_reg *mcia_reg = (struct ku_mcia_reg*)ku_reg;
+    u8                  tmp_u8 = 0;
 
-    SX_GET_REG_FIELD(mcia_reg->l, outbox, REG_L_OFFSET);
+    SX_GET_REG_FIELD(tmp_u8, outbox, REG_L_OFFSET);
+    mcia_reg->l = tmp_u8 >> 7;
     SX_GET_REG_FIELD(mcia_reg->module, outbox, REG_MODULE_OFFSET);
+    SX_GET_REG_FIELD(tmp_u8, outbox, REG_SLOT_INDEX_OFFSET);
+    mcia_reg->slot_index = tmp_u8 >> 4;
     SX_GET_REG_FIELD(mcia_reg->status, outbox, REG_STATUS_OFFSET);
     SX_GET_REG_FIELD(mcia_reg->i2c_device_address, outbox, REG_I2C_DEVICE_ADDRESS_OFFSET);
     SX_GET_REG_FIELD(mcia_reg->page_number, outbox, REG_PAGE_NUMBER_OFFSET);
@@ -1506,7 +1365,7 @@ static int __HPKT_encode(u8 *inbox, void *ku_reg, void *context)
     trap_info = ((u32)(hpkt_reg->ack) & 0x1) << REG_ACK_BITN;
     trap_info |= ((u32)(hpkt_reg->action) & 0xF) << REG_ACTION_BITN;
     trap_info |= ((u32)(hpkt_reg->trap_group) & 0x3f) << REG_TRAP_GROUP_BITN;
-    trap_info |= (u32)(hpkt_reg->trap_id) & 0x1FF;
+    trap_info |= (u32)(hpkt_reg->trap_id) & 0x3FF;
     SX_PUT_REG_FIELD(inbox, trap_info, REG_TRAP_INFO_OFFSET);
     SX_PUT_REG_FIELD(inbox, hpkt_reg->control, REG_HPKT_CTRL_OFFSET);
     return 0;
@@ -1521,7 +1380,7 @@ static int __HPKT_decode(u8 *outbox, void *ku_reg, void *context)
     hpkt_reg->ack = (trap_info >> REG_ACK_BITN) & 0x1;
     hpkt_reg->action = (trap_info >> REG_ACTION_BITN) & 0xF;
     hpkt_reg->trap_group = (trap_info >> REG_TRAP_GROUP_BITN) & 0x3F;
-    hpkt_reg->trap_id = trap_info & 0x1FF;
+    hpkt_reg->trap_id = trap_info & 0x3FF;
     SX_GET_REG_FIELD(hpkt_reg->control, outbox, REG_HPKT_CTRL_OFFSET);
     return 0;
 }
@@ -2180,7 +2039,7 @@ int sx_ACCESS_REG_RAW(struct sx_dev *dev, struct ku_access_raw_reg *reg_data)
 
     return sx_ACCESS_REG_internal(dev,
                                   reg_data->dev_id,
-                                  0,
+                                  SX_ACCESS_REG_F_SET_AND_GET,
                                   &reg_data->op_tlv,
                                   __RAW_encode,
                                   __RAW_decode,
@@ -2189,43 +2048,6 @@ int sx_ACCESS_REG_RAW(struct sx_dev *dev, struct ku_access_raw_reg *reg_data)
                                   NULL);
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_RAW);
-
-
-/************************************************
- * MTWE
- ***********************************************/
-#define REG_SENSOR_WARNING_OFFSET 0x17
-#define MTWE_REG_LEN              0x3
-
-static int __MTWE_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_mtwe_reg *mtwe_reg = (struct ku_mtwe_reg*)ku_reg;
-
-    SX_PUT_REG_FIELD(inbox, mtwe_reg->sensor_warning, REG_SENSOR_WARNING_OFFSET);
-    return 0;
-}
-
-static int __MTWE_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_mtwe_reg *mtwe_reg = (struct ku_mtwe_reg*)ku_reg;
-
-    SX_GET_REG_FIELD(mtwe_reg->sensor_warning, outbox, REG_SENSOR_WARNING_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_MTWE(struct sx_dev *dev, struct ku_access_mtwe_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __MTWE_encode,
-                                  __MTWE_decode,
-                                  MTWE_REG_LEN,
-                                  &reg_data->mtwe_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MTWE);
 
 
 /************************************************
@@ -2396,16 +2218,19 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MFM);
  * QPRT
  ***********************************************/
 #define REG_LOCAL_PORT_OFFSET 0x15
-#define REG_PRIO_OFFSET       0x16
+#define REG_PRIO_MSB_OFFSET   0x16
 #define REG_RPRIO_OFFSET      0x1b
 #define QPRT_REG_LEN          0x3
 
 static int __QPRT_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_qprt_reg *qprt_reg = (struct ku_qprt_reg*)ku_reg;
+    u8                  tmp = 0;
 
     SX_PUT_REG_FIELD(inbox, qprt_reg->local_port, REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, qprt_reg->prio, REG_PRIO_OFFSET);
+    tmp = qprt_reg->prio;
+    tmp |= ((qprt_reg->lp_msb & 0x3) << 4);
+    SX_PUT_REG_FIELD(inbox, tmp, REG_PRIO_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, qprt_reg->rprio, REG_RPRIO_OFFSET);
     return 0;
 }
@@ -2413,9 +2238,12 @@ static int __QPRT_encode(u8 *inbox, void *ku_reg, void *context)
 static int __QPRT_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_qprt_reg *qprt_reg = (struct ku_qprt_reg*)ku_reg;
+    u8                  tmp = 0;
 
     SX_GET_REG_FIELD(qprt_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(qprt_reg->prio, outbox, REG_PRIO_OFFSET);
+    SX_GET_REG_FIELD(tmp, outbox, REG_PRIO_MSB_OFFSET);
+    qprt_reg->lp_msb = ((tmp >> 4) & 0x3);
+    qprt_reg->prio = (tmp & 0xF);
     SX_GET_REG_FIELD(qprt_reg->rprio, outbox, REG_RPRIO_OFFSET);
     return 0;
 }
@@ -2623,12 +2451,12 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SPAD);
 /************************************************
  * SSPR
  ***********************************************/
-#define SSPR_REG_MASTER_BIT_OFFSET 0x14
-#define SSPR_REG_MASTER_BIT_N      7
-#define SSPR_REG_LOCAL_PORT_OFFSET 0x15
-#define SSPR_REG_SUB_PORT          0x16
-#define SSPR_REG_SYSTEM_PORT       0x1a
-#define SSPR_REG_LEN               0x03
+#define SSPR_REG_MASTER_BIT_OFFSET     0x14
+#define SSPR_REG_MASTER_BIT_N          7
+#define SSPR_REG_LOCAL_PORT_OFFSET     0x15
+#define SSPR_REG_LOCAL_PORT_MSB_OFFSET 0x16
+#define SSPR_REG_SYSTEM_PORT           0x1a
+#define SSPR_REG_LEN                   0x03
 
 static int __SSPR_encode(u8 *inbox, void *ku_reg, void *context)
 {
@@ -2638,7 +2466,7 @@ static int __SSPR_encode(u8 *inbox, void *ku_reg, void *context)
     tmp_val_u8 |= sspr_reg->is_master ? (1 << SSPR_REG_MASTER_BIT_N) : 0;
     SX_PUT_REG_FIELD(inbox, tmp_val_u8, SSPR_REG_MASTER_BIT_OFFSET);
     SX_PUT_REG_FIELD(inbox, sspr_reg->local_port, SSPR_REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, sspr_reg->sub_port, SSPR_REG_SUB_PORT);
+    SX_PUT_REG_FIELD(inbox, (sspr_reg->lp_msb & 0x03) << 4, SSPR_REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, sspr_reg->system_port, SSPR_REG_SYSTEM_PORT);
     return 0;
 }
@@ -2653,7 +2481,8 @@ static int __SSPR_decode(u8 *outbox, void *ku_reg, void *context)
         sspr_reg->is_master = 1;
     }
     SX_GET_REG_FIELD(sspr_reg->local_port, outbox, SSPR_REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(sspr_reg->sub_port, outbox, SSPR_REG_SUB_PORT);
+    SX_GET_REG_FIELD(sspr_reg->lp_msb, outbox, SSPR_REG_LOCAL_PORT_MSB_OFFSET);
+    sspr_reg->lp_msb = (sspr_reg->lp_msb >> 4) & 0x03;
     SX_GET_REG_FIELD(sspr_reg->system_port, outbox, SSPR_REG_SYSTEM_PORT);
     return 0;
 }
@@ -2671,70 +2500,6 @@ int sx_ACCESS_REG_SSPR(struct sx_dev *dev, struct ku_access_sspr_reg *reg_data)
                                   NULL);
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_SSPR);
-
-
-/************************************************
- * PPAD
- ***********************************************/
-#define PPAD_REG_SINGLE_BASE_MAC 0x14
-#define PPAD_REG_LOCAL_PORT      0x15
-#define PPAD_REG_BASE_MAC_47_32  0x16
-#define PPAD_REG_BASE_MAC_31_0   0x18
-#define PPAD_REG_LEN             0x05
-
-static int __PPAD_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_ppad_reg *ppad_reg = (struct ku_ppad_reg*)ku_reg;
-    u16                 mac_47_32;
-    u32                 mac_31_0;
-    u8                  tmp_single;
-
-    mac_47_32 = (ppad_reg->mac[0] << 8) | ppad_reg->mac[1];
-    mac_31_0 = (ppad_reg->mac[2] << 24) |
-               (ppad_reg->mac[3] << 16) |
-               (ppad_reg->mac[4] << 8); /* Last byte reserved (0) */
-    if (ppad_reg->single_base_mac == 1) {
-        mac_31_0 |= ppad_reg->mac[5];
-        tmp_single = (ppad_reg->single_base_mac & 0x1) << 4;
-        SX_PUT_REG_FIELD(inbox, tmp_single, PPAD_REG_SINGLE_BASE_MAC);
-        SX_PUT_REG_FIELD(inbox, ppad_reg->local_port, PPAD_REG_LOCAL_PORT);
-    }
-    SX_PUT_REG_FIELD(inbox, mac_47_32, PPAD_REG_BASE_MAC_47_32);
-    SX_PUT_REG_FIELD(inbox, mac_47_32, PPAD_REG_BASE_MAC_31_0);
-    return 0;
-}
-
-static int __PPAD_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_ppad_reg *ppad_reg = (struct ku_ppad_reg*)ku_reg;
-    u16                 mac_47_32;
-    u32                 mac_31_0;
-
-    SX_GET_REG_FIELD(ppad_reg->local_port, outbox, PPAD_REG_LOCAL_PORT);
-    SX_GET_REG_FIELD(mac_47_32, outbox, PPAD_REG_BASE_MAC_47_32);
-    SX_GET_REG_FIELD(mac_31_0, outbox, PPAD_REG_BASE_MAC_31_0);
-    ppad_reg->mac[5] = (mac_31_0) & 0xff;
-    ppad_reg->mac[4] = (mac_31_0 >> 8) & 0xff;
-    ppad_reg->mac[3] = (mac_31_0 >> 16) & 0xff;
-    ppad_reg->mac[2] = (mac_31_0 >> 24) & 0xff;
-    ppad_reg->mac[1] = mac_47_32 & 0xff;
-    ppad_reg->mac[0] = (mac_47_32 >> 8) & 0xff;
-    return 0;
-}
-
-int sx_ACCESS_REG_PPAD(struct sx_dev *dev, struct ku_access_ppad_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __PPAD_encode,
-                                  __PPAD_decode,
-                                  PPAD_REG_LEN,
-                                  &reg_data->ppad_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_PPAD);
 
 
 /************************************************
@@ -2787,6 +2552,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SPMCR);
  * PBMC
  ***********************************************/
 #define PBMC_REG_LOCAL_PORT_OFFSET     0x15
+#define PBMC_REG_LOCAL_PORT_MSB_OFFSET 0x16
 #define PBMC_REG_XOF_TIMER_VAL_OFFSET  0x19
 #define PBMC_REG_XOF_REFRESH_OFFSET    0x1b
 #define PBMC_REG_PORT_BUFF_SIZE_OFFSET 0x1e
@@ -2803,6 +2569,7 @@ static int __PBMC_encode(u8 *inbox, void *ku_reg, void *context)
     int                 i;
 
     SX_PUT_REG_FIELD(inbox, pbmc_reg->local_port, PBMC_REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, ((pbmc_reg->lp_msb & 0x3) << 4), PBMC_REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, pbmc_reg->xof_timer_value, PBMC_REG_XOF_TIMER_VAL_OFFSET);
     SX_PUT_REG_FIELD(inbox, pbmc_reg->xof_refresh, PBMC_REG_XOF_REFRESH_OFFSET);
     for (i = 0; i < 10; i++) {
@@ -2819,8 +2586,11 @@ static int __PBMC_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_pbmc_reg *pbmc_reg = (struct ku_pbmc_reg*)ku_reg;
     int                 i;
+    u8                  temp = 0;
 
     SX_GET_REG_FIELD(pbmc_reg->local_port, outbox, PBMC_REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(temp, outbox, PBMC_REG_LOCAL_PORT_MSB_OFFSET);
+    pbmc_reg->lp_msb = (temp >> 4) & 0x3;
     SX_GET_REG_FIELD(pbmc_reg->xof_timer_value, outbox, PBMC_REG_XOF_TIMER_VAL_OFFSET);
     SX_GET_REG_FIELD(pbmc_reg->xof_refresh, outbox, PBMC_REG_XOF_REFRESH_OFFSET);
     for (i = 0; i < 10; i++) {
@@ -2852,7 +2622,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PBMC);
  * PPTB
  ***********************************************/
 #define PPTB_REG_LOCAL_PORT_OFFSET      0x15
-#define PPTB_REG_CM_UM_BITS_OFFSET      0x16
+#define PPTB_REG_MSB_CM_UM_BITS_OFFSET  0x16
 #define PPTB_REG_UM_BIT_N               0
 #define PPTB_REG_CM_BIT_N               1
 #define PPTB_REG_PM_OFFSET              0x17
@@ -2869,8 +2639,9 @@ static int __PPTB_encode(u8 *inbox, void *ku_reg, void *context)
     u8                  tmp_val_u8 = 0;
 
     SX_PUT_REG_FIELD(inbox, pptb_reg->local_port, PPTB_REG_LOCAL_PORT_OFFSET);
-    tmp_val_u8 = (pptb_reg->cm << PPTB_REG_CM_BIT_N) | pptb_reg->um;
-    SX_PUT_REG_FIELD(inbox, tmp_val_u8, PPTB_REG_CM_UM_BITS_OFFSET);
+    tmp_val_u8 = ((pptb_reg->cm & 0x1) << PPTB_REG_CM_BIT_N) | (pptb_reg->um & 0x1);
+    tmp_val_u8 |= ((pptb_reg->lp_msb & 0x3) << 4);
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, PPTB_REG_MSB_CM_UM_BITS_OFFSET);
     SX_PUT_REG_FIELD(inbox, pptb_reg->pm, PPTB_REG_PM_OFFSET);
     tmp_val_u8 = (pptb_reg->prio_7_buff << 4) | (pptb_reg->prio_6_buff & 0xf);
     SX_PUT_REG_FIELD(inbox, tmp_val_u8, PPTB_REG_PRIO_7_6_BUFF_OFFSET);
@@ -2891,7 +2662,8 @@ static int __PPTB_decode(u8 *outbox, void *ku_reg, void *context)
     u8                  tmp_val_u8 = 0;
 
     SX_GET_REG_FIELD(pptb_reg->local_port, outbox, PPTB_REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(tmp_val_u8, outbox, PPTB_REG_CM_UM_BITS_OFFSET);
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, PPTB_REG_MSB_CM_UM_BITS_OFFSET);
+    pptb_reg->lp_msb = (tmp_val_u8 >> 4) & 0x3;
     pptb_reg->um = (tmp_val_u8 >> PPTB_REG_UM_BIT_N) & 1;
     pptb_reg->cm = (tmp_val_u8 >> PPTB_REG_CM_BIT_N) & 1;
     SX_GET_REG_FIELD(pptb_reg->pm, outbox, PPTB_REG_PM_OFFSET);
@@ -3054,6 +2826,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SMID);
  * SPMS
  ***********************************************/
 #define SPMS_REG_LOCAL_PORT_OFFSET           0x15
+#define SPMS_REG_LOCAL_PORT_MSB_OFFSET       0x16
 #define SPMS_REG_VLAN_63_48_STP_STATE_OFFSET 0x18
 #define SPMS_REG_VLAN_47_32_STP_STATE_OFFSET 0x1c
 #define SPMS_REG_VLAN_31_16_STP_STATE_OFFSET 0x20
@@ -3066,6 +2839,7 @@ static int __SPMS_encode(u8 *inbox, void *ku_reg, void *context)
     u32                 tmp_val_u32;
 
     SX_PUT_REG_FIELD(inbox, spms_reg->local_port, SPMS_REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (spms_reg->lp_msb & 0x03) << 4, SPMS_REG_LOCAL_PORT_MSB_OFFSET);
     tmp_val_u32 = 0x0C;
     SX_PUT_REG_FIELD(inbox, tmp_val_u32, SPMS_REG_VLAN_15_0_STP_STATE_OFFSET);
     tmp_val_u32 = 0;
@@ -3083,6 +2857,8 @@ static int __SPMS_decode(u8 *outbox, void *ku_reg, void *context)
     u32                 tmp_val_u32;
 
     SX_GET_REG_FIELD(spms_reg->local_port, outbox, SPMS_REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(spms_reg->lp_msb, outbox, SPMS_REG_LOCAL_PORT_MSB_OFFSET);
+    spms_reg->lp_msb = (spms_reg->lp_msb >> 4) & 0x03;
     SX_GET_REG_FIELD(tmp_val_u32, outbox, SPMS_REG_VLAN_15_0_STP_STATE_OFFSET);
     if (tmp_val_u32 & 0xc) {
         spms_reg->state[1] = tmp_val_u32 & 0x3;
@@ -3109,17 +2885,17 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SPMS);
 /************************************************
  * SPVID
  ***********************************************/
-#define SPVID_REG_LOCAL_PORT_OFFSET 0x15
-#define SPVID_REG_SUB_PORT_OFFSET   0x16
-#define SPVID_REG_PORT_VID_OFFSET   0x1a
-#define SPVID_REG_LEN               0x03
+#define SPVID_REG_LOCAL_PORT_OFFSET     0x15
+#define SPVID_REG_LOCAL_PORT_MSB_OFFSET 0x16
+#define SPVID_REG_PORT_VID_OFFSET       0x1a
+#define SPVID_REG_LEN                   0x03
 
 static int __SPVID_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_spvid_reg *spvid_reg = (struct ku_spvid_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, spvid_reg->local_port, SPVID_REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, spvid_reg->sub_port, SPVID_REG_SUB_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (spvid_reg->lp_msb & 0x3) << 4, SPVID_REG_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, spvid_reg->port_default_vid, SPVID_REG_PORT_VID_OFFSET);
     return 0;
 }
@@ -3129,7 +2905,9 @@ static int __SPVID_decode(u8 *outbox, void *ku_reg, void *context)
     struct ku_spvid_reg *spvid_reg = (struct ku_spvid_reg*)ku_reg;
 
     SX_GET_REG_FIELD(spvid_reg->local_port, outbox, SPVID_REG_LOCAL_PORT_OFFSET);
-    SX_GET_REG_FIELD(spvid_reg->sub_port, outbox, SPVID_REG_SUB_PORT_OFFSET);
+    SX_GET_REG_FIELD(spvid_reg->lp_msb, outbox, SPVID_REG_LOCAL_PORT_MSB_OFFSET);
+    spvid_reg->lp_msb >>= 4;
+    spvid_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(spvid_reg->port_default_vid, outbox, SPVID_REG_PORT_VID_OFFSET);
     return 0;
 }
@@ -3327,15 +3105,17 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SFD);
 /************************************************
  * PLBF
  ***********************************************/
-#define PLBF_LOCAL_PORT_OFFSET 0x15
-#define PLBF_LBF_MODE_OFFSET   0x17
-#define PLBF_REG_LEN           0x03
+#define PLBF_LOCAL_PORT_OFFSET     0x15
+#define PLBF_LOCAL_PORT_MSB_OFFSET 0x16
+#define PLBF_LBF_MODE_OFFSET       0x17
+#define PLBF_REG_LEN               0x03
 
 static int __PLBF_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_plbf_reg *plbf_reg = (struct ku_plbf_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, plbf_reg->port, PLBF_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, ((plbf_reg->lp_msb & 0x3) << 4), PLBF_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, plbf_reg->lbf_mode, PLBF_LBF_MODE_OFFSET);
     return 0;
 }
@@ -3343,8 +3123,11 @@ static int __PLBF_encode(u8 *inbox, void *ku_reg, void *context)
 static int __PLBF_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_plbf_reg *plbf_reg = (struct ku_plbf_reg*)ku_reg;
+    u8                  temp = 0;
 
     SX_GET_REG_FIELD(plbf_reg->port, outbox, PLBF_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(temp, outbox, PLBF_LOCAL_PORT_MSB_OFFSET);
+    plbf_reg->lp_msb = (temp >> 4) & 0x3;
     SX_GET_REG_FIELD(plbf_reg->lbf_mode, outbox, PLBF_LBF_MODE_OFFSET);
     return 0;
 }
@@ -3907,7 +3690,7 @@ static int __RITR_decode(u8 *outbox, void *ku_reg, void *context)
 
     SX_GET_REG_FIELD(tmp_val_u32, outbox, REG_INGRESS_CNTR_SET_OFFSET);
     ritr_reg->ingress_counter_set.type = (tmp_val_u32 >> 24) & 0xFF;
-    ritr_reg->ingress_counter_set.type = tmp_val_u32 & 0xFFFFFF;
+    ritr_reg->ingress_counter_set.index = tmp_val_u32 & 0xFFFFFF;
     SX_GET_REG_FIELD(tmp_val_u32, outbox, REG_EGRESS_CNTR_SET_OFFSET);
     ritr_reg->egress_counter_set.type = (tmp_val_u32 >> 24) & 0xFF;
     ritr_reg->egress_counter_set.index = tmp_val_u32 & 0xFFFFFF;
@@ -4062,14 +3845,15 @@ EXPORT_SYMBOL(sx_ACCESS_REG_RUFT);
 /************************************************
  * MPSC
  ***********************************************/
-#define REG_LOCAL_PORT_OFFSET 0x15
-#define REG_C_E_CONG_OFFSET   0x18
-#define REG_C_BIT_N           7
-#define REG_E_BIT_N           6
-#define REG_CONG_BIT_N        5
-#define REG_RATE_OFFSET       0x1C
-#define REG_COUNT_DROP_OFFSET 0x20
-#define MPSC_REG_LEN          0x6
+#define REG_LOCAL_PORT_OFFSET     0x15
+#define REG_LOCAL_PORT_MSB_OFFSET 0x16
+#define REG_C_E_CONG_OFFSET       0x18
+#define REG_C_BIT_N               7
+#define REG_E_BIT_N               6
+#define REG_CONG_BIT_N            5
+#define REG_RATE_OFFSET           0x1C
+#define REG_COUNT_DROP_OFFSET     0x20
+#define MPSC_REG_LEN              0x6
 
 static int __MPSC_encode(u8 *inbox, void *ku_reg, void *context)
 {
@@ -4077,6 +3861,7 @@ static int __MPSC_encode(u8 *inbox, void *ku_reg, void *context)
     u8                  tmp = 0;
 
     SX_PUT_REG_FIELD(inbox, mpsc_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (mpsc_reg->lp_msb & 0x03) << 4, REG_LOCAL_PORT_MSB_OFFSET);
     tmp |= mpsc_reg->clear_count ? (1 << REG_C_BIT_N) : 0;
     tmp |= mpsc_reg->enable ? (1 << REG_E_BIT_N) : 0;
     tmp |= mpsc_reg->cong ? (1 << REG_CONG_BIT_N) : 0;
@@ -4091,6 +3876,8 @@ static int __MPSC_decode(u8 *outbox, void *ku_reg, void *context)
     u8                  tmp;
 
     SX_GET_REG_FIELD(mpsc_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(mpsc_reg->lp_msb, outbox, REG_LOCAL_PORT_MSB_OFFSET);
+    mpsc_reg->lp_msb = (mpsc_reg->lp_msb >> 4) & 0x03;
     SX_GET_REG_FIELD(tmp, outbox, REG_C_E_CONG_OFFSET);
     mpsc_reg->enable = tmp & (1 << REG_E_BIT_N) ? 1 : 0;
     mpsc_reg->cong = tmp & (1 << REG_CONG_BIT_N) ? 1 : 0;
@@ -4117,6 +3904,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MPSC);
 /************************************************
  * MLCR
  ***********************************************/
+#define REG_LP_MSB_OFFSET               0x14
 #define REG_LOCAL_PORT_OFFSET           0x15
 #define REG_LED_TYPE_OFFSET             0x17
 #define REG_BEACON_DURATION_OFFSET      0x1a
@@ -4129,6 +3917,7 @@ static int __MLCR_encode(u8 *inbox, void *ku_reg, void *context)
     struct ku_mlcr_reg *mlcr_reg = (struct ku_mlcr_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, mlcr_reg->local_port, REG_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (mlcr_reg->lp_msb & 0x3), REG_LP_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, mlcr_reg->led_type, REG_LED_TYPE_OFFSET);
     SX_PUT_REG_FIELD(inbox, mlcr_reg->beacon_duration, REG_BEACON_DURATION_OFFSET);
     SX_PUT_REG_FIELD(inbox, mlcr_reg->beacon_remain, REG_BEACON_REMAIN_OFFSET);
@@ -4141,6 +3930,8 @@ static int __MLCR_decode(u8 *outbox, void *ku_reg, void *context)
     u8                  tmp_u8;
 
     SX_GET_REG_FIELD(mlcr_reg->local_port, outbox, REG_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(mlcr_reg->lp_msb, outbox, REG_LP_MSB_OFFSET);
+    mlcr_reg->lp_msb &= 0x3;
     SX_GET_REG_FIELD(tmp_u8, outbox, REG_LED_TYPE_OFFSET);
     mlcr_reg->cap_local_or_uid_only = tmp_u8 & (1 << REG_CAP_LOCAL_OR_UID_ONLY_BIT_N) ? 1 : 0;
     mlcr_reg->led_type = tmp_u8 & 0xf;
@@ -4162,55 +3953,6 @@ int sx_ACCESS_REG_MLCR(struct sx_dev *dev, struct ku_access_mlcr_reg *reg_data)
                                   NULL);
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_MLCR);
-
-
-/************************************************
- * MOGCR
- ***********************************************/
-#define PTP_EFTC_BIT                          0
-#define PTP_IFTC_BIT                          1
-#define REG_MOGCR_FTC_OFFSET                  0x17
-#define REG_MOGCR_MIRROR_LATENCY_SCALE_OFFSET 0x1A
-#define MOGCR_REG_LEN                         0x2
-
-static int __MOGCR_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_mogcr_reg *mogcr_reg = (struct ku_mogcr_reg*)ku_reg;
-    u8                   ftc = 0;
-
-    ftc |= mogcr_reg->ptp_iftc << PTP_IFTC_BIT;
-    ftc |= mogcr_reg->ptp_eftc << PTP_EFTC_BIT;
-    SX_PUT_REG_FIELD(inbox, ftc, REG_MOGCR_FTC_OFFSET);
-    SX_PUT_REG_FIELD(inbox, mogcr_reg->mirror_latency_scale, REG_MOGCR_MIRROR_LATENCY_SCALE_OFFSET);
-    return 0;
-}
-
-static int __MOGCR_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_mogcr_reg *mogcr_reg = (struct ku_mogcr_reg*)ku_reg;
-    u8                   ftc;
-
-    SX_GET_REG_FIELD(ftc, outbox, REG_MOGCR_FTC_OFFSET);
-    mogcr_reg->ptp_iftc = !!(ftc & PTP_IFTC_BIT);
-    mogcr_reg->ptp_eftc = !!(ftc & PTP_EFTC_BIT);
-    SX_GET_REG_FIELD(mogcr_reg->mirror_latency_scale, outbox, REG_MOGCR_MIRROR_LATENCY_SCALE_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_MOGCR(struct sx_dev *dev, struct ku_access_mogcr_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __MOGCR_encode,
-                                  __MOGCR_decode,
-                                  MOGCR_REG_LEN,
-                                  &reg_data->mogcr_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MOGCR);
-
 
 /************************************************
  * MTPPPC
@@ -4301,16 +4043,69 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MTPTPT);
 
 
 /************************************************
+ * MTPCPC
+ ***********************************************/
+#define REG_MTPCPC_PPORT_OFFSET                   0x14
+#define REG_MTPCPC_LOCAL_PORT_OFFSET              0x15
+#define REG_MTPCPC_LOCAL_PORT_MSB_OFFSET          0x16
+#define REG_MTPCPC_PTP_TRAP_EN_OFFSET             0x1B
+#define REG_MTPCPC_ING_CORRECTION_MSG_TYPE_OFFSET 0x26
+#define REG_MTPCPC_EGR_CORRECTION_MSG_TYPE_OFFSET 0x2A
+#define MTPCPC_REG_LEN                            0xB
+
+static int __MTPCPC_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_mtpcpc_reg *mtpcpc_reg = (struct ku_mtpcpc_reg*)ku_reg;
+
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->pport, REG_MTPCPC_PPORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->local_port, REG_MTPCPC_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (mtpcpc_reg->lp_msb & 0x03) << 4, REG_MTPCPC_LOCAL_PORT_MSB_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->ptp_trap_en, REG_MTPCPC_PTP_TRAP_EN_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->ing_correction_msg_type, REG_MTPCPC_ING_CORRECTION_MSG_TYPE_OFFSET);
+    SX_PUT_REG_FIELD(inbox, mtpcpc_reg->egr_correction_msg_type, REG_MTPCPC_EGR_CORRECTION_MSG_TYPE_OFFSET);
+    return 0;
+}
+
+static int __MTPCPC_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_mtpcpc_reg *mtpcpc_reg = (struct ku_mtpcpc_reg*)ku_reg;
+
+    SX_GET_REG_FIELD(mtpcpc_reg->pport, outbox, REG_MTPCPC_PPORT_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->local_port, outbox, REG_MTPCPC_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->lp_msb, outbox, REG_MTPCPC_LOCAL_PORT_MSB_OFFSET);
+    mtpcpc_reg->lp_msb = (mtpcpc_reg->lp_msb >> 4) & 0x03;
+    SX_GET_REG_FIELD(mtpcpc_reg->ptp_trap_en, outbox, REG_MTPCPC_PTP_TRAP_EN_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->ing_correction_msg_type, outbox, REG_MTPCPC_ING_CORRECTION_MSG_TYPE_OFFSET);
+    SX_GET_REG_FIELD(mtpcpc_reg->egr_correction_msg_type, outbox, REG_MTPCPC_EGR_CORRECTION_MSG_TYPE_OFFSET);
+    return 0;
+}
+
+int sx_ACCESS_REG_MTPCPC(struct sx_dev *dev, struct ku_access_mtpcpc_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __MTPCPC_encode,
+                                  __MTPCPC_decode,
+                                  MTPCPC_REG_LEN,
+                                  &reg_data->mtpcpc_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_MTPCPC);
+
+/************************************************
  * MTPPTR
  ***********************************************/
-#define REG_MTPPTR_LOCAL_PORT_OFFSET   0x15
-#define REG_MTPPTR_DIR_OFFSET          0x17
-#define REG_MTPPTR_CLR_READ_ONE_OFFSET 0x18
-#define REG_MTPPTR_OVF_OFFSET          0x1b
-#define REG_MTPPTR_NUM_REC_OFFSET      0x1F
-#define REG_MTPPTR_RECORDS_OFFSET      0x24
-#define REG_CLR_BITN                   7
-#define MTPPTR_REG_LEN                 0x14
+#define REG_MTPPTR_LOCAL_PORT_OFFSET     0x15
+#define REG_MTPPTR_LOCAL_PORT_MSB_OFFSET 0x16
+#define REG_MTPPTR_DIR_OFFSET            0x17
+#define REG_MTPPTR_CLR_READ_ONE_OFFSET   0x18
+#define REG_MTPPTR_OVF_OFFSET            0x1b
+#define REG_MTPPTR_NUM_REC_OFFSET        0x1F
+#define REG_MTPPTR_RECORDS_OFFSET        0x24
+#define REG_CLR_BITN                     7
+#define MTPPTR_REG_LEN                   0x14
 
 static int __MTPPTR_encode(u8 *inbox, void *ku_reg, void *context)
 {
@@ -4321,6 +4116,7 @@ static int __MTPPTR_encode(u8 *inbox, void *ku_reg, void *context)
     SX_PUT_REG_FIELD(inbox, mtpptr_reg->dir, REG_MTPPTR_DIR_OFFSET);
     SX_PUT_REG_FIELD(inbox, clear_read_one, REG_MTPPTR_CLR_READ_ONE_OFFSET);
     SX_PUT_REG_FIELD(inbox, mtpptr_reg->local_port, REG_MTPPTR_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (mtpptr_reg->lp_msb & 0x03) << 4, REG_MTPPTR_LOCAL_PORT_MSB_OFFSET);
     return 0;
 }
 
@@ -4456,34 +4252,52 @@ EXPORT_SYMBOL(sx_ACCESS_REG_MTPPS);
 /************************************************
  * SBCTC
  ***********************************************/
-#define REG_SBCTC_LOCAL_PORT_OFFSET 0x15
-#define REG_SBCTC_EN_CONFIG_OFFSET  0x18
-#define REG_SBCTC_EVENT_OFFSET      0x1B
-#define REG_SBCTC_TCLASS_EN_OFFSET  0x1C
-#define REG_SBCTC_THR_MAX_OFFSET    0x24
-#define SBCTC_REG_LEN               0x6
+#define REG_SBCTC_DIR_ING_OFFSET        0x14
+#define REG_SBCTC_LOCAL_PORT_OFFSET     0x15
+#define REG_SBCTC_LOCAL_PORT_MSB_OFFSET 0x16
+#define REG_SBCTC_MODE_OFFSET           0x17
+#define REG_SBCTC_EN_CONFIG_OFFSET      0x18
+#define REG_SBCTC_EVENT_OFFSET          0x1B
+#define REG_SBCTC_TCLASS_EN_OFFSET      0x1C
+#define REG_SBCTC_THR_MAX_OFFSET        0x24
+#define REG_SBCTC_THR_MIN_OFFSET        0x28
+#define SBCTC_REG_LEN                   0x7
 
 static int __SBCTC_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_sbctc_reg *sbctc_reg = (struct ku_sbctc_reg*)ku_reg;
     u8                   en_config;
+    u8                   tmp_val_u8 = 0;
 
+    SX_PUT_REG_FIELD(inbox, sbctc_reg->dir_ing, REG_SBCTC_DIR_ING_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->local_port, REG_SBCTC_LOCAL_PORT_OFFSET);
+    tmp_val_u8 |= ((sbctc_reg->lp_msb & 0x3) << 4);
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_SBCTC_LOCAL_PORT_MSB_OFFSET);
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (sbctc_reg->res & 1) << 4;
+    tmp_val_u8 |= (sbctc_reg->mode & 1);
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_SBCTC_MODE_OFFSET);
     en_config = sbctc_reg->en_config << 7;
     SX_PUT_REG_FIELD(inbox, en_config, REG_SBCTC_EN_CONFIG_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->event, REG_SBCTC_EVENT_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->tclass_en, REG_SBCTC_TCLASS_EN_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctc_reg->thr_max, REG_SBCTC_THR_MAX_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbctc_reg->thr_min, REG_SBCTC_THR_MIN_OFFSET);
     return 0;
 }
 
 static int __SBCTC_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_sbctc_reg *sbctc_reg = (struct ku_sbctc_reg*)ku_reg;
+    u8                   tmp_val_u8 = 0;
 
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_SBCTC_MODE_OFFSET);
+    sbctc_reg->res = (tmp_val_u8 >> 4) & 1;
+    sbctc_reg->mode = tmp_val_u8 & 1;
     SX_GET_REG_FIELD(sbctc_reg->event, outbox, REG_SBCTC_EVENT_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->tclass_en, outbox, REG_SBCTC_TCLASS_EN_OFFSET);
     SX_GET_REG_FIELD(sbctc_reg->thr_max, outbox, REG_SBCTC_THR_MAX_OFFSET);
+    SX_GET_REG_FIELD(sbctc_reg->thr_min, outbox, REG_SBCTC_THR_MIN_OFFSET);
     return 0;
 }
 
@@ -4544,18 +4358,22 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SBGCR);
 /************************************************
  * SBCTR
  ***********************************************/
-#define REG_SBCTR_IEVENT_OFFSET     0x14
-#define REG_SBCTR_LOCAL_PORT_OFFSET 0x15
-#define REG_SBCTR_FP_ENTITY_OFFSET  0x17
-#define REG_SBCTR_TCLASS_EN_OFFSET  0x1C
-#define SBCTR_REG_LEN               0x4
+#define REG_SBCTR_IEVENT_OFFSET      0x14
+#define REG_SBCTR_LOCAL_PORT_OFFSET  0x15
+#define REG_SBCTR_MSB_DIR_ING_OFFSET 0x16
+#define REG_SBCTR_FP_ENTITY_OFFSET   0x17
+#define REG_SBCTR_TCLASS_EN_OFFSET   0x1C
+#define SBCTR_REG_LEN                0x4
 
 static int __SBCTR_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_sbctr_reg *sbctr_reg = (struct ku_sbctr_reg*)ku_reg;
+    u8                   tmp = 0;
 
     SX_PUT_REG_FIELD(inbox, sbctr_reg->ievent, REG_SBCTR_IEVENT_OFFSET);
     SX_PUT_REG_FIELD(inbox, sbctr_reg->local_port, REG_SBCTR_LOCAL_PORT_OFFSET);
+    tmp = (((sbctr_reg->lp_msb & 0x3) << 4) | (sbctr_reg->dir_ing & 0x3));
+    SX_PUT_REG_FIELD(inbox, tmp, REG_SBCTR_MSB_DIR_ING_OFFSET);
     return 0;
 }
 
@@ -4590,7 +4408,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SBCTR);
  * PPBMP
  ***********************************************/
 #define REG_PPBMP_LOCAL_PORT_OFFSET          0x15
-#define REG_PPBMP_PNAT_OFFSET                0x16
+#define REG_PPBMP_PNAT_MSB_OFFSET            0x16
 #define REG_PPBMP_MONITOR_GROUP_OFFSET       0x17
 #define REG_PPBMP_ALARM_TH_MANTISSA_OFFSET   0x18
 #define REG_PPBMP_ALARM_TH_EXP_OFFSET        0x19
@@ -4603,11 +4421,11 @@ EXPORT_SYMBOL(sx_ACCESS_REG_SBCTR);
 static int __PPBMP_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_ppbmp_reg *ppbmp_reg = (struct ku_ppbmp_reg*)ku_reg;
-    u8                   pnat;
+    u8                   pnat_lp_msb;
 
-    pnat = ppbmp_reg->pnat >> 6;
+    pnat_lp_msb = ((ppbmp_reg->pnat & 0x03) << 6) | ((ppbmp_reg->lp_msb & 0x03) << 4);
     SX_PUT_REG_FIELD(inbox, ppbmp_reg->local_port, REG_PPBMP_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pnat, REG_PPBMP_PNAT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, pnat_lp_msb, REG_PPBMP_PNAT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppbmp_reg->monitor_group, REG_PPBMP_MONITOR_GROUP_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppbmp_reg->monitor_params.alarm_th_mantissa, REG_PPBMP_ALARM_TH_MANTISSA_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppbmp_reg->monitor_params.alarm_th_exp, REG_PPBMP_ALARM_TH_EXP_OFFSET);
@@ -4649,23 +4467,25 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PPBMP);
 /************************************************
  * PPBMC
  ***********************************************/
-#define REG_PPBMC_LOCAL_PORT_OFFSET        0x15
-#define REG_PPBMC_PNAT_MONITOR_TYPE_OFFSET 0x16
-#define REG_PPBMC_E_EVENT_CTRL_OFFSET      0x18
-#define REG_PPBMC_MONITOR_CTRL_OFFSET      0x19
-#define REG_PPBMC_MONITOR_STATE_OFFSET     0x1B
-#define PPBMC_REG_LEN                      0x3
+#define REG_PPBMC_LOCAL_PORT_OFFSET            0x15
+#define REG_PPBMC_PNAT_MSB_MONITOR_TYPE_OFFSET 0x16
+#define REG_PPBMC_E_EVENT_CTRL_OFFSET          0x18
+#define REG_PPBMC_MONITOR_CTRL_OFFSET          0x19
+#define REG_PPBMC_MONITOR_STATE_OFFSET         0x1B
+#define PPBMC_REG_LEN                          0x3
 
 static int __PPBMC_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_ppbmc_reg *ppbmc_reg = (struct ku_ppbmc_reg*)ku_reg;
     u8                   e_event_ctrl;
-    u8                   pnat_monitor_type;
+    u8                   pnat_msb_monitor_type = 0;
 
-    e_event_ctrl = ppbmc_reg->e << 6 | ((ppbmc_reg->event_ctrl) & 0xF);
-    pnat_monitor_type = ppbmc_reg->pnat << 6;
     SX_PUT_REG_FIELD(inbox, ppbmc_reg->local_port, REG_PPBMC_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pnat_monitor_type, REG_PPBMC_PNAT_MONITOR_TYPE_OFFSET);
+    pnat_msb_monitor_type = (ppbmc_reg->monitor_type & 0xF);
+    pnat_msb_monitor_type |= ((ppbmc_reg->pnat & 0x3) << 6);
+    pnat_msb_monitor_type |= ((ppbmc_reg->lp_msb & 0x3) << 4);
+    SX_PUT_REG_FIELD(inbox, pnat_msb_monitor_type, REG_PPBMC_PNAT_MSB_MONITOR_TYPE_OFFSET);
+    e_event_ctrl = ppbmc_reg->e << 6 | ((ppbmc_reg->event_ctrl) & 0xF);
     SX_PUT_REG_FIELD(inbox, e_event_ctrl, REG_PPBMC_E_EVENT_CTRL_OFFSET);
     SX_PUT_REG_FIELD(inbox, ppbmc_reg->monitor_ctrl, REG_PPBMC_MONITOR_CTRL_OFFSET);
     return 0;
@@ -4675,10 +4495,10 @@ static int __PPBMC_decode(u8 *outbox, void *ku_reg, void *context)
 {
     struct ku_ppbmc_reg *ppbmc_reg = (struct ku_ppbmc_reg*)ku_reg;
     u8                   e_event_ctrl;
-    u8                   pnat_monitor_type;
+    u8                   pnat_msb_monitor_type;
 
-    SX_GET_REG_FIELD(pnat_monitor_type, outbox, REG_PPBMC_PNAT_MONITOR_TYPE_OFFSET);
-    ppbmc_reg->monitor_type = pnat_monitor_type & 0xF;
+    SX_GET_REG_FIELD(pnat_msb_monitor_type, outbox, REG_PPBMC_PNAT_MSB_MONITOR_TYPE_OFFSET);
+    ppbmc_reg->monitor_type = pnat_msb_monitor_type & 0xF;
     SX_GET_REG_FIELD(e_event_ctrl, outbox, REG_PPBMC_E_EVENT_CTRL_OFFSET);
     ppbmc_reg->e = (e_event_ctrl >> 6) & 0x3;
     ppbmc_reg->event_ctrl = e_event_ctrl & 0xF;
@@ -4689,6 +4509,17 @@ static int __PPBMC_decode(u8 *outbox, void *ku_reg, void *context)
 
 int sx_ACCESS_REG_PPBMC(struct sx_dev *dev, struct ku_access_ppbmc_reg *reg_data)
 {
+    if (is_sgmii_supported()) {
+        /* PPBMC is called from within the driver. when working with OOB,
+         * we don't have PCI to work with, only I2C. The problem is that I2C
+         * is enabled only on one management board. We must call this register from both
+         * management boards and the only way to do that is with SGMII.
+         */
+        return sgmii_emad_access_ppbmc(reg_data->dev_id,
+                                       reg_data->op_tlv.method,
+                                       &reg_data->ppbmc_reg);
+    }
+
     return sx_ACCESS_REG_internal(dev,
                                   reg_data->dev_id,
                                   0,
@@ -4705,19 +4536,20 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PPBMC);
 /************************************************
  * PPBME
  ***********************************************/
-#define REG_PPBME_LOCAL_PORT_OFFSET        0x15
-#define REG_PPBME_PNAT_MONITOR_TYPE_OFFSET 0x16
-#define REG_PPBME_MONITOR_STATE_OFFSET     0x1B
-#define PPBME_REG_LEN                      0x3
+#define REG_PPBME_LOCAL_PORT_OFFSET            0x15
+#define REG_PPBME_PNAT_MSB_MONITOR_TYPE_OFFSET 0x16
+#define REG_PPBME_MONITOR_STATE_OFFSET         0x1B
+#define PPBME_REG_LEN                          0x3
 
 static int __PPBME_encode(u8 *inbox, void *ku_reg, void *context)
 {
     struct ku_ppbme_reg *ppbme_reg = (struct ku_ppbme_reg*)ku_reg;
-    u8                   pnat_monitor_type;
+    u8                   pnat_msb_monitor_type;
 
-    pnat_monitor_type = (ppbme_reg->pnat << 6);
     SX_PUT_REG_FIELD(inbox, ppbme_reg->local_port, REG_PPBME_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pnat_monitor_type, REG_PPBME_PNAT_MONITOR_TYPE_OFFSET);
+    pnat_msb_monitor_type = ((ppbme_reg->pnat & 0x3) << 6);
+    pnat_msb_monitor_type |= ((ppbme_reg->lp_msb & 0x3) << 4);
+    SX_PUT_REG_FIELD(inbox, pnat_msb_monitor_type, REG_PPBME_PNAT_MSB_MONITOR_TYPE_OFFSET);
     return 0;
 }
 
@@ -4726,7 +4558,7 @@ static int __PPBME_decode(u8 *outbox, void *ku_reg, void *context)
     struct ku_ppbme_reg *ppbme_reg = (struct ku_ppbme_reg*)ku_reg;
     u8                   pnat_monitor_type;
 
-    SX_GET_REG_FIELD(pnat_monitor_type, outbox, REG_PPBME_PNAT_MONITOR_TYPE_OFFSET);
+    SX_GET_REG_FIELD(pnat_monitor_type, outbox, REG_PPBME_PNAT_MSB_MONITOR_TYPE_OFFSET);
     ppbme_reg->monitor_type = pnat_monitor_type & 0xF;
     SX_GET_REG_FIELD(ppbme_reg->monitor_state, outbox, REG_PPBME_MONITOR_STATE_OFFSET);
     return 0;
@@ -4751,7 +4583,7 @@ EXPORT_SYMBOL(sx_ACCESS_REG_PPBME);
  * PDDR
  ***********************************************/
 #define REG_LOCAL_PORT_OFFSET  0x15
-#define REG_PNAT_OFFSET        0x16
+#define REG_PNAT_MSB_OFFSET    0x16
 #define REG_PAGE_SELECT_OFFSET 0x1B
 #define REG_PAGE_DATA_OFFSET   0x1C
 #define PDDR_REG_LEN           (0x40)
@@ -4761,7 +4593,7 @@ static int __PDDR_encode(u8 *inbox, void *ku_reg, void *context)
     struct ku_pddr_reg *pddr_reg = (struct ku_pddr_reg*)ku_reg;
 
     SX_PUT_REG_FIELD(inbox, pddr_reg->local_port, REG_LOCAL_PORT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pddr_reg->pnat << 6, REG_PNAT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, (pddr_reg->pnat << 6) | ((pddr_reg->lp_msb & 0x03) << 4), REG_PNAT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, ((char)pddr_reg->page_select), REG_PAGE_SELECT_OFFSET);
     return 0;
 }
@@ -4813,147 +4645,11 @@ int sx_ACCESS_REG_PDDR(struct sx_dev *dev, struct ku_access_pddr_reg *reg_data)
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_PDDR);
 
-
-/************************************************
- * MCION
- ***********************************************/
-#define REG_MODULE_OFFSET               0x15
-#define MCION_REG_LEN                   0x07
-#define MCION_MODULE_STATUS_BITS_OFFSET 0x1a
-#define MCION_MODULE_INPUTS_OFFSET      0x23
-#define MCION_MODULE_INPUTS_MASK_OFFSET 0x27
-
-static int __MCION_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_mcion_reg *mcion_reg = (struct ku_mcion_reg*)ku_reg;
-
-    SX_PUT_REG_FIELD(inbox, mcion_reg->module, REG_MODULE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, (mcion_reg->module_inputs & 0xF), MCION_MODULE_INPUTS_OFFSET);
-    SX_PUT_REG_FIELD(inbox, (mcion_reg->module_inputs_mask & 0xF), MCION_MODULE_INPUTS_MASK_OFFSET);
-    return 0;
-}
-
-static int __MCION_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_mcion_reg *mcion_reg = (struct ku_mcion_reg*)ku_reg;
-    u8                   tmp_u8;
-
-    SX_GET_REG_FIELD(mcion_reg->module_status_bits, outbox, MCION_MODULE_STATUS_BITS_OFFSET);
-    SX_GET_REG_FIELD(tmp_u8, outbox, MCION_MODULE_INPUTS_OFFSET);
-    mcion_reg->module_inputs = tmp_u8 & 0xF;
-    return 0;
-}
-
-int sx_ACCESS_REG_MCION(struct sx_dev *dev, struct ku_access_mcion_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __MCION_encode,
-                                  __MCION_decode,
-                                  MCION_REG_LEN,
-                                  &reg_data->mcion_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_MCION);
-
-
-/************************************************
- * PMMP
- ***********************************************/
-#define REG_MODULE_OFFSET                               0x15
-#define PMMP_REG_LEN                                    0x0c
-#define PMMP_EEPROM_OVERRIDE_OFFSET                     0x1a
-#define PMMP_QSFP_CABLE_BREAKOUT_OFFSET                 0x1e
-#define PMMP_QSFP_ETHERNET_COMPLIANCE_CODE_OFFSET       0x1f
-#define PMMP_QSFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET   0x22
-#define PMMP_QSFP_GIGA_ETHERNET_COMPLIANCE_CODE_OFFSET  0x23
-#define PMMP_SFP_BIT_RATE_OFFSET                        0x29
-#define PMMP_SFP_CABLE_TECHNOLOGY_OFFSET                0x2a
-#define PMMP_SFP_TENGIG_ETHERNET_COMPLIANCE_CODE_OFFSET 0x2b
-#define PMMP_SFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET    0x2e
-#define PMMP_SFP_ETHERNET_COMPLIANCE_CODE_OFFSET        0x2f
-#define PMMP_CABLE_LENGTH_OFFSET                        0x37
-#define PMMP_ATTENUATION_12G_OFFSET                     0x39
-#define PMMP_ATTENUATION_7G_OFFSET                      0x3a
-#define PMMP_ATTENUATION_5G_OFFSET                      0x3b
-#define PMMP_MODULE_IDENTIFIER_OFFSET                   0x3f
-
-static int __PMMP_encode(u8 *inbox, void *ku_reg, void *context)
-{
-    struct ku_pmmp_reg *pmmp_reg = (struct ku_pmmp_reg*)ku_reg;
-
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->module, REG_MODULE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->eeprom_override, PMMP_EEPROM_OVERRIDE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->qsfp_cable_breakout, PMMP_QSFP_CABLE_BREAKOUT_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->qsfp_ethernet_compliance_code, PMMP_QSFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->qsfp_ext_ethernet_compliance_code,
-                     PMMP_QSFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox,
-                     pmmp_reg->qsfp_giga_ethernet_compliance_code,
-                     PMMP_QSFP_GIGA_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_bit_rate, PMMP_SFP_BIT_RATE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_cable_technology, PMMP_SFP_CABLE_TECHNOLOGY_OFFSET);
-    SX_PUT_REG_FIELD(inbox,
-                     pmmp_reg->sfp_tengig_ethernet_compliance_code,
-                     PMMP_SFP_TENGIG_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_ext_ethernet_compliance_code, PMMP_SFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->sfp_ethernet_compliance_code, PMMP_SFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->cable_length, PMMP_CABLE_LENGTH_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->attenuation_12g, PMMP_ATTENUATION_12G_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->attenuation_7g, PMMP_ATTENUATION_7G_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->attenuation_5g, PMMP_ATTENUATION_5G_OFFSET);
-    SX_PUT_REG_FIELD(inbox, pmmp_reg->module_identifier, PMMP_MODULE_IDENTIFIER_OFFSET);
-    return 0;
-}
-
-static int __PMMP_decode(u8 *outbox, void *ku_reg, void *context)
-{
-    struct ku_pmmp_reg *pmmp_reg = (struct ku_pmmp_reg*)ku_reg;
-
-    SX_GET_REG_FIELD(pmmp_reg->eeprom_override, outbox, PMMP_EEPROM_OVERRIDE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_cable_breakout, outbox, PMMP_QSFP_CABLE_BREAKOUT_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_ethernet_compliance_code, outbox, PMMP_QSFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_ext_ethernet_compliance_code, outbox,
-                     PMMP_QSFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->qsfp_giga_ethernet_compliance_code,
-                     outbox,
-                     PMMP_QSFP_GIGA_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_bit_rate, outbox, PMMP_SFP_BIT_RATE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_cable_technology, outbox, PMMP_SFP_CABLE_TECHNOLOGY_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_tengig_ethernet_compliance_code,
-                     outbox,
-                     PMMP_SFP_TENGIG_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_ext_ethernet_compliance_code, outbox, PMMP_SFP_EXT_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->sfp_ethernet_compliance_code, outbox, PMMP_SFP_ETHERNET_COMPLIANCE_CODE_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->cable_length, outbox, PMMP_CABLE_LENGTH_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->attenuation_12g, outbox, PMMP_ATTENUATION_12G_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->attenuation_7g, outbox, PMMP_ATTENUATION_7G_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->attenuation_5g, outbox, PMMP_ATTENUATION_5G_OFFSET);
-    SX_GET_REG_FIELD(pmmp_reg->module_identifier, outbox, PMMP_MODULE_IDENTIFIER_OFFSET);
-    return 0;
-}
-
-int sx_ACCESS_REG_PMMP(struct sx_dev *dev, struct ku_access_pmmp_reg *reg_data)
-{
-    return sx_ACCESS_REG_internal(dev,
-                                  reg_data->dev_id,
-                                  0,
-                                  &reg_data->op_tlv,
-                                  __PMMP_encode,
-                                  __PMMP_decode,
-                                  PMMP_REG_LEN,
-                                  &reg_data->pmmp_reg,
-                                  NULL);
-}
-EXPORT_SYMBOL(sx_ACCESS_REG_PMMP);
-
-
 /************************************************
  * QPCR
  ***********************************************/
 #define QPCR_REG_LEN               0x28
+#define QPCR_LOCAL_PORT_MSB_OFFSET 0x14
 #define QPCR_LOCAL_PORT_OFFSET     0x15
 #define QPCR_GLOBAL_PID_OFFSET     0x16
 #define QPCR_COUNTER_OFFSET        0x18
@@ -4973,10 +4669,13 @@ static int __QPCR_encode(u8 *inbox, void *ku_reg, void *context)
     u8                  tmp_val_u8 = 0;
     u16                 tmp_val_u16 = 0;
 
+    tmp_val_u8 |= (qpcr_reg->lp_msb & 0x03);
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, QPCR_LOCAL_PORT_MSB_OFFSET);
     SX_PUT_REG_FIELD(inbox, qpcr_reg->port, QPCR_LOCAL_PORT_OFFSET);
     tmp_val_u16 |= (qpcr_reg->pid & 0x3fff);
     tmp_val_u16 |= (qpcr_reg->global_policer & 3) << 14;
     SX_PUT_REG_FIELD(inbox, tmp_val_u16, QPCR_GLOBAL_PID_OFFSET);
+    tmp_val_u8 = 0;
     tmp_val_u8 |= (qpcr_reg->clear_counter & 1) << 7;
     tmp_val_u8 |= (qpcr_reg->add_counter & 1) << 6;
     SX_PUT_REG_FIELD(inbox, tmp_val_u8, QPCR_COUNTER_OFFSET);
@@ -5003,15 +4702,19 @@ static int __QPCR_decode(u8 *outbox, void *ku_reg, void *context)
     u8                  tmp_val_u8 = 0;
     u16                 tmp_val_u16 = 0;
 
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, QPCR_LOCAL_PORT_MSB_OFFSET);
+    qpcr_reg->lp_msb = (tmp_val_u8 & 0x03);
     SX_GET_REG_FIELD(qpcr_reg->port, outbox, QPCR_LOCAL_PORT_OFFSET);
     SX_GET_REG_FIELD(tmp_val_u16, outbox, QPCR_GLOBAL_PID_OFFSET);
     qpcr_reg->global_policer = (tmp_val_u16 >> 14) & 3;
     qpcr_reg->pid = (tmp_val_u16) & 0x3fff;
 
+    tmp_val_u8 = 0;
     SX_GET_REG_FIELD(tmp_val_u8, outbox, QPCR_COUNTER_OFFSET);
     qpcr_reg->clear_counter = (tmp_val_u8 >> 7) & 1;
     qpcr_reg->add_counter = (tmp_val_u8 >> 6) & 1;
 
+    tmp_val_u8 = 0;
     SX_GET_REG_FIELD(tmp_val_u8, outbox, QPCR_COLOR_TO_TYPE_OFFSET);
     qpcr_reg->color_aware = (tmp_val_u8 >> 7) & 1;
     qpcr_reg->use_bytes = (tmp_val_u8 >> 6) & 1;
@@ -5042,6 +4745,180 @@ int sx_ACCESS_REG_QPCR(struct sx_dev *dev, struct ku_access_qpcr_reg *reg_data)
                                   NULL);
 }
 EXPORT_SYMBOL(sx_ACCESS_REG_QPCR);
+
+/************************************************
+ * MFGD
+ ***********************************************/
+#define REG_MFGD_OFF_B3            (0x3 + REG_START_OFFSET) /* Byte 3*/
+#define REG_MFGD_OFF_B2            (0x2 + REG_START_OFFSET) /* Byte 2*/
+#define REG_MFGD_OFF_B5            (0x5 + REG_START_OFFSET) /* Byte 5*/
+#define REG_MFGD_OFF_EGRESS_EN     (0x6 + REG_START_OFFSET) /* Byte 6&7*/
+#define REG_MFGD_OFF_FW_INIT_PORTS (0x8 + REG_START_OFFSET)  /* Byte 8&9*/
+#define REG_MFGD_OFF_FW_INIT_TOTAL (0xA + REG_START_OFFSET)  /* Byte 10&11*/
+#define MFGD_REG_LEN               (0x3) /* 3 dwords */
+
+static int __MFGD_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_mfgd_reg *reg = (struct ku_mfgd_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+
+    /* Byte 0 RSV */
+    /* Byte 1 RSV */
+    /* Byte 2  */
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (reg->trigger_stack_overflow & 1); /* bit 8 */
+    tmp_val_u8 |= (reg->fw_fatal_mode & 3) << 1; /* bits 9 & 10*/
+    tmp_val_u8 |= (reg->fw_fatal_event_test & 0xf) << 3; /* bits 11*/
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B2);
+    /* Byte 3  */
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (reg->fw_dci_rif_cache & 1); /* bit 0 */
+    tmp_val_u8 |= (reg->fw_dci_en & 1) << 1; /* bit 1 */
+    tmp_val_u8 |= (reg->fw_kvc_en & 1) << 2; /* bit 2 */
+    tmp_val_u8 |= (reg->tcr_dbg_en & 1) << 3; /* bit 3 */
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B3);
+    /* Byte 4  RSV*/
+    /* Byte 5 */
+    tmp_val_u8 = 0;
+    tmp_val_u8 |= (reg->atcam_bf_en & 1) << 3; /* bit 19 */
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, REG_MFGD_OFF_B5);
+
+    /* Byte 6&7 */
+    SX_PUT_REG_FIELD(inbox, reg->egress_en, REG_MFGD_OFF_EGRESS_EN);
+    return 0;
+}
+
+static int __MFGD_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_mfgd_reg *reg = (struct ku_mfgd_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B2);
+    reg->trigger_stack_overflow = (tmp_val_u8 >> 0) & 1;
+    reg->fw_fatal_mode = (tmp_val_u8 >> 1) & 3;
+    reg->fw_fatal_event_test = (tmp_val_u8 >> 3) & 0xf;
+
+
+    tmp_val_u8 = 0;
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B3);
+    reg->fw_dci_rif_cache = (tmp_val_u8 >> 0) & 1;
+    reg->fw_dci_en = (tmp_val_u8 >> 1) & 1;
+    reg->fw_kvc_en = (tmp_val_u8 >> 2) & 1;
+    reg->tcr_dbg_en = (tmp_val_u8 >> 3) & 1;
+
+    tmp_val_u8 = 0;
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, REG_MFGD_OFF_B5);
+    reg->atcam_bf_en = (tmp_val_u8 >> 3) & 1;
+
+    SX_GET_REG_FIELD(reg->egress_en, outbox, REG_MFGD_OFF_EGRESS_EN);
+    SX_GET_REG_FIELD(reg->fw_init_open_ports_time, outbox, REG_MFGD_OFF_FW_INIT_PORTS);
+    SX_GET_REG_FIELD(reg->fw_init_total_time, outbox, REG_MFGD_OFF_FW_INIT_TOTAL);
+    return 0;
+}
+
+int sx_ACCESS_REG_MFGD(struct sx_dev *dev, struct ku_access_mfgd_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __MFGD_encode,
+                                  __MFGD_decode,
+                                  MFGD_REG_LEN,
+                                  &reg_data->reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_MFGD);
+/************************************************
+ * SBCM
+ ***********************************************/
+#define SBCM_REG_LEN              0xa
+#define SBCM_DESC_SNAP_OFFSET     0x14
+#define SBCM_LOCAL_PORT_OFFSET    0x15
+#define SBCM_PG_BUFF_OFFSET       0x16
+#define SBCM_MSB_DIR_OFFSET       0x17
+#define SBCM_EXC_OFFSET           0x1b
+#define SBCM_BUFF_OCCUP_OFFSET    0x20
+#define SBCM_CLR_M_BUFF_OC_OFFSET 0x24
+#define SBCM_MIN_BUFF_OFFSET      0x28
+#define SBCM_INFI_M_M_BUFF_OFFSET 0x2c
+#define SBCM_POOL_OFFSET          0x37
+
+static int __SBCM_encode(u8 *inbox, void *ku_reg, void *context)
+{
+    struct ku_sbcm_reg *sbcm_reg = (struct ku_sbcm_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+    u32                 tmp_val_u32 = 0;
+
+    tmp_val_u8 |= (sbcm_reg->desc & 1) << 7;
+    tmp_val_u8 |= (sbcm_reg->snap & 1) << 6;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, SBCM_DESC_SNAP_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->local_port, SBCM_LOCAL_PORT_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->pg_buff, SBCM_PG_BUFF_OFFSET);
+    tmp_val_u8 = 0;
+    tmp_val_u8 = (sbcm_reg->dir & 0x3);
+    tmp_val_u8 |= (sbcm_reg->lp_msb & 0x3) << 4;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u8, SBCM_MSB_DIR_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->exc, SBCM_EXC_OFFSET);
+
+    tmp_val_u32 = sbcm_reg->clr << 31;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u32, SBCM_CLR_M_BUFF_OC_OFFSET);
+
+    tmp_val_u32 = 0;
+    tmp_val_u32 = sbcm_reg->min_buff;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u32, SBCM_MIN_BUFF_OFFSET);
+
+    tmp_val_u32 = 0;
+    tmp_val_u32 = sbcm_reg->infi_max << 31;
+    tmp_val_u32 |= sbcm_reg->max_buff;
+    SX_PUT_REG_FIELD(inbox, tmp_val_u32, SBCM_INFI_M_M_BUFF_OFFSET);
+    SX_PUT_REG_FIELD(inbox, sbcm_reg->pool, SBCM_POOL_OFFSET);
+    return 0;
+}
+
+
+static int __SBCM_decode(u8 *outbox, void *ku_reg, void *context)
+{
+    struct ku_sbcm_reg *sbcm_reg = (struct ku_sbcm_reg*)ku_reg;
+    u8                  tmp_val_u8 = 0;
+    u32                 tmp_val_u32 = 0;
+
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, SBCM_DESC_SNAP_OFFSET);
+    sbcm_reg->desc = (tmp_val_u8 >> 7) & 1;
+    SX_GET_REG_FIELD(sbcm_reg->local_port, outbox, SBCM_LOCAL_PORT_OFFSET);
+    SX_GET_REG_FIELD(sbcm_reg->pg_buff, outbox, SBCM_PG_BUFF_OFFSET);
+    tmp_val_u8 = 0;
+    SX_GET_REG_FIELD(tmp_val_u8, outbox, SBCM_MSB_DIR_OFFSET);
+    sbcm_reg->dir = tmp_val_u8 & 0x3;
+    sbcm_reg->lp_msb = ((tmp_val_u8 >> 4) & 0x3);
+    SX_GET_REG_FIELD(sbcm_reg->exc, outbox, SBCM_EXC_OFFSET);
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_CLR_M_BUFF_OC_OFFSET);
+    sbcm_reg->buff_occupancy = tmp_val_u32 & 0xFFFFFF;
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_CLR_M_BUFF_OC_OFFSET);
+    sbcm_reg->max_buff_occupancy = tmp_val_u32 & 0xFFFFFF;
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_MIN_BUFF_OFFSET);
+    sbcm_reg->min_buff = tmp_val_u32 & 0xFFFFFF;
+    SX_GET_REG_FIELD(tmp_val_u32, outbox, SBCM_INFI_M_M_BUFF_OFFSET);
+    sbcm_reg->infi_max = (tmp_val_u32 >> 31) & 1;
+    sbcm_reg->max_buff = tmp_val_u32 & 0xFFFFFF;
+
+    SX_GET_REG_FIELD(sbcm_reg->pool, outbox, SBCM_POOL_OFFSET);
+    return 0;
+}
+
+int sx_ACCESS_REG_SBCM(struct sx_dev *dev, struct ku_access_sbcm_reg *reg_data)
+{
+    return sx_ACCESS_REG_internal(dev,
+                                  reg_data->dev_id,
+                                  0,
+                                  &reg_data->op_tlv,
+                                  __SBCM_encode,
+                                  __SBCM_decode,
+                                  SBCM_REG_LEN,
+                                  &reg_data->sbcm_reg,
+                                  NULL);
+}
+EXPORT_SYMBOL(sx_ACCESS_REG_SBCM);
 
 
 /************************************************

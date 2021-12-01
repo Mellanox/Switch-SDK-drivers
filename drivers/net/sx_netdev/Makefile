@@ -15,6 +15,7 @@
 #obj-$(CONFIG_SX_NETDEV)                   += sx_netdev.o
 #obj-m	+=	sx_netdev.o
 obj-$(CONFIG_SX_NETDEV)	+=	sx_netdev.o
+CFLAGS_sx_netdev_main.o = -I$(src)
 
-sx_netdev-y := sx_netdev_main.o sx_netdev_rtnetlink.o sx_bridge_rtnetlink.o
+sx_netdev-y := sx_netdev_main.o sx_netdev_rtnetlink.o sx_bridge_rtnetlink.o sx_psample.o
 
