@@ -49,6 +49,58 @@
  * Functions
  ***********************************************/
 
+u32 sx_bitmap_num_bits(struct sx_bitmap *bitmap)
+{
+    u32           bit_num = 0;
+    unsigned long flags;
+
+    spin_lock_irqsave(&bitmap->lock, flags);
+    bit_num = bitmap->max;
+    spin_unlock_irqrestore(&bitmap->lock, flags);
+
+    return bit_num;
+}
+
+void sx_bitmap_clear_all(struct sx_bitmap *bitmap)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&bitmap->lock, flags);
+    memset(bitmap->table, 0, sizeof(bitmap->table));
+    spin_unlock_irqrestore(&bitmap->lock, flags);
+}
+
+void sx_bitmap_copy(struct sx_bitmap *dst, struct sx_bitmap *src)
+{
+    struct sx_bitmap *bm1, *bm2;
+    unsigned long     flags1, flags2;
+
+    if (dst == src) {
+        return;
+    }
+
+    /* in order to avoid deadlock (we need two locks here), lock order will be
+     * determined by comparing bitmap pointers.
+     */
+
+    if (((long)dst) < ((long)src)) {
+        bm1 = dst;
+        bm2 = src;
+    } else {
+        bm1 = src;
+        bm2 = dst;
+    }
+
+    spin_lock_irqsave(&bm1->lock, flags1);
+    spin_lock_irqsave(&bm2->lock, flags2);
+
+    dst->max = src->max;
+    memcpy(dst->table, src->table, sizeof(dst->table));
+
+    spin_unlock_irqrestore(&bm2->lock, flags2);
+    spin_unlock_irqrestore(&bm1->lock, flags1);
+}
+
 u32 sx_bitmap_test(struct sx_bitmap *bitmap, u32 obj)
 {
     u32           ret;

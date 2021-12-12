@@ -66,8 +66,12 @@
 #include "sx_dpt.h"
 #include "sx_proc.h"
 #include "sx_clock.h"
+#include "sx_af_counters.h"
+#include "ptp.h"
 #include "sgmii.h"
 #include "counter.h"
+#include "ber_monitor.h"
+#include "health_check.h"
 
 #ifdef CONFIG_44x
 #include <asm/dcr.h>
@@ -98,14 +102,21 @@ static const char sx_version[] =
 #define MAX_ROUTER_MID_TABLE_SIZE 0xffff
 #define MAX_IB_PORT               65
 
-#define SX_CORE_PHY_PORT_NUM_MAX                64
-#define SX_CORE_PHY_PORT_NUM_QUANTUM_MAX        80
-#define SX_CORE_PHY_PORT_NUM_SPECTRUM2_MAX      128
-#define SX_CORE_LAG_NUM_MAX                     64
-#define SX_CORE_LAG_NUM_SPECTRUM2_MAX           128
+#define SX_CORE_PHY_PORT_NUM_MAX           64
+#define SX_CORE_PHY_PORT_NUM_QUANTUM_MAX   80
+#define SX_CORE_PHY_PORT_NUM_QUANTUM2_MAX  128
+#define SX_CORE_PHY_PORT_NUM_SPECTRUM2_MAX 128
+#define SX_CORE_PHY_PORT_NUM_SPECTRUM4_MAX 256
+
+#define SX_CORE_LAG_NUM_MAX           64
+#define SX_CORE_LAG_NUM_SPECTRUM2_MAX 128
+#define SX_CORE_LAG_NUM_SPECTRUM4_MAX 256
+
 #define SX_CORE_PORTS_PER_LAG_NUM_MAX           32
 #define SX_CORE_PORTS_PER_LAG_NUM_SPECTRUM2_MAX 64
-#define SX_CORE_DEV_CB_FINISH_WAIT_TIMEOUT      (30 * HZ)
+#define SX_CORE_PORTS_PER_LAG_NUM_SPECTRUM4_MAX 128
+
+#define SX_CORE_DEV_CB_FINISH_WAIT_TIMEOUT (30 * HZ)
 
 /* The following defines are used in the chip specific
  * callback functions to get the correct number of RDQ
@@ -116,12 +127,13 @@ static const char sx_version[] =
 #define RDQ_NUM_MAX      37
 #define RDQ_NUM_MAX_SPC2 56
 
+
 /************************************************
  *  Enum
  ***********************************************/
 
 enum SX_CHAR_DEVICE {
-    SX_MAJOR = 231,
+    SX_MAJOR      = 230, /* New OFED drivers consume major:231/minor:192 (range of 64 devices) */
     SX_BASE_MINOR = 193,
 };
 dev_t             char_dev;
@@ -293,17 +305,33 @@ char chip_info_psid[16] = "";
 module_param_string(chip_info_psid, chip_info_psid, 16, 0444);
 MODULE_PARM_DESC(chip_info_psid, "chip_info: psid");
 
-int enable_cpu_port_loopback = 0;
+int enable_cpu_port_loopback = 0; /* ONLY FOR DEBUG */
 module_param_named(enable_cpu_port_loopback, enable_cpu_port_loopback, int, 0644);
 MODULE_PARM_DESC(enable_cpu_port_loopback, " Enable / Disable loopback on cpu port");
 
-int mon_cq_thread_delay_time_usec = 20;
-module_param_named(mon_cq_thread_delay_time_usec, mon_cq_thread_delay_time_usec, int, 0644);
-MODULE_PARM_DESC(mon_cq_thread_delay_time_usec, "mon_cq_thread_delay_time_usec");
+int enable_keep_packet_crc = 0; /* ONLY FOR DEBUG */
+module_param_named(enable_keep_packet_crc, enable_keep_packet_crc, int, 0644);
+MODULE_PARM_DESC(enable_keep_packet_crc, "Enable/Disable receiving RX packet including the CRC field");
+
+int mon_cq_thread_cpu_util_percent = MON_CQ_HANDLER_THREAD_CPU_UTIL_PERCENT_DEFAULT;
+module_param_named(mon_cq_thread_cpu_util_percent, mon_cq_thread_cpu_util_percent, uint, 0644);
+MODULE_PARM_DESC(mon_cq_thread_cpu_util_percent, "mon_cq_thread_cpu_util_percent");
 
 int enable_monitor_rdq_trace_points = 0;
 module_param_named(enable_monitor_rdq_trace_points, enable_monitor_rdq_trace_points, int, 0644);
 MODULE_PARM_DESC(enable_monitor_rdq_trace_points, "enabled/disable monitor RDQs trace points");
+
+int sx_af_counters_dbg_info_gathering = 1;
+module_param_named(sx_af_counters_dbg_info_gathering,
+                   sx_af_counters_dbg_info_gathering, int, 0644);
+MODULE_PARM_DESC(sx_af_counters_dbg_info_gathering,
+                 " 0/1 - disable/enable gathering of Accumulated counters' debug info");
+
+int sx_af_counters_dbg_info_print_in_hex = 0;
+module_param_named(sx_af_counters_dbg_info_print_in_hex,
+                   sx_af_counters_dbg_info_print_in_hex, int, 0644);
+MODULE_PARM_DESC(sx_af_counters_dbg_info_print_in_hex,
+                 " 0/1 - disable/enable printing of Accumulated counters' debug info in hex");
 
 #ifdef CONFIG_PCI_MSI
 
@@ -329,7 +357,6 @@ static void sx_core_listeners_cleanup(void);
 
 int sx_init_char_dev(struct cdev *cdev_p);
 void sx_deinit_char_dev(struct cdev *cdev_p);
-int sx_core_ptp_cleanup(struct sx_dev *dev);
 
 enum {
     PCI_PROBE_STATE_NONE_E,
@@ -340,10 +367,83 @@ enum {
 static u8 __pci_probe_state = PCI_PROBE_STATE_NONE_E;
 static u8 __perform_chip_reset = 0;
 static u8 __oob_pci = 0;
+u8        __warm_boot_mode = 0;
 
 /************************************************
  *  Functions
  ***********************************************/
+
+int sx_core_skb_add_vlan(struct sk_buff **untagged_skb, uint16_t vid, uint16_t pcp)
+{
+    u32             vlan_hdr = cpu_to_be32((ETH_P_8021Q << 16) | ((pcp & 0x7) << 13) | (vid & 0xfff));
+    struct sk_buff *skb = *untagged_skb, *new_skb = NULL;
+    u8             *p_skb_data;
+
+    if (skb_headroom(skb) < ISX_HDR_SIZE + VLAN_HLEN) {
+        new_skb = alloc_skb(skb->len + ISX_HDR_SIZE + VLAN_HLEN, GFP_ATOMIC);
+        if (!new_skb) {
+            printk(KERN_ERR PFX "adding vlan to skb failed because of allocation\n");
+            return -ENOMEM;
+        }
+
+        p_skb_data = skb_put(new_skb, skb->len + VLAN_HLEN);
+        if (!p_skb_data) {
+            kfree_skb(new_skb);
+            return -ENOMEM;
+        }
+
+        memcpy(p_skb_data, skb->data, 12); /* DMAC, SMAC */
+        memcpy(p_skb_data + 12 + VLAN_HLEN, skb->data + 12, skb->len - 12); /* rest of the frame */
+
+        kfree_skb(skb);
+        *untagged_skb = new_skb;
+    } else {
+        p_skb_data = skb_push(skb, VLAN_HLEN);
+        memmove(p_skb_data, p_skb_data + VLAN_HLEN, 12); /* DMAC, SMAC */
+    }
+
+    memcpy(p_skb_data + 12, &vlan_hdr, VLAN_HLEN);
+    return 0;
+}
+EXPORT_SYMBOL(sx_core_skb_add_vlan);
+
+
+static inline void SX_CORE_REGISTER_FILTER_BITMASK_SET(u64 *arr, u32 num, int set)
+{
+    int idx = (num) / 64;
+    u64 bit = (1ULL << ((num) % 64));
+
+    if (set) {
+        (arr)[idx] |= (bit);
+    } else {
+        (arr)[idx] &= ~(bit);
+    }
+}
+
+static inline int SX_CORE_REGISTER_FILTER_BIT_IS_SET(u64 *arr, u32 num)
+{
+    int idx = (num) / 64;
+    u64 bit = (1ULL << ((num) % 64));
+
+    return ((arr)[idx] & (bit));
+}
+
+static inline void SX_CORE_REGISTER_FILTER_BITMASK_SET_ALL_ZERO(
+    struct listener_register_filter_entry *register_filter_listener,
+    u8                                     is_register)
+{
+    if (is_register) {
+        register_filter_listener->is_global_register = 0;
+        memset(register_filter_listener->ports_registers, 0, FROM_BITS_TO_U64((MAX_PHYPORT_NUM + 1)) * sizeof(u64));
+        memset(register_filter_listener->vlans_registers, 0, FROM_BITS_TO_U64((SXD_MAX_VLAN_NUM + 1)) * sizeof(u64));
+        memset(register_filter_listener->lags_registers, 0, FROM_BITS_TO_U64((MAX_LAG_NUM + 1)) * sizeof(u64));
+    } else {
+        register_filter_listener->is_global_filter = 0;
+        memset(register_filter_listener->ports_filters, 0, FROM_BITS_TO_U64((MAX_PHYPORT_NUM + 1)) * sizeof(u64));
+        memset(register_filter_listener->vlans_filters, 0, FROM_BITS_TO_U64((SXD_MAX_VLAN_NUM + 1)) * sizeof(u64));
+        memset(register_filter_listener->lags_filters, 0, FROM_BITS_TO_U64((MAX_LAG_NUM + 1)) * sizeof(u64));
+    }
+}
 
 u16 translate_user_port_to_sysport(struct sx_dev *dev, u32 log_port, int* is_lag)
 {
@@ -443,7 +543,7 @@ int config_l2_force_snoop(void)
 #endif /* SNOOP_MISS_WA */
 
 
-int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint8_t lag_subport, uint16_t *local_p)
+int sx_core_get_local(struct sx_dev *dev, uint16_t lag_id, uint16_t lag_subport, uint16_t *local_p)
 {
     uint16_t local = 0, phy_port_max = 0;
     uint16_t lag_max = 0, lag_member_max = 0;
@@ -505,7 +605,7 @@ int sx_core_get_lag_oper_state(struct sx_dev *dev, u16 lag_id, u8 *oper_state_p)
 }
 EXPORT_SYMBOL(sx_core_get_lag_oper_state);
 
-void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 *is_lag_member)
+void get_lag_id_from_local_port(struct sx_dev *dev, u16 sysport, u16 *lag_id, u8 *is_lag_member)
 {
     int      i = 0, j = 0;
     uint16_t lag_max = 0, lag_member_max = 0;
@@ -534,93 +634,6 @@ void get_lag_id_from_local_port(struct sx_dev *dev, u8 sysport, u16 *lag_id, u8 
 }
 EXPORT_SYMBOL(get_lag_id_from_local_port);
 
-int sx_core_get_ptp_state(struct sx_dev *dev, uint8_t *is_ptp_enable)
-{
-    *is_ptp_enable = sx_priv(dev)->tstamp.is_ptp_enable;
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_get_ptp_state);
-
-int sx_core_get_ptp_clock_index(struct sx_dev *dev, uint8_t *ptp_clock_index_p)
-{
-#ifndef __PPC__
-    if (sx_priv(dev)->tstamp.is_ptp_enable) {
-        *ptp_clock_index_p = ptp_clock_index(sx_priv(dev)->tstamp.ptp);
-    }
-#endif
-
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_get_ptp_clock_index);
-
-
-int sx_core_pending_ptp_eg_pkt(struct sx_dev *dev, struct sk_buff *skb, u16 sysport_lag_id, u8 is_lag, u8 *is_ptp_pkt)
-{
-    u8                        ptp_domain_num = 0, ptp_msg_type = 0;
-    u16                       ptp_evt_seqid = 0;
-    struct ptp_tx_event_data *ptp_event;
-    unsigned long             flags;
-    uint16_t                  phy_port_max = 0;
-
-    if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
-        printk(KERN_ERR PFX "Failed to get max number of phy ports.\n");
-        return -EINVAL;
-    }
-
-    if (is_lag) {
-        sysport_lag_id += phy_port_max;
-    }
-
-    sx_ptp_pkt_parse(skb, is_ptp_pkt, &ptp_evt_seqid, &ptp_domain_num, &ptp_msg_type);
-
-    if (sx_priv(dev)->tstamp.is_ptp_enable && *is_ptp_pkt) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_TOTAL]);
-
-        /*  with ptp general messages should be dispatch without timestamp */
-        if (((u16)(1 << ptp_msg_type) & PTP_MSG_GENERAL_ALL)) {
-            skb_tstamp_tx(skb, NULL);
-            return 0;
-        }
-
-        if (atomic64_dec_return(&ptp_tx_budget[sysport_lag_id]) < 0) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_RATE_LIMIT]);
-        }
-
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_NEED_TIMESTAMP]);
-
-        ptp_event = ptp_allocate_tx_event_data(GFP_ATOMIC);
-        if (!ptp_event) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_OUT_OF_MEMORY]);
-            return -ENOMEM;
-        }
-
-        ptp_event->skb = skb_clone(skb, GFP_ATOMIC);
-        if (!ptp_event->skb) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_OUT_OF_MEMORY]);
-            ptp_free_tx_event_data(ptp_event);
-            return -ENOMEM;
-        }
-
-        skb_shinfo(ptp_event->skb)->tx_flags |= SKBTX_IN_PROGRESS;
-        ptp_event->skb->sk = skb->sk;
-        sock_hold(ptp_event->skb->sk);
-
-        INIT_LIST_HEAD(&ptp_event->common.list);
-        ptp_event->common.sequence_id = ptp_evt_seqid;
-        ptp_event->common.domain_num = ptp_domain_num;
-        ptp_event->common.msg_type = ptp_msg_type;
-        ptp_event->common.need_timestamp = 1;
-        ptp_event->common.since = jiffies;
-
-        spin_lock_irqsave(&ptp_tx_db.sysport_lock[sysport_lag_id], flags);
-        list_add_tail(&ptp_event->common.list, &ptp_tx_db.sysport_events_list[sysport_lag_id]);
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_PENDING_EVENTS]);
-        spin_unlock_irqrestore(&ptp_tx_db.sysport_lock[sysport_lag_id], flags);
-    }
-
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_pending_ptp_eg_pkt);
 
 int sx_core_get_prio2tc(struct sx_dev *dev, uint16_t port_lag_id, uint8_t is_lag, uint8_t pcp, uint8_t *tc)
 {
@@ -1267,6 +1280,7 @@ void inc_eventlist_drops_counter(struct sx_dev* sx_dev, u16 hw_synd)
            "was dropped from the event list\n", hw_synd);
 #endif
 }
+EXPORT_SYMBOL(inc_eventlist_drops_counter);
 
 void inc_filtered_lag_packets_counter(struct sx_dev *dev)
 {
@@ -1328,7 +1342,7 @@ static int check_valid_meta(struct sx_dev *dev, struct isx_meta *meta)
         return -ERANGE;
     }
 
-    rc = sx_core_get_rdq_num_max(dev, &rdq_num);
+    rc = sx_core_get_rdq_param_max(dev, &rdq_num, NULL);
     if (rc) {
         printk(KERN_ERR PFX "Error: failed to get max RDQ num\n");
         return rc;
@@ -1396,7 +1410,11 @@ static int check_valid_meta(struct sx_dev *dev, struct isx_meta *meta)
  * returns: 0 success
  *	    !0 error
  */
-static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u8 reserve_hdrs)
+static int copy_buff_to_skb(struct sk_buff **skb,
+                            struct ku_write *write_data,
+                            u8               reserve_hdrs,
+                            u8               is_from_user,
+                            gfp_t            gfp_mask)
 {
     int              err = 0;
     int              index = 0;
@@ -1410,17 +1428,22 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
         goto out_err;
     }
 
-    iov = kmalloc(sizeof(*iov) * (write_data->vec_entries), GFP_KERNEL);
-    if (!iov) {
-        err = -ENOMEM;
-        goto out_err;
-    }
+    if (is_from_user) {
+        iov = kmalloc(sizeof(*iov) * (write_data->vec_entries), GFP_KERNEL);
+        if (!iov) {
+            err = -ENOMEM;
+            goto out_err;
+        }
 
-    /*1. copy io vector */
-    err = copy_from_user((void*)iov, (void*)(write_data->iov),
-                         sizeof(*iov) * (write_data->vec_entries));
-    if (err) {
-        goto out_free;
+        /*1. copy io vector */
+        err = copy_from_user((void*)iov, (void*)(write_data->iov),
+                             sizeof(*iov) * (write_data->vec_entries));
+        if (err) {
+            printk(KERN_WARNING PFX "failed to copy buffer from user\n");
+            goto out_free;
+        }
+    } else {
+        iov = write_data->iov;
     }
 
     /* 2. calc the packet size */
@@ -1442,7 +1465,7 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
     }
 
     /* 3. allocate skb according to packet size */
-    *skb = alloc_skb(packet_size + max_headers_size, GFP_KERNEL);
+    *skb = alloc_skb(packet_size + max_headers_size, gfp_mask);
     if (!*skb) {
         err = -ENOMEM;
         goto out_free;
@@ -1464,10 +1487,16 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
         }
 
         memset(p_skb_data, 0, iov[index].iov_len);
-        err = copy_from_user(p_skb_data, iov[index].iov_base,
-                             iov[index].iov_len);
-        if (err) {
-            goto out_free_skb;
+
+        if (is_from_user) {
+            err = copy_from_user(p_skb_data, iov[index].iov_base,
+                                 iov[index].iov_len);
+            if (err) {
+                printk(KERN_WARNING PFX "failed to copy buffer from user index:[%d]\n", index);
+                goto out_free_skb;
+            }
+        } else {
+            memcpy(p_skb_data, iov[index].iov_base, iov[index].iov_len);
         }
     }
 
@@ -1476,12 +1505,19 @@ static int copy_buff_to_skb(struct sk_buff **skb, struct ku_write *write_data, u
 out_free_skb:
     kfree_skb(*skb);
 out_free:
-    kfree(iov);
+    if (is_from_user) {
+        kfree(iov);
+    }
 out_err:
     return err;
 }
 
-static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, void *context)
+static int sx_send_loopback(struct sx_dev   *dev,
+                            struct ku_write *write_data,
+                            void            *context,
+                            u8               is_from_user,
+                            pid_t            target_pid,
+                            gfp_t            gfp_mask)
 {
     int                    err = 0;
     struct completion_info ci;
@@ -1490,9 +1526,9 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     u16                    fid = 0;
 
     memset(&ci, 0, sizeof(ci));
-    err = copy_buff_to_skb(&ci.skb, write_data, false);
+    err = copy_buff_to_skb(&ci.skb, write_data, false, is_from_user, gfp_mask);
     if (err) {
-        printk(KERN_WARNING "sx_send_loopback: failed copying buffer to SKB\n");
+        printk(KERN_WARNING "sx_send_loopback: failed copying buffer to SKB err:[%d]\n", err);
         goto out;
     }
 
@@ -1555,6 +1591,14 @@ static int sx_send_loopback(struct sx_dev *dev, struct ku_write *write_data, voi
     ci.dest_lag_subport = 0;
     ci.dest_sysport = 0xFFFF;
     ci.user_def_val = 0;
+    ci.mirror_reason = 0;
+    ci.mirror_cong = 0xFFFF;
+    ci.mirror_lantency = 0xFFFFFF;
+    ci.mirror_tclass = 0x1F;
+    ci.mirror_elephant = 0;
+    ci.device_id = dev->device_id;
+    ci.target_pid = target_pid;
+    SX_RX_TIMESTAMP_INIT(&ci.rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
 
     if (dispatch_pkt(dev, &ci, ci.hw_synd, 0) > 0) {
         dev->stats.rx_eventlist_by_synd[write_data->meta.loopback_data.trap_id]++;
@@ -1566,7 +1610,13 @@ out:
     return err;
 }
 
-int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id)
+int send_trap(const void    *buf,
+              const uint32_t buf_size,
+              uint16_t       trap_id,
+              u8             is_from_user,
+              u8             device_id,
+              pid_t          target_pid,
+              gfp_t          gfp_mask)
 {
     struct ku_write write_data;
     struct ku_iovec iov;
@@ -1586,16 +1636,42 @@ int send_trap(const void *buf, const uint32_t buf_size, uint16_t trap_id)
     write_data.vec_entries = 1;
     write_data.iov = &iov;
     write_data.meta.type = SX_PKT_TYPE_LOOPBACK_CTL;
-    write_data.meta.dev_id = 1;
+    write_data.meta.dev_id = device_id;
     write_data.meta.etclass = 6;
     write_data.meta.loopback_data.trap_id = trap_id;
 
-    err = sx_send_loopback(sx_glb.tmp_dev_ptr, &write_data, NULL);
+    err = sx_send_loopback(sx_glb.tmp_dev_ptr, &write_data, NULL, is_from_user, target_pid, gfp_mask);
 
 out:
     return err;
 }
 EXPORT_SYMBOL(send_trap);
+
+
+int sx_send_health_event(uint8_t dev_id, sxd_health_cause_t cause)
+{
+    sxd_event_health_notification_t sdk_health;
+
+    memset(&sdk_health, 0, sizeof(sdk_health));
+
+    sdk_health.device_id = dev_id;
+    sdk_health.cause = cause;
+    sdk_health.severity = SXD_HEALTH_SEVERITY_ERR;
+    sdk_health.irisc_id = DBG_ALL_IRICS;
+    sdk_health.was_debug_started = false;
+
+    /* Send SDK health event */
+    printk(KERN_ERR PFX "SDK health event, device:[%d] \n", sdk_health.device_id);
+
+    return send_trap(&sdk_health,
+                     sizeof(sdk_health),
+                     SXD_TRAP_ID_SDK_HEALTH_EVENT,
+                     0,
+                     dev_id,
+                     TARGET_PID_DONT_CARE,
+                     GFP_KERNEL);
+}
+
 
 /**
  * Prepare a meta-data struct from the edata
@@ -1617,15 +1693,25 @@ void sx_copy_pkt_metadata_prepare(struct ku_read *metadata_p, struct event_data 
         metadata_p->lag_subport = edata_p->lag_sub_port;
     }
 
-    metadata_p->has_timestamp = edata_p->has_timestamp;
+    metadata_p->has_timestamp = (edata_p->rx_timestamp.ts_type != SXD_TS_TYPE_NONE);
     if (metadata_p->has_timestamp) {
-        metadata_p->timestamp.tv_sec = edata_p->timestamp.tv_sec;
-        metadata_p->timestamp.tv_nsec = edata_p->timestamp.tv_nsec;
+        metadata_p->timestamp_type = edata_p->rx_timestamp.ts_type;
+        metadata_p->timestamp.tv_sec = edata_p->rx_timestamp.timestamp.tv_sec;
+        metadata_p->timestamp.tv_nsec = edata_p->rx_timestamp.timestamp.tv_nsec;
     }
+
     metadata_p->dest_is_lag = edata_p->dest_is_lag;
     metadata_p->dest_lag_subport = edata_p->dest_lag_subport;
     metadata_p->dest_sysport = edata_p->dest_sysport;
     metadata_p->user_def_val = edata_p->user_def_val;
+
+    metadata_p->mirror_reason = edata_p->mirror_reason;
+    metadata_p->mirror_cong = edata_p->mirror_cong;
+    metadata_p->mirror_lantency = edata_p->mirror_lantency;
+    metadata_p->mirror_tclass = edata_p->mirror_tclass;
+    metadata_p->mirror_elephant = edata_p->mirror_elephant;
+    metadata_p->dev_id = edata_p->dev_id;
+    metadata_p->channel_experienced_drop = edata_p->channel_experienced_drop;
 }
 
 
@@ -1831,362 +1917,24 @@ int __sx_core_match_port_vlan_listener(struct listener_port_vlan_entry *entry_on
 }
 
 
-static void __init_port_vlan_listener_counters(u16 hw_synd, struct listener_port_vlan_entry *port_vlan_listener)
+static int is_same_listener(u8                        swid,
+                            enum l2_type              type,
+                            u8                        is_default,
+                            union ku_filter_critireas critireas,
+                            void                     *context,
+                            struct listener_entry    *listener,
+                            cq_handler                handler)
 {
-    char cat_name[MAX_COUNTER_CATEGORY_NAME_LEN];
-
-    switch (port_vlan_listener->match_crit) {
-    case PORT_VLAN_MATCH_PORT_VALID:
-        snprintf(cat_name, sizeof(cat_name), "trap %u [sysport %u]", hw_synd, port_vlan_listener->sysport);
-        break;
-
-    case PORT_VLAN_MATCH_LAG_VALID:
-        snprintf(cat_name, sizeof(cat_name), "trap %u [lag %u]", hw_synd, port_vlan_listener->lag_id);
-        break;
-
-    case PORT_VLAN_MATCH_VLAN_VALID:
-        snprintf(cat_name, sizeof(cat_name), "trap %u [vlan %u]", hw_synd, port_vlan_listener->vlan);
-        break;
-
-    case PORT_VLAN_MATCH_GLOBAL:
-        snprintf(cat_name, sizeof(cat_name), "trap %u [global]", hw_synd);
-        break;
-
-    default:
-        snprintf(cat_name, sizeof(cat_name), "trap %u [N/A]", hw_synd);
-        break;
-    }
-
-    sx_core_counter_category_init(&port_vlan_listener->counters.category, cat_name);
-
-    /* listener_port_vlan counters */
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.accepted.global,
-                         "listener_port_vlan - accepted [global]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.accepted.sysport,
-                         "listener_port_vlan - accepted [sysport]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.accepted.lag,
-                         "listener_port_vlan - accepted [lag]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.accepted.vlan,
-                         "listener_port_vlan - accepted [vlan]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.mismtach.sysport,
-                         "listener_port_vlan - mismatch [sysport]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.mismtach.lag,
-                         "listener_port_vlan - mismatch [lag]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener_port_vlan.mismtach.vlan,
-                         "listener_port_vlan - mismatch [vlan]",
-                         COUNTER_SEV_INFO);
-
-    /* listener counters */
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.accepted.def,
-                         "listeners - accepted [default]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.accepted.l2_dont_care,
-                         "listeners - accepted [l2_dont_care]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.accepted.l2_eth,
-                         "listeners - accepted [l2_eth]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.accepted.l2_ib,
-                         "listeners - accepted [l2_ib]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.common.swid,
-                         "listeners - mismatch [common/swid]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.common.context,
-                         "listeners - mismatch [common/context]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_dont_care.sysport,
-                         "listeners - mismatch [l2_dont_care/sysport]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_eth.no_eth,
-                         "listeners - mismatch [l2_eth/no_eth]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_eth.ethtype,
-                         "listeners - mismatch [l2_eth/ethtype]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_eth.dmac,
-                         "listeners - mismatch [l2_eth/dmac]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_eth.emad_tid,
-                         "listeners - mismatch [l2_eth/emad_tid]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_eth.from_rp,
-                         "listeners - mismatch [l2_eth/from_rp]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_eth.from_bridge,
-                         "listeners - mismatch [l2_eth/from_bridge]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_ib.no_ib,
-                         "listeners - mismatch [l2_ib/no_ib]",
-                         COUNTER_SEV_INFO);
-
-    sx_core_counter_init(&port_vlan_listener->counters.category,
-                         &port_vlan_listener->counters.listener.mismatch.l2_ib.qpn,
-                         "listeners - mismatch [l2_ib/qpn]",
-                         COUNTER_SEV_INFO);
-}
-
-
-static void __deinit_port_vlan_listener_counters(struct listener_port_vlan_entry *port_vlan_listener)
-{
-    /* port_vlan_listener counters */
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.accepted.global);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.accepted.sysport);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.accepted.lag);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.accepted.vlan);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.mismtach.sysport);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.mismtach.lag);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener_port_vlan.mismtach.vlan);
-
-    /* listener counters */
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.accepted.def);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.accepted.l2_dont_care);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.accepted.l2_eth);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.accepted.l2_ib);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.common.swid);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.common.context);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_dont_care.sysport);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_eth.no_eth);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_eth.ethtype);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_eth.dmac);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_eth.emad_tid);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_eth.from_rp);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_eth.from_bridge);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_ib.no_ib);
-    sx_core_counter_deinit(&port_vlan_listener->counters.listener.mismatch.l2_ib.qpn);
-
-    sx_core_counter_category_deinit(&port_vlan_listener->counters.category);
-}
-
-
-/**
- * Create new listener with the given swid,type,critireas and add it to an entry
- * in sx device listeners data-base when the entry is according to the hw_synd
- *
- * Note: A default listener is a listener which receives all the packets
- *       that haven't been consumed by another non-default listener.
- *
- * param swid            [in] - The listener swid
- * param hw_synd         [in] - The listener syndrome number
- * param type            [in] - The listener type - ETH,IB or FC, or Don't care
- * param is_default      [in] - If the listener is a default listener
- * param filter_critireas[in] - The listener additional filter critireas
- * param handler         [in] -
- * param context         [in] -
- * param check_dup       [in] - block the listener from registering twice to same trap.
- *
- * returns: 0 success
- *	   !0 error
- *
- */
-int sx_core_add_synd(u8                          swid,
-                     u16                         hw_synd,
-                     enum l2_type                type,
-                     u8                          is_default,
-                     union ku_filter_critireas   crit,
-                     cq_handler                  handler,
-                     void                       *context,
-                     check_dup_e                 check_dup,
-                     struct sx_dev             * sx_dev,
-                     struct ku_port_vlan_params *port_vlan)
-{
-    unsigned long                    flags;
-    struct listener_entry           *new_listener = NULL;
-    struct listener_port_vlan_entry *new_port_vlan_listener;
-    struct list_head                *pos, *port_vlan_pos;
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener = NULL;
-    unsigned int                     found_same_listener = 0;
-    unsigned int                     found_same_port_vlan_listener = 0;
-
-    /* if NULL use default sx_dev */
-    if (sx_dev == NULL) {
-        sx_dev = sx_glb.tmp_dev_ptr;
-    }
-
-#if 0
-    if (!context) {
-        printk(KERN_WARNING PFX "sx_core_add_synd: Cannot add listener, context is NULL\n");
-        return -EINVAL;
-    }
-#endif
-
-    if (!handler) {
-        printk(KERN_WARNING PFX "sx_core_add_synd: Cannot add listener, handler is NULL\n");
-        return -EINVAL;
-    }
-
-    new_listener = kmalloc(sizeof(*new_listener), GFP_ATOMIC);
-    if (!new_listener) {
-        printk(KERN_WARNING PFX "sx_core_add_synd: Failed allocating memory for the new listener\n");
-        return -ENOMEM;
-    }
-
-    new_listener->swid = swid;
-    new_listener->critireas = crit;
-    new_listener->handler = handler;
-    new_listener->context = context;
-    new_listener->listener_type = type;
-    new_listener->is_default = is_default;
-    new_listener->rx_pkts = 0;
-    spin_lock_irqsave(&sx_glb.listeners_lock, flags);
-    /* default listeners are stored at Don't care */
-    /* entry, at the end of the list              */
-
-    new_port_vlan_listener = kmalloc(sizeof(*new_port_vlan_listener), GFP_ATOMIC);
-    if (!new_port_vlan_listener) {
-        printk(KERN_WARNING PFX "sx_core_add_synd: Failed allocating memory for the new port vlan listener\n");
-        spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
-        kfree(new_listener);
-        return -ENOMEM;
-    }
-
-    memset(new_port_vlan_listener, 0, sizeof(*new_port_vlan_listener));
-
-    if (port_vlan) {
-        new_port_vlan_listener->match_crit = port_vlan->port_vlan_type;
-        new_port_vlan_listener->sysport = port_vlan->sysport;
-        new_port_vlan_listener->lag_id = port_vlan->lag_id;
-        new_port_vlan_listener->vlan = port_vlan->vlan;
-    } else {
-        new_port_vlan_listener->match_crit = PORT_VLAN_MATCH_GLOBAL;
-    }
-    if (is_default) {
-        if (!list_empty(&sx_glb.listeners_db[hw_synd].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[hw_synd].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener,
-                                                                                   new_port_vlan_listener);
-                if (found_same_port_vlan_listener) {
-                    list_add_tail(&(new_listener->list),
-                                  &(port_vlan_listener->listener.list));
-                    break;
-                }
-            }
-        }
-        if (found_same_port_vlan_listener == 1) {
-            kfree(new_port_vlan_listener);
-        } else {
-            list_add_tail(&(new_port_vlan_listener->list),
-                          &(sx_glb.listeners_db[hw_synd].list));
-            INIT_LIST_HEAD(&new_port_vlan_listener->listener.list);
-            list_add_tail(&(new_listener->list),
-                          &(new_port_vlan_listener->listener.list));
-
-            __init_port_vlan_listener_counters(hw_synd, new_port_vlan_listener);
-        }
-    } else {
-        if (!list_empty(&sx_glb.listeners_db[hw_synd].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[hw_synd].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener,
-                                                                                   new_port_vlan_listener);
-                if (found_same_port_vlan_listener) {
-                    break;
-                }
-            }
-        }
-        if ((check_dup == CHECK_DUP_ENABLED_E) && found_same_port_vlan_listener) {
-            list_for_each(pos, &port_vlan_listener->listener.list) {
-                listener = list_entry(pos, struct listener_entry, list);
-                if (listener->context == context) {
-                    found_same_listener = 1;
-                    printk(KERN_WARNING PFX "this listener is already " \
-                           "listening for that trap \n");
-                }
-            }
-        }
-
-        if (found_same_listener == 0) {
-            if (found_same_port_vlan_listener == 0) {
-                list_add(&(new_port_vlan_listener->list),
-                         &(sx_glb.listeners_db[hw_synd].list));
-                INIT_LIST_HEAD(&new_port_vlan_listener->listener.list);
-                list_add(&(new_listener->list),
-                         &(new_port_vlan_listener->listener.list));
-
-                __init_port_vlan_listener_counters(hw_synd, new_port_vlan_listener);
-            } else { /**found_same_port_vlan_listener == 1*/
-                list_add(&(new_listener->list),
-                         &(port_vlan_listener->listener.list));
-                kfree(new_port_vlan_listener);
-            }
-        } else {
-            kfree(new_port_vlan_listener);
-            kfree(new_listener);
-        }
-    }
-    spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
-
-    return 0;
-}
-EXPORT_SYMBOL(sx_core_add_synd);
-static int is_to_remove_listener(u8                        swid,
-                                 enum l2_type              type,
-                                 u8                        is_default,
-                                 union ku_filter_critireas critireas,
-                                 void                     *context,
-                                 struct listener_entry    *listener,
-                                 cq_handler                handler)
-{
-    if (listener->context != context) {
-        return false;
-    }
-
     if (listener->is_default != is_default) {
         return false;
     }
 
     if (is_default) {
         return true;
+    }
+
+    if (listener->context != context) {
+        return false;
     }
 
     if (listener->swid != swid) {
@@ -2199,10 +1947,6 @@ static int is_to_remove_listener(u8                        swid,
 
     switch (type) {
     case L2_TYPE_DONT_CARE:
-        if (listener->critireas.dont_care.sysport != critireas.dont_care.sysport) {
-            return false;
-        }
-
         break;
 
     case L2_TYPE_ETH:
@@ -2246,6 +1990,274 @@ static int is_to_remove_listener(u8                        swid,
     return true;
 }
 
+static int listener_register_filter_is_empty(struct listener_register_filter_entry *register_filter_listener)
+{
+    int i = 0;
+
+    if ((register_filter_listener->is_global_register == 1) || (register_filter_listener->is_global_filter == 1)) {
+        return 0;
+    }
+    for (i = 0; i < FROM_BITS_TO_U64((MAX_PHYPORT_NUM + 1)); i++) {
+        if (register_filter_listener->ports_registers[i] != 0) {
+            return 0;
+        }
+    }
+    for (i = 0; i < FROM_BITS_TO_U64((SXD_MAX_VLAN_NUM + 1));
+         i++) {
+        if (register_filter_listener->vlans_registers[i] != 0) {
+            return 0;
+        }
+    }
+    for (i = 0; i < FROM_BITS_TO_U64((MAX_LAG_NUM + 1)); i++) {
+        if (register_filter_listener->lags_registers[i] != 0) {
+            return 0;
+        }
+    }
+    for (i = 0; i < FROM_BITS_TO_U64((MAX_PHYPORT_NUM + 1)); i++) {
+        if (register_filter_listener->ports_filters[i] != 0) {
+            return 0;
+        }
+    }
+    for (i = 0; i < FROM_BITS_TO_U64((SXD_MAX_VLAN_NUM + 1)); i++) {
+        if (register_filter_listener->vlans_filters[i] != 0) {
+            return 0;
+        }
+    }
+    for (i = 0; i < FROM_BITS_TO_U64((MAX_LAG_NUM + 1)); i++) {
+        if (register_filter_listener->lags_filters[i] != 0) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static void listener_register_filter_entry_update(u8                                     is_register,
+                                                  struct ku_port_vlan_params            *port_vlan,
+                                                  struct listener_register_filter_entry *register_filter_listener,
+                                                  int                                    set)
+{
+    if (is_register) {
+        register_filter_listener->is_global_register = 0;
+        switch (port_vlan->port_vlan_type) {
+        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+            if (set) {
+                register_filter_listener->is_global_register = 1;
+            }
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET(register_filter_listener->ports_registers, port_vlan->sysport, set);
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET(register_filter_listener->vlans_registers, port_vlan->vlan, set);
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET(register_filter_listener->lags_registers, port_vlan->lag_id, set);
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_NONE:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET_ALL_ZERO(register_filter_listener, is_register);
+            break;
+        }
+    } else {
+        register_filter_listener->is_global_filter = 0;
+        switch (port_vlan->port_vlan_type) {
+        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+            if (set) {
+                register_filter_listener->is_global_filter = 1;
+            }
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET(register_filter_listener->ports_filters, port_vlan->sysport, set);
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET(register_filter_listener->vlans_filters, port_vlan->vlan, set);
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET(register_filter_listener->lags_filters, port_vlan->lag_id, set);
+            break;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_NONE:
+            SX_CORE_REGISTER_FILTER_BITMASK_SET_ALL_ZERO(register_filter_listener, is_register);
+            break;
+        }
+    }
+}
+
+static int __sx_core_port_vlan_listener_exist(struct ku_port_vlan_params *port_vlan,
+                                              struct listener_entry      *listener,
+                                              u8                          is_register)
+{
+    if (is_register) {
+        switch (port_vlan->port_vlan_type) {
+        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+            return listener->listener_register_filter.is_global_register;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.ports_registers,
+                                                      port_vlan->sysport);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.vlans_registers,
+                                                      port_vlan->vlan);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.lags_registers,
+                                                      port_vlan->lag_id);
+
+        default:
+            break;
+        }
+    } else { /* filter */
+        switch (port_vlan->port_vlan_type) {
+        case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
+            return listener->listener_register_filter.is_global_filter;
+
+        case KU_PORT_VLAN_PARAMS_TYPE_PORT:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.ports_filters,
+                                                      port_vlan->sysport);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.vlans_filters,
+                                                      port_vlan->vlan);
+
+        case KU_PORT_VLAN_PARAMS_TYPE_LAG:
+            return SX_CORE_REGISTER_FILTER_BIT_IS_SET(listener->listener_register_filter.lags_filters,
+                                                      port_vlan->lag_id);
+
+        default:
+            break;
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Create new listener with the given swid,type,critireas and add it to an entry
+ * in sx device listeners data-base when the entry is according to the hw_synd
+ *
+ * Note: A default listener is a listener which receives all the packets
+ *       that haven't been consumed by another non-default listener.
+ *
+ * param swid            [in] - The listener swid
+ * param hw_synd         [in] - The listener syndrome number
+ * param type            [in] - The listener type - ETH,IB or FC, or Don't care
+ * param called_pid      [in] - Process ID of the caller
+ * param is_default      [in] - If the listener is a default listener
+ * param is_register     [in] - If the requested action is register or filter
+ * param filter_critireas[in] - The listener additional filter critireas
+ * param handler         [in] -
+ * param context         [in] -
+ * param check_dup       [in] - block the listener from registering twice to same trap.
+ *
+ * returns: 0 success
+ *	   !0 error
+ *
+ */
+int sx_core_add_synd(u8                          swid,
+                     u16                         hw_synd,
+                     enum l2_type                type,
+                     pid_t                       caller_pid,
+                     const char                 *caller_name,
+                     u8                          is_default,
+                     union ku_filter_critireas   crit,
+                     cq_handler                  handler,
+                     void                       *context,
+                     check_dup_e                 check_dup,
+                     struct sx_dev             * sx_dev,
+                     struct ku_port_vlan_params *port_vlan,
+                     u8                          is_register)
+{
+    unsigned long               flags;
+    struct listener_entry      *listener = NULL;
+    struct listener_entry      *new_listener = NULL;
+    unsigned int                found_same_listener = 0, found_same_port_vlan_listener = 0;
+    struct list_head           *pos;
+    struct ku_port_vlan_params  tmp_port_vlan;
+    struct ku_port_vlan_params *port_vlan_p;
+
+
+    /* if NULL use default sx_dev */
+    if (sx_dev == NULL) {
+        sx_dev = sx_glb.tmp_dev_ptr;
+    }
+
+
+    if (!handler) {
+        printk(KERN_WARNING PFX "sx_core_add_synd: Cannot add listener, handler is NULL\n");
+        return -EINVAL;
+    }
+
+    new_listener = kmalloc(sizeof(*new_listener), GFP_ATOMIC);
+    if (!new_listener) {
+        printk(KERN_WARNING PFX "sx_core_add_synd: Failed allocating memory for the new listener\n");
+        return -ENOMEM;
+    }
+    memset(new_listener, 0, sizeof(*new_listener));
+    new_listener->swid = swid;
+    new_listener->pid = caller_pid;
+    if (caller_name) {
+        strncpy(new_listener->pname, caller_name, sizeof(listener->pname) - 1);
+    }
+    new_listener->critireas = crit;
+    new_listener->handler = handler;
+    new_listener->context = context;
+    new_listener->listener_type = type;
+    new_listener->is_default = is_default;
+    new_listener->rx_pkts = 0;
+
+    port_vlan_p = port_vlan;
+    if (!port_vlan_p) {
+        tmp_port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan_p = &tmp_port_vlan;
+    }
+
+    spin_lock_irqsave(&sx_glb.listeners_lock, flags);
+    if (!list_empty(&sx_glb.listeners_rf_db[hw_synd].list)) {
+        list_for_each(pos, &sx_glb.listeners_rf_db[hw_synd].list) {
+            listener = list_entry(pos, struct listener_entry, list);
+            if (is_same_listener(swid, type, is_default, crit, context, listener,
+                                 handler)) {
+                found_same_port_vlan_listener = __sx_core_port_vlan_listener_exist(port_vlan,
+                                                                                   listener,
+                                                                                   is_register);
+                if ((check_dup == CHECK_DUP_ENABLED_E) &&
+                    found_same_port_vlan_listener) {
+                    kfree(new_listener);
+                    goto out;
+                }
+                found_same_listener = 1;
+                kfree(new_listener);
+                break;
+            }
+        }
+    }
+    if (found_same_listener == 0) {
+        if (is_default) {
+            list_add_tail(&(new_listener->list),
+                          &(sx_glb.listeners_rf_db[hw_synd].list));
+        } else {
+            list_add(&(new_listener->list),
+                     &(sx_glb.listeners_rf_db[hw_synd].list));
+        }
+        listener = new_listener;
+    }
+    /* TODO : if found same listener and same port vlan listener register twice */
+    listener_register_filter_entry_update(is_register, port_vlan_p, &(listener->listener_register_filter), 1);
+out:
+    spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
+
+    return 0;
+}
+EXPORT_SYMBOL(sx_core_add_synd);
+
 int sx_core_remove_synd(u8                          swid,
                         u16                         hw_synd,
                         enum l2_type                type,
@@ -2254,17 +2266,16 @@ int sx_core_remove_synd(u8                          swid,
                         void                       *context,
                         struct sx_dev              *sx_dev,
                         cq_handler                  handler,
-                        struct ku_port_vlan_params *port_vlan)
+                        struct ku_port_vlan_params *port_vlan,
+                        u8                          is_register)
 {
-    unsigned long                          flags;
-    struct listener_entry                 *listener = NULL;
-    struct listener_port_vlan_entry       *port_vlan_listener;
-    struct list_head                      *pos, *port_vlan_pos;
-    struct list_head                      *q, *port_vlan_q;
-    int                                    listener_removed = 0;
-    int                                    entry = 0;
-    int                                    found_same_port_vlan_listener = 0;
-    static struct listener_port_vlan_entry port_vlan_tmp;
+    unsigned long               flags;
+    struct listener_entry      *listener = NULL;
+    struct list_head           *pos;
+    struct list_head           *q;
+    int                         entry = 0;
+    struct ku_port_vlan_params  tmp_port_vlan;
+    struct ku_port_vlan_params *port_vlan_p;
 
     /*
      * if NULL use default sx_dev
@@ -2273,59 +2284,29 @@ int sx_core_remove_synd(u8                          swid,
     if (sx_dev == NULL) {
         sx_dev = sx_glb.tmp_dev_ptr;
     }
-
-    spin_lock_irqsave(&sx_glb.listeners_lock, flags);
-
-    memset(&port_vlan_tmp, 0, sizeof(port_vlan_tmp));
-    if (port_vlan) {
-        port_vlan_tmp.match_crit = port_vlan->port_vlan_type;
-        port_vlan_tmp.sysport = port_vlan->sysport;
-        port_vlan_tmp.lag_id = port_vlan->lag_id;
-        port_vlan_tmp.vlan = port_vlan->vlan;
-    } else {
-        port_vlan_tmp.match_crit = PORT_VLAN_MATCH_GLOBAL;
+    port_vlan_p = port_vlan;
+    if (!port_vlan_p) {
+        tmp_port_vlan.port_vlan_type = KU_PORT_VLAN_PARAMS_TYPE_GLOBAL;
+        port_vlan_p = &tmp_port_vlan;
     }
-
-    /* Used to be "is_default ? NUM_HW_SYNDROMES : hw_synd;" removed, since we
-     *  would like to use is_default for PUDE */
+    spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     entry = hw_synd;
-    if (!list_empty(&(sx_glb.listeners_db[entry].list))) {
-        list_for_each_safe(port_vlan_pos, port_vlan_q, &sx_glb.listeners_db[entry].list) {
-            port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-            found_same_port_vlan_listener = __sx_core_match_port_vlan_listener(port_vlan_listener, &port_vlan_tmp);
-            if (found_same_port_vlan_listener) {
-                break;
-            }
-        }
-        if (found_same_port_vlan_listener) {
-            list_for_each_safe(pos, q, &(port_vlan_listener->listener.list)){
-                listener = list_entry(pos, struct listener_entry, list);
-                if (is_to_remove_listener(swid, type, is_default,
-                                          critireas, context, listener, handler)) {
+    if (!list_empty(&(sx_glb.listeners_rf_db[entry].list))) {
+        list_for_each_safe(pos, q, &sx_glb.listeners_rf_db[entry].list) {
+            listener = list_entry(pos, struct listener_entry, list);
+            if (is_same_listener(swid, type, is_default, critireas, context, listener, handler)) {
+                listener_register_filter_entry_update(is_register,
+                                                      port_vlan_p,
+                                                      &(listener->listener_register_filter),
+                                                      0);
+                if (listener_register_filter_is_empty(&(listener->listener_register_filter))) {
                     list_del(pos);
-                    /* Listener was allocated as atomic memory
-                     * so it's OK to free it under spinlock */
                     kfree(listener);
-                    listener_removed = 1;
-                    break;
                 }
             }
-            if (list_empty(&(port_vlan_listener->listener.list))) {
-                list_del(port_vlan_pos);
-
-                __deinit_port_vlan_listener_counters(port_vlan_listener);
-                kfree(port_vlan_listener);
-            }
         }
     }
-
     spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
-    if (listener_removed == 0) {
-        printk(KERN_WARNING PFX "sx_core_remove_synd: no matching "
-               "listener was found\n");
-        return -EAGAIN;
-    }
-
     return 0;
 }
 EXPORT_SYMBOL(sx_core_remove_synd);
@@ -2339,22 +2320,24 @@ void sx_cq_handle_event_data_prepare(struct event_data      *edata_p,
     edata_p->skb = skb_p;
     edata_p->system_port = comp_info_p->sysport;
     edata_p->trap_id = comp_info_p->hw_synd;
-    edata_p->dev_id = 0;
+    edata_p->dev_id = comp_info_p->device_id;
     edata_p->dev = comp_info_p->dev;
     edata_p->is_lag = comp_info_p->is_lag;
     edata_p->lag_sub_port = comp_info_p->lag_subport;
     edata_p->swid = comp_info_p->swid;
     edata_p->original_packet_size = comp_info_p->original_packet_size;
-    edata_p->has_timestamp = comp_info_p->has_timestamp;
-
-    if (edata_p->has_timestamp) {
-        memcpy(&edata_p->timestamp, &comp_info_p->timestamp, sizeof(edata_p->timestamp));
-    }
+    SX_RX_TIMESTAMP_COPY(&edata_p->rx_timestamp, &comp_info_p->rx_timestamp);
     edata_p->dest_is_lag = comp_info_p->dest_is_lag;
 
     edata_p->dest_lag_subport = comp_info_p->dest_lag_subport;
     edata_p->dest_sysport = comp_info_p->dest_sysport;
     edata_p->user_def_val = comp_info_p->user_def_val;
+
+    edata_p->mirror_reason = comp_info_p->mirror_reason;
+    edata_p->mirror_cong = comp_info_p->mirror_cong;
+    edata_p->mirror_lantency = comp_info_p->mirror_lantency;
+    edata_p->mirror_tclass = comp_info_p->mirror_tclass;
+    edata_p->mirror_elephant = comp_info_p->mirror_elephant;
 
 #ifdef SX_DEBUG
     printk(KERN_DEBUG PFX " %s(): skb->len=[%d]  sysport=[%d]"
@@ -2366,9 +2349,10 @@ void sx_cq_handle_event_data_prepare(struct event_data      *edata_p,
 
 static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profile)
 {
-    int     i, j;
-    uint8_t rdq_num = 0;
-    int     rc = 0;
+    int      i, j;
+    uint8_t  rdq_num = 0;
+    uint16_t entry_size = 0;
+    int      rc = 0;
 
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
         for (j = 0; j < NUMBER_OF_ETCLASSES; j++) {
@@ -2428,9 +2412,9 @@ static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profil
         }
     }
 
-    rc = sx_core_get_rdq_num_max(dev, &rdq_num);
+    rc = sx_core_get_rdq_param_max(dev, &rdq_num, &entry_size);
     if (rc) {
-        printk(KERN_ERR PFX "Error: failed to get max RDQ num\n");
+        printk(KERN_ERR PFX "Error: failed to get max RDQ params\n");
         return rc;
     }
 
@@ -2438,7 +2422,7 @@ static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profil
         if ((profile->rdq_properties[i].number_of_entries >
              1 << dev->dev_cap.log_max_rdq_sz) ||
             (profile->rdq_properties[i].entry_size >
-             SX_MAX_MSG_SIZE)) {
+             entry_size)) {
             printk(KERN_WARNING PFX "%s:%d\n", __FILE__, __LINE__);
             printk(KERN_WARNING PFX "%d: n_enties %d , max_rdq_sz:"
                    " %d , entry_sz:%d, SX_MAX_MSG_SZ:%d\n",
@@ -2446,7 +2430,7 @@ static int check_valid_profile(struct sx_dev *dev, struct sx_pci_profile *profil
                    profile->rdq_properties[i].number_of_entries,
                    1 << dev->dev_cap.log_max_rdq_sz,
                    profile->rdq_properties[i].entry_size,
-                   SX_MAX_MSG_SIZE);
+                   entry_size);
             return -EINVAL;
         }
     }
@@ -2468,12 +2452,13 @@ int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
     int                  i;
     int                  err = 0;
     union sx_event_data *event_data = NULL;
-    union sx_event_data *tca_init_event_data = NULL;
+    union sx_event_data *rpa_init_event_data = NULL;
     u8                   first_ib_swid;
 
     if (dev->profile.swid_type[swid] == SX_KU_L2_TYPE_IB) {
         event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
         if (!event_data) {
+            printk(KERN_ERR "%s: failed to allocate event data\n", __FUNCTION__);
             err = -ENOMEM;
             goto out;
         }
@@ -2487,29 +2472,26 @@ int sx_send_enable_ib_swid_events(struct sx_dev *dev, u8 swid)
         dev->first_ib_swid = 0;
         spin_unlock(&dev->profile_lock);
         if (first_ib_swid) {
-            tca_init_event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
-            if (!tca_init_event_data) {
+            rpa_init_event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+            if (!rpa_init_event_data) {
+                printk(KERN_ERR "%s: failed to allocate rpa_event_data\n", __FUNCTION__);
                 err = -ENOMEM;
                 goto out;
             }
 
             for (i = 0; i < NUMBER_OF_SWIDS; i++) {
                 if (dev->profile.ipoib_router_port_enable[i]) {
-                    tca_init_event_data->tca_init.swid[tca_init_event_data->tca_init.num_of_ib_swids++] = i;
+                    rpa_init_event_data->rpa_init.swid[rpa_init_event_data->rpa_init.num_of_ib_swids++] = i;
                 }
             }
 
-            if (tca_init_event_data->tca_init.num_of_ib_swids != 0) {
-                tca_init_event_data->tca_init.max_pkey = dev->profile.max_pkey;
-                if (dev->profile.pci_profile == PCI_PROFILE_VPI_SINGLE_SWID) {
-                    sx_core_dispatch_event(dev, SX_DEV_EVENT_TYPE_TCA_INIT, tca_init_event_data);
-                } else {
-                    sx_core_dispatch_event(dev, SX_DEV_EVENT_TYPE_RPA_INIT, tca_init_event_data);
-                }
+            if (rpa_init_event_data->rpa_init.num_of_ib_swids != 0) {
+                rpa_init_event_data->rpa_init.max_pkey = dev->profile.max_pkey;
+                sx_core_dispatch_event(dev, SX_DEV_EVENT_TYPE_RPA_INIT, rpa_init_event_data);
             }
         }
     } else {
-        printk(KERN_INFO PFX "Error: try to send IB_SWID_UP event on swid %d from non-IB type %d, ",
+        printk(KERN_ERR PFX "Error: try to send IB_SWID_UP event on swid %d from non-IB type %d, ",
                swid, dev->profile.swid_type[swid]);
         err = -EINVAL;
         goto out;
@@ -2520,8 +2502,8 @@ out:
         kfree(event_data);
     }
 
-    if (tca_init_event_data) {
-        kfree(tca_init_event_data);
+    if (rpa_init_event_data) {
+        kfree(rpa_init_event_data);
     }
 
     return err;
@@ -2533,7 +2515,7 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
     int                  i;
     int                  err = 0;
     u8                   dqn;
-    u32                  dq_bitmap = 0;
+    u64                  dq_bitmap = 0;
     struct sx_dq        *dq;
     union sx_event_data *event_data = NULL;
     unsigned long        flags;
@@ -2565,9 +2547,9 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
                 goto out;
             }
 
-            dq_bitmap |= (1 << dqn);
+            dq_bitmap |= (1ULL << dqn);
             /* We only want to increase the refcount if the dq is in use in another swid */
-        } else if (!(dq_bitmap & (1 << dqn))) {
+        } else if (!(dq_bitmap & (1ULL << dqn))) {
             atomic_inc(&dq->refcount);
         }
     }
@@ -2586,8 +2568,8 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
                 goto out;
             }
 
-            dq_bitmap |= (1 << dqn);
-        } else if (!(dq_bitmap & (1 << dqn))) {
+            dq_bitmap |= (1ULL << dqn);
+        } else if (!(dq_bitmap & (1ULL << dqn))) {
             atomic_inc(&dq->refcount);
         }
     }
@@ -2595,6 +2577,7 @@ int sx_enable_swid(struct sx_dev *dev, int sx_dev_id, u8 swid, int synd, u64 mac
 send_events:
     event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
     if (!event_data) {
+        printk(KERN_ERR "%s: failed to allocate event data\n", __FUNCTION__);
         err = -ENOMEM;
         goto out;
     }
@@ -2673,7 +2656,7 @@ void sx_disable_swid(struct sx_dev *dev, u8 swid)
         dqn = dev->profile.rdq[swid][i];
         dq = sx_priv(dev)->rdq_table.dq[dqn];
         if (dq && (atomic_read(&dq->refcount) == 1)) {
-            sx_core_del_rdq_from_monitor_rdq_list(dq);
+            disable_monitor_rdq(dqn);
             sx_core_destroy_rdq(dev, dq);
             sx_priv(dev)->rdq_table.dq[dqn] = NULL;
         } else if (dq) {
@@ -2702,22 +2685,23 @@ out:
 
 /*
  *  Workaround for rdq stuck because of wqe_too_short error.
- *  Force rdq size to be SX_MAX_MSG_SIZE on SX
+ *  Force rdq size to be maximum allowed on SX
  */
 void __sx_adjust_rdq_size(struct sx_dev *dev)
 {
-    int     i;
-    int     rc = 0;
-    uint8_t rdq_num = 0;
+    int      i;
+    int      rc = 0;
+    uint8_t  rdq_num = 0;
+    uint16_t entry_size = 0;
 
-    rc = sx_core_get_rdq_num_max(dev, &rdq_num);
+    rc = sx_core_get_rdq_param_max(dev, &rdq_num, &entry_size);
     if (rc) {
         printk(KERN_ERR PFX "Error: failed to get max RDQ num\n");
     }
 
     for (i = 0; i < rdq_num; i++) {
         if (dev->profile.rdq_properties[i].entry_size != 0) {
-            dev->profile.rdq_properties[i].entry_size = SX_MAX_MSG_SIZE;
+            dev->profile.rdq_properties[i].entry_size = entry_size;
         }
     }
 }
@@ -2931,6 +2915,15 @@ static int sdk_get_lag_mid(u16 lag_id, u16 *mid)
     return 0;
 }
 
+/* Used for Spectrum4 */
+static int sdk_get_lag_mid_spc4(u16 lag_id, u16 *mid)
+{
+    if (mid) {
+        *mid = lag_id + 0x400;
+    }
+    return 0;
+}
+
 
 static u8 max_cpu_etclass_for_unlimited_mtu_switchx(void)
 {
@@ -2941,6 +2934,16 @@ static u8 max_cpu_etclass_for_unlimited_mtu_switchx(void)
 static u8 max_cpu_etclass_for_unlimited_mtu_spectrum(void)
 {
     return 3; /* PRM 2.8.1 "Egress Traffic Class Allocation" */
+}
+
+static u16 cap_max_mtu_get_sib(void)
+{
+    return KU_CAP_MAX_MTU_SWITCH_IB;
+}
+
+static u16 cap_max_mtu_get_spectrum(void)
+{
+    return KU_CAP_MAX_MTU_SPECTRUM;
 }
 
 static void sx_set_device_profile_update_cqe_v0(struct ku_profile           * profile,
@@ -2955,6 +2958,13 @@ static void sx_set_device_profile_update_cqe_v2(struct ku_profile           * pr
 {
     profile->set_mask_0_63 = profile->set_mask_0_63 | 0x100000000;
     driver_params->cqe_version = 1;
+}
+
+static void sx_set_device_profile_update_spc2(struct ku_profile *profile, struct profile_driver_params *driver_params)
+{
+    profile->set_mask_0_63 = profile->set_mask_0_63 | 0x500000000;
+    driver_params->cqe_version = 1;
+    driver_params->cqe_time_stamp_type = 2; /* 2: UTC */
 }
 
 static u8 sw_rate_limiter_supported(void)
@@ -2984,10 +2994,31 @@ static int sx_get_phy_port_max_quantum(uint16_t *port)
     return 0;
 }
 
+static int sx_get_phy_port_max_quantum2(uint16_t *port)
+{
+    if (port) {
+        *port = SX_CORE_PHY_PORT_NUM_QUANTUM2_MAX;  /* maximum number of physical ports for Quantum2 per PRM */
+    } else {
+        printk(KERN_ERR PFX "port is NULL\n");
+        return -EINVAL;
+    }
+    return 0;
+}
 static int sx_get_phy_port_max_spectrum2(uint16_t *port)
 {
     if (port) {
         *port = SX_CORE_PHY_PORT_NUM_SPECTRUM2_MAX;  /* maximum number of physical ports for Spectrum2 per PRM */
+    } else {
+        printk(KERN_ERR PFX "port is NULL\n");
+        return -EINVAL;
+    }
+    return 0;
+}
+
+static int sx_get_phy_port_max_spectrum4(uint16_t *port)
+{
+    if (port) {
+        *port = SX_CORE_PHY_PORT_NUM_SPECTRUM4_MAX;  /* maximum number of physical ports for Spectrum4 per PRM */
     } else {
         printk(KERN_ERR PFX "port is NULL\n");
         return -EINVAL;
@@ -3033,33 +3064,60 @@ static int sx_get_lag_max_spectrum2(uint16_t *lags, uint16_t *ports_per_lag)
     return 0;
 }
 
-static uint8_t sx_get_rdq_max(void)
+static int sx_get_lag_max_spectrum4(uint16_t *lags, uint16_t *ports_per_lag)
 {
-    return RDQ_NUM_MAX;
+    if (lags) {
+        *lags = SX_CORE_LAG_NUM_SPECTRUM4_MAX;  /* maximum number of LAGs per PRM */
+    } else {
+        printk(KERN_ERR PFX "lags is NULL\n");
+        return -EINVAL;
+    }
+
+    if (ports_per_lag) {
+        *ports_per_lag = SX_CORE_PORTS_PER_LAG_NUM_SPECTRUM4_MAX;  /* maximum number of ports per LAG per PRM */
+    } else {
+        printk(KERN_ERR PFX "ports_per_lag is NULL\n");
+        return -EINVAL;
+    }
+
+    return 0;
 }
 
-/* static - un-comment when ifdef on line 3455 will be removed */
-uint8_t sx_get_rdq_max_spectrum2(void)
+static void sx_get_rdq_max(uint8_t *max_rdqs, uint16_t *max_entry_size)
 {
-    return RDQ_NUM_MAX_SPC2;
+    if (max_rdqs) {
+        *max_rdqs = RDQ_NUM_MAX;
+    }
+
+    if (max_entry_size) {
+        *max_entry_size = SX_ETH_RDQ_MAX_MSG_SIZE_LEGACY;
+    }
 }
 
-int sx_core_get_rdq_num_max(struct sx_dev *dev, uint8_t *rdq_num_max_p)
+static void sx_get_rdq_max_spectrum2(uint8_t *max_rdqs, uint16_t *max_entry_size)
+{
+    if (max_rdqs) {
+        *max_rdqs = RDQ_NUM_MAX_SPC2;
+    }
+
+    if (max_entry_size) {
+        *max_entry_size = SX_ETH_RDQ_MAX_MSG_SIZE_SPC2;
+    }
+}
+
+int sx_core_get_rdq_param_max(struct sx_dev *dev, uint8_t *rdq_num_max_p, uint16_t *rdq_max_entry_size_p)
 {
     int rc = 0;
 
-    if (rdq_num_max_p == NULL) {
-        printk(KERN_ERR PFX "lags is NULL\n");
-        rc = -EINVAL;
-        return rc;
-    }
+    /* each one of the parameters (rdq_num_max_p / rdq_max_entry_size_p) may be NULL,
+     *  the function will get only the desired parameters */
 
     /* We don't use lock because the following function will return hard-coded
      *  value and nothing will be changed after we will init switch with
      *  appropriate callback, hence lock will be redundant here. */
 
     if (dev && (sx_priv(dev)->dev_specific_cb.sx_get_rdq_max_cb != NULL)) {
-        *rdq_num_max_p = sx_priv(dev)->dev_specific_cb.sx_get_rdq_max_cb();
+        sx_priv(dev)->dev_specific_cb.sx_get_rdq_max_cb(rdq_num_max_p, rdq_max_entry_size_p);
     } else {
         printk(KERN_ERR PFX "Error retrieving sx_get_rdq_max_cb callback\n");
         rc = -EINVAL;
@@ -3067,7 +3125,7 @@ int sx_core_get_rdq_num_max(struct sx_dev *dev, uint8_t *rdq_num_max_p)
 
     return rc;
 }
-EXPORT_SYMBOL(sx_core_get_rdq_num_max);
+EXPORT_SYMBOL(sx_core_get_rdq_param_max);
 static int is_eqn_cmd_ifc_only(int eqn, u8 *is_cmd_ifc_only)
 {
     if (!is_cmd_ifc_only) {
@@ -3097,6 +3155,11 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .get_ib_system_port_mid = get_ib_system_port_mid_with_fix_up,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3107,7 +3170,12 @@ struct dev_specific_cb spec_cb_sx_a1 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_sx_a2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl,
@@ -3122,6 +3190,11 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .get_ib_system_port_mid = get_ib_system_port_mid_with_fix_up,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3132,7 +3205,12 @@ struct dev_specific_cb spec_cb_sx_a2 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_pelican = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3147,6 +3225,11 @@ struct dev_specific_cb spec_cb_pelican = {
     .get_ib_system_port_mid = get_ib_system_port_mid_with_fix_up,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3157,7 +3240,12 @@ struct dev_specific_cb spec_cb_pelican = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_sib,
 };
 struct dev_specific_cb spec_cb_quantum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3172,6 +3260,11 @@ struct dev_specific_cb spec_cb_quantum = {
     .get_ib_system_port_mid = get_ib_system_port_mid,
     .sx_ptp_init = NULL,
     .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
     .sx_init_cq_db_cb = sx_init_cq_db_v0,
     .sx_printk_cqe_cb = sx_printk_cqe_v0,
@@ -3182,7 +3275,46 @@ struct dev_specific_cb spec_cb_quantum = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max_quantum,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_sib,
+};
+struct dev_specific_cb spec_cb_quantum2 = {
+    .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
+    .sx_build_isx_header_cb = sx_build_isx_header_v0,
+    .max_cpu_etclass_for_unlimited_mtu = NULL,
+    .sx_get_sdq_cb = sx_get_sdq_from_profile,
+    .sx_get_sdq_num_cb = sx_get_sdq_num_from_profile,
+    .get_send_to_port_as_data_supported_cb = sx_core_get_send_to_port_as_data_supported,
+    .get_rp_vid_cb = get_rp_vid_from_db,
+    .get_swid_cb = get_swid_from_db,
+    .get_lag_mid_cb = NULL,
+    .get_ib_system_port_mid = get_ib_system_port_mid,
+    .sx_ptp_init = NULL,
+    .sx_ptp_cleanup = NULL,
+    .sx_ptp_dump = NULL,
+    .sx_ptp_rx_handler = NULL,
+    .sx_ptp_tx_handler = NULL,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v0,
+    .sx_init_cq_db_cb = sx_init_cq_db_v0,
+    .sx_printk_cqe_cb = sx_printk_cqe_v0,
+    .is_sw_rate_limiter_supported = sw_rate_limiter_supported,
+    .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v0,
+    .sx_fill_params_from_cqe_cb = sx_fill_params_from_cqe_v0,
+    .sx_disconnect_all_trap_groups_cb = NULL,
+    .sx_get_phy_port_max_cb = sx_get_phy_port_max_quantum2,
+    .sx_get_lag_max_cb = sx_get_lag_max,
+    .sx_get_rdq_max_cb = sx_get_rdq_max,
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only,
+    .sx_clock_init = NULL,
+    .sx_clock_cleanup = NULL,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = NULL,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_sib,
 };
 struct dev_specific_cb spec_cb_spectrum = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3195,8 +3327,13 @@ struct dev_specific_cb spec_cb_spectrum = {
     .get_swid_cb = get_swid_from_ci,
     .get_lag_mid_cb = sdk_get_lag_mid,
     .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = sx_ptp_init,
-    .sx_ptp_cleanup = sx_ptp_cleanup,
+    .sx_ptp_init = sx_ptp_init_spc1,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc1,
+    .sx_ptp_dump = sx_ptp_dump_spc1,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc1,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc1,
+    .sx_ptp_tx_ts_handler = NULL,
+    .sx_ptp_tx_control_to_data = NULL,
     .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
     .sx_init_cq_db_cb = sx_init_cq_db_spc,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
@@ -3207,7 +3344,12 @@ struct dev_specific_cb spec_cb_spectrum = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max,
     .sx_get_lag_max_cb = sx_get_lag_max,
     .sx_get_rdq_max_cb = sx_get_rdq_max,
-    .is_eqn_cmd_ifc_only_cb = NULL
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = sx_clock_init_spc1,
+    .sx_clock_cleanup = sx_clock_cleanup_spc1,
+    .sx_clock_cqe_ts_to_utc = NULL,
+    .sx_clock_dump = sx_clock_dump_spc1,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_spectrum2 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3220,10 +3362,15 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .get_swid_cb = get_swid_from_ci,
     .get_lag_mid_cb = sdk_get_lag_mid,
     .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = NULL,
-    .sx_ptp_cleanup = NULL,
-    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
-    .sx_init_cq_db_cb = sx_init_cq_db_spc,
+    .sx_ptp_init = sx_ptp_init_spc2,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc2,
+    .sx_ptp_dump = sx_ptp_dump_spc2,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
+    .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
+    .sx_ptp_tx_control_to_data = sx_ptp_tx_control_to_data_spc2,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
+    .sx_init_cq_db_cb = sx_init_cq_db_v2,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
     .is_sw_rate_limiter_supported = NULL,
     .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
@@ -3232,7 +3379,12 @@ struct dev_specific_cb spec_cb_spectrum2 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
     .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
-    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
+    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only,
+    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_cleanup = sx_clock_cleanup_spc2,
+    .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
+    .sx_clock_dump = sx_clock_dump_spc2,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 struct dev_specific_cb spec_cb_spectrum3 = {
     .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
@@ -3245,10 +3397,15 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .get_swid_cb = get_swid_from_ci,
     .get_lag_mid_cb = sdk_get_lag_mid,
     .get_ib_system_port_mid = NULL,
-    .sx_ptp_init = NULL,
-    .sx_ptp_cleanup = NULL,
-    .sx_set_device_profile_update_cb = sx_set_device_profile_update_cqe_v2,
-    .sx_init_cq_db_cb = sx_init_cq_db_spc,
+    .sx_ptp_init = sx_ptp_init_spc2,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc2,
+    .sx_ptp_dump = sx_ptp_dump_spc2,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
+    .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
+    .sx_ptp_tx_control_to_data = sx_ptp_tx_control_to_data_spc2,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
+    .sx_init_cq_db_cb = sx_init_cq_db_v2,
     .sx_printk_cqe_cb = sx_printk_cqe_v2,
     .is_sw_rate_limiter_supported = NULL,
     .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
@@ -3257,7 +3414,46 @@ struct dev_specific_cb spec_cb_spectrum3 = {
     .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum2,
     .sx_get_lag_max_cb = sx_get_lag_max_spectrum2,
     .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
-    .is_eqn_cmd_ifc_only_cb = is_eqn_cmd_ifc_only
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_cleanup = sx_clock_cleanup_spc2,
+    .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
+    .sx_clock_dump = sx_clock_dump_spc2,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
+};
+struct dev_specific_cb spec_cb_spectrum4 = {
+    .get_hw_etclass_cb = sx_core_get_hw_etclass_impl_spectrum,
+    .sx_build_isx_header_cb = sx_build_isx_header_v1,
+    .max_cpu_etclass_for_unlimited_mtu = max_cpu_etclass_for_unlimited_mtu_spectrum,
+    .sx_get_sdq_cb = sx_get_sdq_per_traffic_type,
+    .sx_get_sdq_num_cb = sx_get_sdq_num_per_etclasss,
+    .get_send_to_port_as_data_supported_cb = sx_core_get_send_to_port_as_data_supported_spectrum,
+    .get_rp_vid_cb = get_rp_vid_from_ci,
+    .get_swid_cb = get_swid_from_ci,
+    .get_lag_mid_cb = sdk_get_lag_mid_spc4,
+    .get_ib_system_port_mid = NULL,
+    .sx_ptp_init = sx_ptp_init_spc2,
+    .sx_ptp_cleanup = sx_ptp_cleanup_spc2,
+    .sx_ptp_dump = sx_ptp_dump_spc2,
+    .sx_ptp_rx_handler = sx_ptp_rx_handler_spc2,
+    .sx_ptp_tx_handler = sx_ptp_tx_handler_spc2,
+    .sx_ptp_tx_ts_handler = sx_ptp_tx_ts_handler_spc2,
+    .sx_set_device_profile_update_cb = sx_set_device_profile_update_spc2,
+    .sx_init_cq_db_cb = sx_init_cq_db_v2,
+    .sx_printk_cqe_cb = sx_printk_cqe_v2,
+    .is_sw_rate_limiter_supported = NULL,
+    .sx_fill_ci_from_cqe_cb = sx_fill_ci_from_cqe_v2,
+    .sx_fill_params_from_cqe_cb = sx_fill_params_from_cqe_v2,
+    .sx_disconnect_all_trap_groups_cb = sx_disconnect_all_trap_groups_spectrum,
+    .sx_get_phy_port_max_cb = sx_get_phy_port_max_spectrum4,
+    .sx_get_lag_max_cb = sx_get_lag_max_spectrum4,
+    .sx_get_rdq_max_cb = sx_get_rdq_max_spectrum2,
+    .is_eqn_cmd_ifc_only_cb = NULL,
+    .sx_clock_init = sx_clock_init_spc2,
+    .sx_clock_cleanup = sx_clock_cleanup_spc2,
+    .sx_clock_cqe_ts_to_utc = sx_clock_cqe_ts_to_utc_spc2,
+    .sx_clock_dump = sx_clock_dump_spc2,
+    .cap_max_mtu_get_cb = cap_max_mtu_get_spectrum,
 };
 
 int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_type, bool force)
@@ -3303,6 +3499,11 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
         sx_priv(dev)->dev_specific_cb = spec_cb_quantum;
         break;
 
+    case SXD_CHIP_TYPE_QUANTUM2:
+        /* for quantum2 add specific cb */
+        sx_priv(dev)->dev_specific_cb = spec_cb_quantum2;
+        break;
+
     case SXD_CHIP_TYPE_SPECTRUM:
     case SXD_CHIP_TYPE_SPECTRUM_A1:
         /* for condor add specific cb */
@@ -3317,6 +3518,11 @@ int sx_core_dev_init_switchx_cb(struct sx_dev *dev, enum sxd_chip_types chip_typ
     case SXD_CHIP_TYPE_SPECTRUM3:
         /* for spectrum3 add specific cb */
         sx_priv(dev)->dev_specific_cb = spec_cb_spectrum3;
+        break;
+
+    case SXD_CHIP_TYPE_SPECTRUM4:
+        /* for spectrum4 add specific cb */
+        sx_priv(dev)->dev_specific_cb = spec_cb_spectrum4;
         break;
 
     default:
@@ -3520,6 +3726,8 @@ static int sx_core_open(struct inode *inode, struct file *filp)
     init_waitqueue_head(&file->poll_wait);
     atomic_set(&file->multi_packet_read_enable, false);
     atomic_set(&file->read_blocking_state, true);
+    file->queue_type = KU_QUEUE_TYPE_TAIL_DROP;
+    file->channel_experienced_drop = false;
     sema_init(&file->write_sem, SX_WRITE_LIMIT);
     file->owner = filp;
     filp->private_data = file; /* connect the fd with its resources */
@@ -3605,7 +3813,7 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
         }
 
         if (write_data.meta.type == SX_PKT_TYPE_LOOPBACK_CTL) {
-            err = sx_send_loopback(dev, &write_data, filp);
+            err = sx_send_loopback(dev, &write_data, filp, 1, TARGET_PID_DONT_CARE, GFP_KERNEL);
             if (err) {
                 printk(KERN_WARNING PFX "sx_core_write: "
                        "Failed sending loopback packet\n");
@@ -3629,14 +3837,14 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
                 write_data.meta.swid = 0;
             } else {
                 for (i = 0; i < NUMBER_OF_SWIDS; i++) {
-                    if (dev->profile.swid_type[i] ==
-                        SX_KU_L2_TYPE_ETH) {
+                    if ((dev->profile.swid_type[i] ==
+                         SX_KU_L2_TYPE_ETH) || (dev->profile.swid_type[i] == SX_KU_L2_TYPE_IB)) {
                         write_data.meta.swid = i;
                         break;
                     }
                 }
 
-                if (i == NUMBER_OF_SWIDS) { /* no ETH swids found */
+                if (i == NUMBER_OF_SWIDS) { /* no ETH or IB swids found */
                     printk(KERN_WARNING PFX "sx_core_write: Err: "
                            "trying to send an emad from "
                            "an IB only system\n");
@@ -3648,7 +3856,7 @@ static ssize_t sx_core_write(struct file *filp, const char __user *buf, size_t c
         }
 
         user_buffer_copied_size += sizeof(write_data);
-        err = copy_buff_to_skb(&skb, &write_data, true);
+        err = copy_buff_to_skb(&skb, &write_data, true, 1, GFP_KERNEL);
         if (err) {
             goto out;
         }
@@ -3852,7 +4060,7 @@ out:
 void unset_monitor_rdq(struct sx_dq *dq)
 {
     dq->is_monitor = 0;
-    if (dq->file_priv_p != NULL) {
+    if ((dq->file_priv_p != NULL) && (dq->file_priv_p->bound_monitor_rdq != NULL)) {
         sx_monitor_flush(dq->file_priv_p, dq->file_priv_p->bound_monitor_rdq);
         kfree(dq->file_priv_p->bound_monitor_rdq->sw_dup_evlist_p);
         dq->file_priv_p->bound_monitor_rdq = NULL;
@@ -3884,17 +4092,15 @@ static unsigned int sx_core_poll(struct file *filp, poll_table *wait)
 
 static int sx_core_close(struct inode *inode, struct file *filp)
 {
-    struct event_data               *edata;
-    unsigned long                    flags;
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos, *q;
-    struct list_head                *port_vlan_pos, *port_vlan_q;
-    int                              entry;
-    struct sx_rsc                   *file = filp->private_data;
-    struct sx_dev                   *dev = sx_glb.tmp_dev_ptr;
-    struct sx_dq                    *dq;
-    uint8_t                          i;
+    struct event_data     *edata;
+    unsigned long          flags;
+    struct listener_entry *listener;
+    struct list_head      *pos, *q;
+    int                    entry;
+    struct sx_rsc         *file = filp->private_data;
+    struct sx_dev         *dev = NULL;
+    struct sx_dq          *dq = NULL;
+    int                    dqn = -1;
 
 #ifdef SX_DEBUG
     printk(KERN_DEBUG PFX " sx_core_close() \n");
@@ -3903,29 +4109,17 @@ static int sx_core_close(struct inode *inode, struct file *filp)
     /* delete all listener entries belong to this fd */
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (entry = 0; entry < NUM_HW_SYNDROMES + 1; entry++) {
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each_safe(port_vlan_pos, port_vlan_q,
-                               &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-
-                list_for_each_safe(pos, q,
-                                   &(port_vlan_listener->listener.list)) {
-                    listener = list_entry(pos,
-                                          struct listener_entry, list);
-                    if ((struct file *)listener->context == filp) {
-                        list_del(pos);
-                        kfree(listener);
-                    }
-                }
-                if (list_empty(&(port_vlan_listener->listener.list))) {
-                    list_del(port_vlan_pos);
-                    __deinit_port_vlan_listener_counters(port_vlan_listener);
-                    kfree(port_vlan_listener);
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each_safe(pos, q, &sx_glb.listeners_rf_db[entry].list) {
+                listener = list_entry(pos,
+                                      struct listener_entry, list);
+                if ((struct file *)listener->context == filp) {
+                    list_del(pos);
+                    kfree(listener);
                 }
             }
         }
     }
-
     spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
     spin_lock_irqsave(&file->lock, flags);
     list_for_each_safe(pos, q, &file->evlist.list) {
@@ -3938,14 +4132,31 @@ static int sx_core_close(struct inode *inode, struct file *filp)
     spin_unlock_irqrestore(&file->lock, flags);
 
     if (sx_glb.pci_drivers_in_use & PCI_DRIVER_F_SX_DRIVER) {
+        down_write(&sx_glb.pci_restart_lock);
+        dev = sx_glb.tmp_dev_ptr;
         spin_lock_irqsave(&sx_priv(dev)->rdq_table.lock, flags);
-        for (i = 0; i < dev->dev_cap.max_num_rdqs; ++i) {
-            dq = sx_priv(dev)->rdq_table.dq[i];
-            if (dq && dq->is_monitor && (dq->file_priv_p == file)) {
-                unset_monitor_rdq(dq);
+        dq = file->bound_monitor_rdq;
+
+        if (dq) {
+            BUG_ON(!dq->is_monitor);
+            BUG_ON(dq->file_priv_p != file);
+            dqn = dq->dqn;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+            if (sx_priv(dev)->filter_ebpf_progs[dqn] != NULL) {
+                bpf_prog_put(sx_priv(dev)->filter_ebpf_progs[dqn]);
+                sx_priv(dev)->filter_ebpf_progs[dqn] = NULL;
             }
+#endif
         }
         spin_unlock_irqrestore(&sx_priv(dev)->rdq_table.lock, flags);
+
+        /* this code MUST be out of the rdq_table lock! */
+        if (dqn >= 0) {
+            disable_monitor_rdq(dqn);
+        }
+
+        up_write(&sx_glb.pci_restart_lock);
     }
 
     file->owner = NULL;
@@ -3957,38 +4168,26 @@ static int sx_core_close(struct inode *inode, struct file *filp)
 
 int sx_core_flush_synd_by_context(void * context)
 {
-    unsigned long                    flags;
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos, *q;
-    struct list_head                *port_vlan_pos, *port_vlan_q;
-    int                              entry;
+    unsigned long          flags;
+    struct listener_entry *listener;
+    struct list_head      *pos, *q;
+    int                    entry;
 
     /* delete all listener entries belong to this context */
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (entry = 0; entry < NUM_HW_SYNDROMES + 1; entry++) {
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each_safe(port_vlan_pos, port_vlan_q,
-                               &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                list_for_each_safe(pos, q,
-                                   &(port_vlan_listener->listener.list)){
-                    listener = list_entry(pos,
-                                          struct listener_entry, list);
-                    if (listener->context == context) {
-                        list_del(pos);
-                        kfree(listener);
-                    }
-                }
-                if (list_empty(&(port_vlan_listener->listener.list))) {
-                    list_del(port_vlan_pos);
-                    __deinit_port_vlan_listener_counters(port_vlan_listener);
-                    kfree(port_vlan_listener);
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each_safe(pos, q,
+                               &sx_glb.listeners_rf_db[entry].list){
+                listener = list_entry(pos,
+                                      struct listener_entry, list);
+                if (listener->context == context) {
+                    list_del(pos);
+                    kfree(listener);
                 }
             }
         }
     }
-
     spin_unlock_irqrestore(&sx_glb.listeners_lock, flags);
 
     return 0;
@@ -3997,33 +4196,22 @@ EXPORT_SYMBOL(sx_core_flush_synd_by_context);
 
 int sx_core_flush_synd_by_handler(cq_handler handler)
 {
-    unsigned long                    flags;
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos, *q;
-    struct list_head                *port_vlan_pos, *port_vlan_q;
-    int                              entry;
+    unsigned long          flags;
+    struct listener_entry *listener;
+    struct list_head      *pos, *q;
+    int                    entry;
 
     /* delete all listener entries belong to this context */
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (entry = 0; entry < NUM_HW_SYNDROMES + 1; entry++) {
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each_safe(port_vlan_pos, port_vlan_q,
-                               &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                list_for_each_safe(pos, q,
-                                   &(port_vlan_listener->listener.list)){
-                    listener = list_entry(pos,
-                                          struct listener_entry, list);
-                    if (listener->handler == handler) {
-                        list_del(pos);
-                        kfree(listener);
-                    }
-                }
-                if (list_empty(&(port_vlan_listener->listener.list))) {
-                    list_del(port_vlan_pos);
-                    __deinit_port_vlan_listener_counters(port_vlan_listener);
-                    kfree(port_vlan_listener);
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each_safe(pos, q,
+                               &sx_glb.listeners_rf_db[entry].list){
+                listener = list_entry(pos,
+                                      struct listener_entry, list);
+                if (listener->handler == handler) {
+                    list_del(pos);
+                    kfree(listener);
                 }
             }
         }
@@ -4040,11 +4228,13 @@ EXPORT_SYMBOL(sx_core_flush_synd_by_handler);
  ***********************************************/
 
 long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data);
+int sx_core_mmap(struct file *filp, struct vm_area_struct *vma);
 
 static const struct file_operations sx_core_fops = {
     .owner = THIS_MODULE,
     .open = sx_core_open,
     .read = sx_core_read,
+    .mmap = sx_core_mmap,
     .write = sx_core_write,
     .unlocked_ioctl = sx_core_ioctl,
     .compat_ioctl = sx_core_ioctl,
@@ -4126,12 +4316,20 @@ static int sx_core_init_cb(struct sx_dev *dev, uint16_t device_id, uint16_t devi
         chip_type = SXD_CHIP_TYPE_QUANTUM;
         break;
 
+    case SXD_MGIR_HW_DEV_ID_QUANTUM2:
+        chip_type = SXD_CHIP_TYPE_QUANTUM2;
+        break;
+
     case SXD_MGIR_HW_DEV_ID_SPECTRUM2:
         chip_type = SXD_CHIP_TYPE_SPECTRUM2;
         break;
 
     case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
         chip_type = SXD_CHIP_TYPE_SPECTRUM3;
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_SPECTRUM4:
+        chip_type = SXD_CHIP_TYPE_SPECTRUM4;
         break;
 
     default:
@@ -4151,10 +4349,10 @@ static int sx_core_init_cb(struct sx_dev *dev, uint16_t device_id, uint16_t devi
 
 static int sx_init_board(struct sx_dev *dev)
 {
-    struct sx_board           board;
-    int                       err;
-    struct ku_access_mgir_reg reg_data;
-    int                       retry_num = 0;
+    int                        err;
+    struct ku_query_board_info board;
+    struct ku_access_mgir_reg  reg_data;
+    int                        retry_num = 0;
 
     /*
      *   This is a workaround to race condition happens when FW
@@ -4217,7 +4415,7 @@ static int sx_init_board(struct sx_dev *dev)
     }
 
     /* init local mailboxes */
-    err = sx_QUERY_FW_2(dev, dev->device_id);
+    err = sx_QUERY_FW_2(dev, dev->device_id, false);
     if (err) {
         sx_err(dev, "QUERY_FW_2 command failed, aborting.\n");
         return err;
@@ -4246,6 +4444,9 @@ static int sx_init_board(struct sx_dev *dev)
         goto err_stop_fw;
     }
 
+    dev->xm_exists = board.xm_exists;
+    dev->xm_num_local_ports = board.xm_num_local_ports;
+    memcpy(dev->xm_local_ports, board.xm_local_ports, sizeof(dev->xm_local_ports));
     sx_priv(dev)->eq_table.inta_pin = board.inta_pin;
     memcpy(dev->board_id, board.board_id, sizeof(dev->board_id));
     dev->vsd_vendor_id = board.vsd_vendor_id;
@@ -4267,15 +4468,20 @@ static void sx_enable_msi_x(struct sx_dev *dev)
 
     if (msi_x) {
         entry.entry = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+        err = pci_enable_msix_range(dev->pdev, &entry, 1, 1);
+#else
         err = pci_enable_msix(dev->pdev, &entry, 1);
-        if (err) {
-            if (err > 0) {
-                printk(KERN_INFO PFX "Only %d MSI-X vectors available, "
-                       "not using MSI-X\n", err);
-            } else {
-                printk(KERN_DEBUG PFX "Failed enabling MSI-X interrupts. "
-                       "Going to use standard interrupts instead\n");
-            }
+        if (err > 0) {
+            printk(KERN_INFO PFX "Only %d MSI-X vectors available, "
+                   "not using MSI-X\n", err);
+
+            goto no_msi;
+        }
+#endif
+        if (err < 0) {
+            printk(KERN_DEBUG PFX "Failed enabling MSI-X interrupts. "
+                   "Going to use standard interrupts instead\n");
 
             goto no_msi;
         }
@@ -4324,6 +4530,30 @@ static void sx_doorbell_cleanup(struct sx_dev *dev)
     iounmap(dev->db_base);
 }
 
+static int sx_map_cr_space_area(struct sx_dev *dev)
+{
+    dev->cr_space_size = pci_resource_end(dev->pdev, 0) -
+                         pci_resource_start(dev->pdev, 0);
+    dev->cr_space_start = ioremap(pci_resource_start(dev->pdev, 0),
+                                  dev->cr_space_size);
+    if (!dev->cr_space_start) {
+        printk(KERN_ERR "%s(): cr_space ioremap failed \n", __func__);
+        return -EINVAL;
+    }
+
+    printk(KERN_DEBUG "%s(): map cr_space area p:0x%llx, size:%d, cr_space start:%p \n",
+           __func__,  pci_resource_start(dev->pdev, 0), dev->cr_space_size, dev->cr_space_start);
+
+    return 0;
+}
+
+static void sx_cr_space_cleanup(struct sx_dev *dev)
+{
+    iounmap(dev->cr_space_start);
+    dev->cr_space_size = 0;
+}
+
+
 static void sx_close_board(struct sx_dev *dev)
 {
     sx_UNMAP_FA(dev);
@@ -4333,6 +4563,8 @@ static void sx_close_board(struct sx_dev *dev)
 #ifdef NO_PCI
 static void sx_destroy_sx(struct sx_dev *dev)
 {
+    sx_af_counters_deinit();
+
     /**Clearing the rdq tables**/
     sx_core_destroy_rdq_table(dev, true);
 
@@ -4351,6 +4583,16 @@ static void sx_destroy_sx(struct sx_dev *dev)
     return;
 }
 #endif
+
+static void sx_setup_sx_cleanup(struct sx_dev *dev)
+{
+    sx_af_counters_deinit();
+    sx_core_destroy_rdq_table(dev, true);
+    sx_core_destroy_sdq_table(dev, true);
+    sx_cmd_use_polling(dev);
+    sx_cleanup_eq_table(dev);
+    sx_core_destroy_cq_table(dev);
+}
 
 static int sx_setup_sx(struct sx_dev *dev)
 {
@@ -4406,6 +4648,7 @@ out_ret:
     return err;
 }
 
+
 static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id *id)
 {
     struct sx_priv *priv = NULL;
@@ -4437,22 +4680,29 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         dev_err(&pdev->dev, "Cannot enable PCI device, aborting.\n");
         goto err_enable_pdev;
     }
-#if defined(SPECTRUM3_BU)
-    printk(KERN_INFO "%s(): BAR0 Init: Flags:%#lx Len:%#llx \n", __func__,
-           pci_resource_flags(pdev, 0), pci_resource_len(pdev, 0));
-#else
-    /* TODO: update after SPECTRUM3_BU - length of PCI space: LOG2_CR_BAR_SIZE */
-    /* Check for BARs.  We expect 0: 1MB in Baz, 4MB in Pelican 16MB in Quantum */
+
+    /* Check for BARs. Length of PCI space: LOG2_CR_BAR_SIZE
+     * We expect BAR0:
+     * - 1MB in Baz;
+     * - 4MB in Pelican;
+     * - 16MB in Quantum, Phoenix;
+     * - 64MB in Firebird;
+     * - 128MB in Blackbird;
+     * - 256MB in Albatross;
+     */
     if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
         ((pci_resource_len(pdev, 0) != 1 << 20) &&
          (pci_resource_len(pdev, 0) != 1 << 22) &&
-         (pci_resource_len(pdev, 0) != 1 << 24))) {
+         (pci_resource_len(pdev, 0) != 1 << 24) &&
+         (pci_resource_len(pdev, 0) != 1 << 26) &&
+         (pci_resource_len(pdev, 0) != 1 << 27) &&
+         (pci_resource_len(pdev, 0) != 1 << 28))) {
         dev_err(&pdev->dev, "Missing BAR0, aborting. Flags: %#lx Len: %#llx \n",
                 pci_resource_flags(pdev, 0), pci_resource_len(pdev, 0));
         err = -ENODEV;
         goto err_disable_pdev;
     }
-#endif
+
     err = pci_request_region(pdev, 0, DRV_NAME);
     if (err) {
         dev_err(&pdev->dev, "Cannot request control region, "
@@ -4507,7 +4757,7 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         goto err_free_pool;
     }
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
+#if defined(PD_BU)
     printk(KERN_INFO PFX "Performing SW reset is SKIPPED in PD mode.\n");
 #else
     err = sx_reset(dev, __perform_chip_reset);
@@ -4528,12 +4778,17 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
         goto err_dbell;
     }
 
+    err = sx_map_cr_space_area(dev);
+    if (err) {
+        goto err_cr_space;
+    }
+
     /* Only if the device is not registered */
     if (priv->unregistered) {
         err = sx_core_register_device(dev);
         if (err) {
             sx_err(dev, "Failed to register the device, aborting.\n");
-            goto err_dbell_clean;
+            goto err_cr_space_clean;
         }
 
         priv->unregistered = 0;
@@ -4552,26 +4807,49 @@ static int sx_core_init_one_pci(struct pci_dev *pdev, const struct pci_device_id
 
     dev->global_flushing = 0;
     dev->dev_stuck = 0;
-    sx_core_start_catas_poll(dev);
+    dev->dev_stuck_time = 0;
 
     if (__oob_pci) {
         sx_glb.oob_backbone_dev = dev;
     }
 
+    err = sx_core_clock_init(priv);
+    if (err) {
+        sx_err(dev, "Failed to initialize clock. aborting.\n");
+        goto out_clock_failed;
+    }
+
+    err = sx_core_cr_dump_init(priv);
+    if (err) {
+        printk(KERN_ERR PFX "Couldn't start cr_dump. Aborting...\n");
+        goto out_crdump_failed;
+    }
+
     __pci_probe_state = PCI_PROBE_STATE_SUCCESS_E;
 
-    /* udev event for system management purpose */
-    kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
+    if (__perform_chip_reset) {
+        /* udev event for system management purpose (only if chip was reset or warm_boot) */
+        kobject_uevent(&pdev->dev.kobj, KOBJ_ADD);
+    }
 
     return 0;
 
+out_crdump_failed:
+    sx_core_clock_deinit(priv);
+
+out_clock_failed:
 out_unregister:
     if (!priv->unregistered) {
         sx_core_unregister_device(dev);
         priv->unregistered = 1;
     }
 
-err_dbell_clean:
+    sx_setup_sx_cleanup(dev);
+
+err_cr_space_clean:
+    sx_cr_space_cleanup(dev);
+
+err_cr_space:
     sx_doorbell_cleanup(dev);
 
 err_dbell:
@@ -4650,6 +4928,7 @@ int sx_core_init_one(struct sx_priv **sx_priv)
     /* initialize rif to hw_fid mapping with invalid value */
     for (i = 0; i < MAX_RIFS_NUM; i++) {
         priv->rif_id_to_hwfid[i] = INVALID_HW_FID_ID;
+        memset(&priv->rif_data[i], 0, sizeof(priv->rif_data[0]));
     }
 
     err = sx_dpt_init_default_dev(dev);
@@ -4677,32 +4956,61 @@ int sx_core_init_one(struct sx_priv **sx_priv)
     atomic_set(&priv->cq_backup_polling_refcnt, 0);
     atomic_set(&priv->dev_specific_cb_refcnt, 0);
     init_waitqueue_head(&priv->dev_specific_cb_not_in_use);
-
-    err = sx_core_catas_init(dev);
-    if (err) {
-        printk(KERN_ERR PFX "Couldn't start catas. Aborting...\n");
-        goto out_free_priv;
-    }
+    priv->pause_cqn = -1;
+    priv->force_iter_monitor_cq = -1;
+    priv->force_iter_low_prio_cq = -1;
+    priv->force_iter_high_prio_cq = -1;
 
     err = sx_bitmap_init(&priv->swid_bitmap, NUMBER_OF_SWIDS);
     if (err) {
         sx_err(dev, "Failed to initialize SWIDs bitmap, aborting.\n");
-        goto catas_stop;
+        goto out_free_priv;
     }
 
     set_default_capabilities(dev);
     err = sx_core_register_device(dev);
     if (err) {
         sx_err(dev, "Failed to register the device, aborting.\n");
-        goto catas_stop;
+        goto out_free_priv;
     }
     memset(&dev->stats, 0, sizeof(dev->stats));
+
+    err = sx_core_ber_monitor_init(dev);
+    if (err) {
+        sx_err(dev, "Failed to init ber-monitor, aborting.\n");
+        goto out_unregister;
+    }
+    err = sx_bitmap_init(&priv->debug_trigger_state.sdq_bitmap, NUMBER_OF_SDQS);
+    if (err) {
+        sx_err(dev, "Failed to initialize SDQs debug trigger bitmap, aborting.\n");
+        goto out_free_priv;
+    }
+    err = sx_bitmap_init(&priv->debug_trigger_state.rdq_bitmap, NUMBER_OF_RDQS);
+    if (err) {
+        sx_err(dev, "Failed to initialize RDQs debug trigger bitmap, aborting.\n");
+        goto out_free_priv;
+    }
+    err = sx_bitmap_init(&priv->operational_state.sdq_bitmap, NUMBER_OF_SDQS);
+    if (err) {
+        sx_err(dev, "Failed to initialize operational SDQs debug trigger bitmap, aborting.\n");
+        goto out_free_priv;
+    }
+
+    err = sx_bitmap_init(&priv->operational_state.rdq_bitmap, NUMBER_OF_RDQS);
+    if (err) {
+        sx_err(dev, "Failed to initialize operational SDQs debug trigger bitmap, aborting.\n");
+        goto out_free_priv;
+    }
+    priv->operational_state.catas = false;
+    priv->operational_state.cmd_ifc = false;
+    priv->debug_trigger_state.cmd_ifc = false;
+    priv->debug_trigger_state.catas = false;
 
 #ifdef NO_PCI
     err = sx_setup_sx(dev);
     if (err) {
         sx_err(dev, "Failed to in sx_setup_sx, aborting.\n");
-        goto out_unregister;
+        goto out_deinit_ber_monitor;
     }
 
     spin_lock(&sx_glb.pci_devs_lock);
@@ -4716,14 +5024,15 @@ int sx_core_init_one(struct sx_priv **sx_priv)
 
     return 0;
 
+
 #ifdef NO_PCI
+out_deinit_ber_monitor:
+    sx_core_ber_monitor_deinit();
+#endif
+
 out_unregister:
     sx_core_unregister_device(dev);
     priv->unregistered = 1;
-#endif
-
-catas_stop:
-    sx_core_catas_cleanup(dev);
 
 out_free_priv:
     vfree(priv);
@@ -4753,7 +5062,8 @@ void sx_core_remove_one(struct sx_priv *priv)
         priv->unregistered = 1;
     }
 
-    sx_core_catas_cleanup(dev);
+    sx_core_ber_monitor_deinit();
+    sx_core_cr_dump_deinit(priv);
 
 #ifdef NO_PCI
     spin_lock(&sx_glb.pci_devs_lock);
@@ -4815,33 +5125,16 @@ void sx_core_disconnect_all_trap_groups(struct sx_dev *dev)
 }
 
 
-int sx_core_ptp_cleanup(struct sx_dev *dev)
-{
-    int             err = 0;
-    struct sx_priv *priv = sx_priv(dev);
-
-    err = __sx_core_dev_specific_cb_get_reference(dev);
-    if (err) {
-        printk(KERN_ERR PFX "__sx_core_dev_specific_cb_get_reference failed.\n");
-        return err;
-    }
-
-    if ((IS_PTP_MODE_EVENTS || IS_PTP_MODE_POLLING) && (priv->dev_specific_cb.sx_ptp_cleanup != NULL)) {
-        priv->dev_specific_cb.sx_ptp_cleanup(priv);
-    }
-
-    __sx_core_dev_specific_cb_release_reference(dev);
-    return err;
-}
-
 static void sx_core_remove_one_pci(struct pci_dev *pdev)
 {
     struct sx_priv *priv;
     struct sx_dev  *dev;
     int             i;
 
-    /* udev event for system management purpose */
-    kobject_uevent(&pdev->dev.kobj, KOBJ_REMOVE);
+    if (__perform_chip_reset || __warm_boot_mode) {
+        /* udev event for system management purpose (only if chip was reset enable or warm boot) */
+        kobject_uevent(&pdev->dev.kobj, KOBJ_REMOVE);
+    }
 
     spin_lock(&sx_glb.pci_devs_lock);
     dev = pci_get_drvdata(pdev);
@@ -4855,6 +5148,7 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
     sx_glb.pci_devs_cnt--;
 
     priv = sx_priv(dev);
+
     if (!priv->unregistered) {
         sx_core_unregister_device(dev);
         priv->unregistered = 1;
@@ -4873,14 +5167,12 @@ static void sx_core_remove_one_pci(struct pci_dev *pdev)
         }
     }
 
-    sx_core_destroy_rdq_table(dev, true);
-    sx_core_destroy_sdq_table(dev, true);
-    sx_cmd_use_polling(dev);
-    sx_cleanup_eq_table(dev);
-    sx_core_destroy_cq_table(dev);
+    sx_setup_sx_cleanup(dev);
+    sx_cr_space_cleanup(dev);
     sx_doorbell_cleanup(dev);
 
-    sx_core_ptp_cleanup(dev);
+    sx_core_ptp_cleanup(priv);
+    sx_core_clock_deinit(priv);
 
     if (dev->flags & SX_FLAG_MSI_X) {
         pci_disable_msix(dev->pdev);
@@ -4921,6 +5213,11 @@ int sx_restart_one_pci(struct pci_dev *pdev)
         return -ENODEV;
     }
 
+    /* enable chip reset from sx_restart_one_pci even
+     * if driver was loaded with __perform_chip_reset = 0
+     * for example in case of WARM boot*/
+    __perform_chip_reset = 1;
+
     down_write(&sx_glb.pci_restart_lock);
     sx_core_remove_one_pci(pdev);
     err = sx_core_init_one_pci(pdev, NULL);
@@ -4945,6 +5242,9 @@ struct pci_device_id sx_pci_table[] = {
     /* Spectrum3 PCI device ID */
     { PCI_VDEVICE(MELLANOX, SPECTRUM3_PCI_DEV_ID) },
 
+    /* Spectrum4 PCI device ID */
+    { PCI_VDEVICE(MELLANOX, SPECTRUM4_PCI_DEV_ID) },
+
     /* SwitchIB PCI device ID */
     { PCI_VDEVICE(MELLANOX, SWITCH_IB_PCI_DEV_ID) },
 
@@ -4953,6 +5253,9 @@ struct pci_device_id sx_pci_table[] = {
 
     /* Quantum PCI device ID */
     { PCI_VDEVICE(MELLANOX, QUANTUM_PCI_DEV_ID) },
+
+    /* Quantum2 PCI device ID */
+    { PCI_VDEVICE(MELLANOX, QUANTUM2_PCI_DEV_ID) },
 
     { 0, }
 };
@@ -5045,7 +5348,7 @@ int sx_core_send_mad_sync(struct sx_dev *dev,
     int err = 0;
 
     if (is_sgmii_supported()) {
-        err = sgmii_simulate_sync_mad_ifc(dev, dev_id, in_modifier, in_mad, in_size, out_mad, out_size);
+        err = sgmii_simulate_sync_mad_ifc(dev, dev_id, in_modifier, op_modifier, in_mad, in_size, out_mad, out_size);
     } else {
         err = sx_cmd_send_mad_sync(dev, dev_id, in_modifier, op_modifier, in_mad, in_size, out_mad, out_size);
     }
@@ -5130,8 +5433,20 @@ int register_driver_with_pci(void)
 #ifndef SXD_KERNEL_DISABLE_PCI_DRV_SHUTDOWN
 static void sx_core_shutdown(struct pci_dev *pdev)
 {
+    struct sx_dev *dev = NULL;
+
     printk(KERN_DEBUG PFX "Shutdown PCI driver\n");
-    sx_core_remove_one_pci(pdev);
+
+    spin_lock(&sx_glb.pci_devs_lock);
+    dev = pci_get_drvdata(pdev);
+    spin_unlock(&sx_glb.pci_devs_lock);
+
+    if (!dev) {
+        printk(KERN_ERR "PCI shutdown - could not get SX device!\n");
+    } else {
+        sx_core_dispatch_event(dev, SX_DEV_EVENT_PCI_SHUTDOWN, NULL);
+        sx_core_remove_one_pci(pdev);
+    }
 }
 #endif
 
@@ -5151,6 +5466,13 @@ static int __init sx_core_init(void)
 
     memset(&sx_glb, 0, sizeof(sx_glb));
 
+    sx_glb.generic_wq = create_singlethread_workqueue("sx_generic");
+    if (!sx_glb.generic_wq) {
+        printk(KERN_ERR "failed to create generic work-queue\n");
+        ret = -ENOMEM;
+        goto out;
+    }
+
     sx_core_skb_hook_init();
 
 #ifndef NO_PCI
@@ -5163,6 +5485,11 @@ static int __init sx_core_init(void)
     sx_dbg_dump_proc_fs_init();
 
     sx_dpt_init();
+    ret = sx_health_check_init();
+    if (ret) {
+        printk(KERN_ERR "failed to initialize health-check (err=%d)\n", ret);
+        goto health_check_init_failed;
+    }
 
     init_rwsem(&sx_glb.pci_restart_lock);
     spin_lock_init(&sx_glb.pci_devs_lock);
@@ -5170,7 +5497,7 @@ static int __init sx_core_init(void)
 
     spin_lock_init(&sx_glb.listeners_lock);
     for (i = 0; i < NUM_HW_SYNDROMES + 1; i++) {
-        INIT_LIST_HEAD(&sx_glb.listeners_db[i].list);
+        INIT_LIST_HEAD(&sx_glb.listeners_rf_db[i].list);
     }
 
     char_dev = MKDEV(SX_MAJOR, SX_BASE_MINOR);
@@ -5235,7 +5562,6 @@ static int __init sx_core_init(void)
     } else {
         sx_glb.pci_drivers_in_use |= PCI_DRIVER_F_SX_DRIVER;
     }
-
     ret = sx_init_char_dev(&sx_glb.cdev);
     if (ret < 0) {
         printk(KERN_ERR "sx_init_char_dev() failed (err=%d)\n", ret);
@@ -5259,37 +5585,32 @@ out_cdev:
 out_close_proc:
     sx_dbg_dump_proc_fs_deinit();
     sx_core_close_proc_fs();
+    sx_health_check_deinit();
 
+health_check_init_failed:
+    destroy_workqueue(sx_glb.generic_wq);
+
+out:
     return ret;
 }
 
 static void sx_core_listeners_cleanup(void)
 {
-    unsigned long                    flags;
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos, *q;
-    struct list_head                *port_vlan_pos, *port_vlan_q;
-    int                              entry;
+    unsigned long          flags;
+    struct listener_entry *listener;
+    struct list_head      *pos, *q;
+    int                    entry;
 
     printk(KERN_INFO PFX "sx_core_listeners_cleanup \n");
 
     /* delete all remaining listener entries */
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (entry = 0; entry < NUM_HW_SYNDROMES + 1; entry++) {
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each_safe(port_vlan_pos, port_vlan_q,
-                               &sx_glb.listeners_db[entry].list){
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                list_for_each_safe(pos, q, &(port_vlan_listener->listener.list)) {
-                    listener = list_entry(pos, struct listener_entry, list);
-                    list_del(pos);
-                    kfree(listener);
-                }
-                list_del(port_vlan_pos);
-
-                __deinit_port_vlan_listener_counters(port_vlan_listener);
-                kfree(port_vlan_listener);
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each_safe(pos, q, &sx_glb.listeners_rf_db[entry].list){
+                listener = list_entry(pos, struct listener_entry, list);
+                list_del(pos);
+                kfree(listener);
             }
         }
     }
@@ -5324,8 +5645,10 @@ static void __exit sx_core_cleanup(void)
 
     sx_core_listeners_cleanup();
     sx_core_counters_deinit();
+    sx_health_check_deinit();
     sx_dbg_dump_proc_fs_deinit();
     sx_core_close_proc_fs();
+    destroy_workqueue(sx_glb.generic_wq);
 }
 
 /************************************************

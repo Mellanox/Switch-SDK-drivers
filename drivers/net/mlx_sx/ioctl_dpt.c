@@ -36,6 +36,7 @@
 
 #include "sx.h"
 #include "ioctl_internal.h"
+#include "mmap.h"
 
 long ctrl_cmd_add_dev_path(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -50,7 +51,8 @@ long ctrl_cmd_add_dev_path(struct file *file, unsigned int cmd, unsigned long da
         goto out;
     }
 
-    err = sx_dpt_add_dev_path(dpt_path_add_data.dev_id,
+    err = sx_dpt_add_dev_path(dev,
+                              dpt_path_add_data.dev_id,
                               dpt_path_add_data.path_type,
                               dpt_path_add_data.path_info,
                               dpt_path_add_data.is_local);
@@ -114,6 +116,16 @@ long ctrl_cmd_set_cmd_path(struct file *file, unsigned int cmd, unsigned long da
     }
 
     err = sx_dpt_set_cmd_path(dpt_path_modify_data.dev_id, dpt_path_modify_data.path_type);
+
+    /*
+     * If we set DPT_PATH to be I2C - we still need to make sure we have the PCI's HCR mailbox addresses.
+     * That is because now FW has two different mailboxes: one for PCI (HCR1) and one for I2C (HCR2).
+     * Even if we use I2C, there are a few commands that must be sent on HCR1. Thus, we need to get the mailbox of this HCR.
+     */
+    if (dpt_path_modify_data.path_type == DPT_PATH_I2C) {
+        printk(KERN_NOTICE "path type is I2C, going to get also PCI's mailbox\n");
+        sx_QUERY_FW_2(dev, dpt_path_modify_data.dev_id, true); /* true is to enforce getting HCR1 mailbox addresses */
+    }
 
 out:
     return err;
@@ -238,6 +250,36 @@ long ctrl_cmd_cr_space_write(struct file *file, unsigned int cmd, unsigned long 
 
 out_kfree:
     kfree(buf);
+
+out:
+    return err;
+}
+
+long ctrl_cmd_cr_dump(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_cr_dump read_data;
+    unsigned char    *buf = NULL;
+    int               err;
+
+    err = copy_from_user(&read_data, (void*)data, sizeof(read_data));
+    if (err) {
+        goto out;
+    }
+    buf = (unsigned char *)sx_mmap_user_to_kernel(read_data.pid, (unsigned long)(read_data.data));
+    if (!buf) {
+        err = -ENOMEM;
+        printk(KERN_ERR "Cr_dump memory block is not valid - size: %u, usr buff: 0x%p, pid:%d.\n",
+               read_data.size,
+               read_data.data,
+               read_data.pid);
+        goto out;
+    }
+    memset(&(read_data.ret), 0, sizeof(read_data.ret));
+    err = sx_core_cr_dump_handler(&read_data, buf);
+    if (err) {
+        goto out;
+    }
+    err = copy_to_user(&(((struct ku_cr_dump *)data)->ret), &(read_data.ret), sizeof(read_data.ret));
 
 out:
     return err;
