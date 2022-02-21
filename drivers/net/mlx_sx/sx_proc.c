@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/cdev.h>
@@ -45,6 +26,7 @@
 #include <linux/mlx_sx/cmd.h>
 #include <linux/mlx_sx/device.h>
 #include <linux/mlx_sx/kernel_user.h>
+#include <linux/mlx_sx/auto_registers/cmd_auto.h>
 #include <linux/netdevice.h>
 #include <linux/vmalloc.h>
 #include "sx_proc.h"
@@ -53,12 +35,17 @@
 #include "sx.h"
 #include "alloc.h"
 #include "sx_dpt.h"
+#include "dev_db.h"
+#include "dev_init.h"
+#include "sx_af_counters.h"
+#include "health_check.h"
 
 #define DEF_SX_CORE_PROC_DIR       "mlx_sx"
 #define DEF_SX_CORE_PROC_CORE_FILE "sx_core"
 #define DEF_SX_CORE_PROC_MAX_SIZE  1024
 
-#define PROC_DUMP(fmt, args ...) printk(KERN_ERR fmt, ## args)
+#define PROC_DUMP(fmt, args ...)     printk(KERN_ERR fmt, ## args)
+#define PROC_DUMP_DBG(fmt, args ...) pr_debug(fmt, ## args)
 
 #define IGNORE_IF_NO_PCI(cmd, ret_val)                                      \
     if (!(sx_glb.pci_drivers_in_use & PCI_DRIVER_F_SX_DRIVER)) {            \
@@ -66,11 +53,14 @@
         return (ret_val);                                                   \
     }
 
+void __sx_proc_dump_fw_icm(struct sx_dev *dev);
 void __sx_proc_dump_swids(struct sx_dev *dev);
 void __sx_proc_dump_sdq(struct sx_dev *dev);
 void __sx_proc_dump_rdq(struct sx_dev *dev);
 void __sx_proc_dump_eq(struct sx_dev *dev);
 void __sx_proc_dump_rdq_single(struct sx_dev *dev, int rdq);
+void __sx_proc_rdq_start(struct sx_dev *dev, uint8_t rdq);
+void __sx_proc_rdq_stop(struct sx_dev *dev, uint8_t rdq);
 void __sx_proc_set_dev_profile(struct sx_dev *dev);
 extern void sx_core_dump_synd_tbl(struct sx_dev *dev);
 
@@ -86,7 +76,6 @@ void __set_net_dev_oper_state(char *dev_name, char *oper_state);
 void __dump_net_dev_oper_state(void);
 static ssize_t sx_proc_write(struct file *file, const char __user *buffer,
                              size_t count, loff_t *pos);
-extern struct sx_globals  sx_glb;
 extern int                rx_debug;
 extern int                rx_debug_pkt_type;
 extern int                rx_debug_emad_type;
@@ -108,7 +97,7 @@ extern unsigned int       credit_thread_vals[100];
 extern unsigned long long arr_count;
 extern atomic_t           cq_backup_polling_enabled;
 extern int                debug_cq_backup_poll_cqn;
-static const char        *ku_pkt_type_str[] = {
+const char               *ku_pkt_type_str[] = {
     "SX_PKT_TYPE_ETH_CTL_UC", /**< Eth control unicast */
     "SX_PKT_TYPE_ETH_CTL_MC", /**< Eth control multicast */
     "SX_PKT_TYPE_ETH_DATA", /**< Eth data */
@@ -129,6 +118,25 @@ static char               proc_buf[DEF_SX_CORE_PROC_MAX_SIZE];
 
 void __dump_kdbs(void);
 
+static void __trim(char *buff)
+{
+    char *tmp = buff;
+
+#define IS_CHAR_TO_TRIM(ch) ((ch) <= 0x20 || (ch) >= 0x7f)
+
+    while (*tmp && IS_CHAR_TO_TRIM(*tmp)) {
+        tmp++;
+    }
+
+    while (*tmp && !IS_CHAR_TO_TRIM(*tmp)) {
+        *buff = *tmp;
+        buff++;
+        tmp++;
+    }
+
+    *buff = '\0';
+}
+
 char * sx_proc_str_get_ulong(char *buffer, unsigned long *val)
 {
     const char delimiters[] = " .,;:!-";
@@ -141,6 +149,10 @@ char * sx_proc_str_get_ulong(char *buffer, unsigned long *val)
     if (token == NULL) {
         *val = 0;
         return NULL;
+    }
+
+    if (!running) { /* no more tokens after this one */
+        __trim(token);
     }
 
     if (strstr(token, "0x")) {
@@ -165,6 +177,10 @@ char * sx_proc_str_get_u32(char *buffer, u32 *val32)
         return NULL;
     }
 
+    if (!running) { /* no more tokens after this one */
+        __trim(token);
+    }
+
     if (strstr(token, "0x")) {
         *val32 = simple_strtol(token, NULL, 16);
     } else {
@@ -174,6 +190,7 @@ char * sx_proc_str_get_u32(char *buffer, u32 *val32)
     return running;
 }
 EXPORT_SYMBOL(sx_proc_str_get_u32);
+
 char * sx_proc_str_get_str(char *buffer, char **str)
 {
     const char delimiters[] = " ,;:!-";
@@ -187,6 +204,10 @@ char * sx_proc_str_get_str(char *buffer, char **str)
         return NULL;
     }
 
+    if (!running) { /* no more tokens after this one */
+        __trim(token);
+    }
+
     *str = token;
     return running;
 }
@@ -198,7 +219,7 @@ static int sx_proc_show(struct seq_file *m, void *v)
 
     IGNORE_IF_NO_PCI(__FUNCTION__, 0);
 
-    my_dev = sx_glb.sx_dpt.dpt_info[DEFAULT_DEVICE_ID].sx_pcie_info.sx_dev;
+    my_dev = sx_dev_db_get_default_device();
     if (!my_dev) {
         PROC_DUMP("sx_proc_read: Invalid device received Null\n");
         return -ENODEV;
@@ -234,6 +255,7 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
 {
     int err = 0;
     u32 local_port;
+    u32 lp_msb;
 
     switch (reg_id) {
     case MGIR_REG_ID:
@@ -249,8 +271,11 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
             goto print_err;
         }
 
-        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %s\n",
-                  reg_data.mgir_reg.fw_info.psid);
+        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %d%d%d%d\n",
+                  reg_data.mgir_reg.fw_info.psid[0],
+                  reg_data.mgir_reg.fw_info.psid[1],
+                  reg_data.mgir_reg.fw_info.psid[2],
+                  reg_data.mgir_reg.fw_info.psid[3]);
         break;
     }
 
@@ -266,10 +291,13 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         reg_data.pspa_reg.swid = swid_id;
         running = sx_proc_str_get_u32(running, &local_port);
         reg_data.pspa_reg.local_port = local_port;
+        running = sx_proc_str_get_u32(running, &lp_msb);
+        reg_data.pspa_reg.lp_msb = lp_msb;
         PROC_DUMP("Executing ACCESS_REG_PSPA Command, "
-                  "swid_id:%d, local port:%d\n",
+                  "swid_id:%d, local port:%d, lp_msb:%d\n",
                   reg_data.pspa_reg.swid,
-                  reg_data.pspa_reg.local_port);
+                  reg_data.pspa_reg.local_port,
+                  reg_data.pspa_reg.lp_msb);
         err = sx_ACCESS_REG_PSPA(dev, &reg_data);
         if (err) {
             goto print_err;
@@ -286,18 +314,21 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         memset(&reg_data, 0, sizeof(reg_data));
         reg_data.dev_id = dev_id;
         sx_cmd_set_op_tlv(&reg_data.op_tlv, reg_id, 2);
-        /* local port is the input */
+
         running = sx_proc_str_get_u32(running, &local_port);
         reg_data.ptys_reg.local_port = local_port;
+        running = sx_proc_str_get_u32(running, &lp_msb);
+        reg_data.ptys_reg.lp_msb = lp_msb;
         running = sx_proc_str_get_u32(running,
                                       &reg_data.ptys_reg.eth_proto_admin);
         running = sx_proc_str_get_u32(running,
                                       &reg_data.ptys_reg.eth_proto_oper);
         reg_data.ptys_reg.proto_mask = (1 << 2);
-        PROC_DUMP("Executing ACCESS_REG_PTYS Command: local port:%d, "
+        PROC_DUMP("Executing ACCESS_REG_PTYS Command: local port:%d, lp_msb: %d"
                   "eth_proto_adm:0x%x, proto_oper:0x%x, "
                   "proto_mask:%d\n",
                   reg_data.ptys_reg.local_port,
+                  reg_data.ptys_reg.lp_msb,
                   reg_data.ptys_reg.eth_proto_admin,
                   reg_data.ptys_reg.eth_proto_oper,
                   reg_data.ptys_reg.proto_mask);
@@ -388,13 +419,15 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         memset(&reg_data, 0, sizeof(reg_data));
         reg_data.dev_id = dev_id;
         sx_cmd_set_op_tlv(&reg_data.op_tlv, reg_id, 2);
-        /* local port is the input */
+
         running = sx_proc_str_get_u32(running, &local_port);
         reg_data.plib_reg.local_port = local_port;
+        running = sx_proc_str_get_u32(running, &lp_msb);
+        reg_data.plib_reg.lp_msb = lp_msb;
         running = sx_proc_str_get_u32(running, &local_port);
         reg_data.plib_reg.ib_port = local_port;
-        PROC_DUMP("Executing ACCESS_REG_PLIB SET Command, local_port = %u, ib_port = %u\n",
-                  reg_data.plib_reg.local_port, reg_data.plib_reg.ib_port);
+        PROC_DUMP("Executing ACCESS_REG_PLIB SET Command, local_port = %u, lp_msb = %u, ib_port = %u\n",
+                  reg_data.plib_reg.local_port, reg_data.plib_reg.lp_msb, reg_data.plib_reg.ib_port);
         err = sx_ACCESS_REG_PLIB(dev, &reg_data);
         if (err) {
             goto print_err;
@@ -403,7 +436,9 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         PROC_DUMP("Finished Executing ACCESS_REG_PLIB SET Command:\n");
         sx_cmd_set_op_tlv(&reg_data.op_tlv, reg_id, 1);
         reg_data.plib_reg.ib_port = 0;
-        PROC_DUMP("Executing ACCESS_REG_PLIB GET Command, local_port = %u\n", reg_data.plib_reg.local_port);
+        PROC_DUMP("Executing ACCESS_REG_PLIB GET Command, local_port = %u, lp_msb = %u\n",
+                  reg_data.plib_reg.local_port,
+                  reg_data.plib_reg.lp_msb);
         err = sx_ACCESS_REG_PLIB(dev, &reg_data);
         PROC_DUMP("ib_port = %u\n", reg_data.plib_reg.ib_port);
         break;
@@ -447,7 +482,7 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         memset(&reg_data, 0, sizeof(reg_data));
         reg_data.dev_id = dev_id;
         sx_cmd_set_op_tlv(&reg_data.op_tlv, reg_id, 2);
-        reg_data.pmtu_reg.local_port = 1;
+        SX_PORT_EXTRACT_LSB_MSB_FROM_PHY_ID(reg_data.pmtu_reg.local_port, reg_data.pmtu_reg.lp_msb, 1);
         reg_data.pmtu_reg.admin_mtu = 638;
         PROC_DUMP("Executing ACCESS_REG_PMTU Command\n");
         err = sx_ACCESS_REG_PMTU(dev, &reg_data);
@@ -460,7 +495,7 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         memset(&reg_data2, 0, sizeof(reg_data2));
         reg_data2.dev_id = dev_id;
         sx_cmd_set_op_tlv(&reg_data2.op_tlv, reg_id, 1);
-        reg_data2.pmtu_reg.local_port = 1;
+        SX_PORT_EXTRACT_LSB_MSB_FROM_PHY_ID(reg_data2.pmtu_reg.local_port, reg_data2.pmtu_reg.lp_msb, 1);
         err = sx_ACCESS_REG_PMTU(dev, &reg_data2);
         if (err) {
             goto print_err;
@@ -482,10 +517,12 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         reg_data.dev_id = dev_id;
         running = sx_proc_str_get_u32(running, &operation);
         sx_cmd_set_op_tlv(&reg_data.op_tlv, reg_id, operation);
-        /* local port and op are the input */
+
         running = sx_proc_str_get_u32(running, &local_port);
+        running = sx_proc_str_get_u32(running, &lp_msb);
         running = sx_proc_str_get_u32(running, &op);
         reg_data.pelc_reg.local_port = local_port;
+        reg_data.pelc_reg.lp_msb = lp_msb;
         reg_data.pelc_reg.op = op;
         if (operation == 2) {
             running = sx_proc_str_get_ulong(running, &admin);
@@ -704,8 +741,8 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
         memset(&reg_data, 0, sizeof(reg_data));
         reg_data.dev_id = dev_id;
         sx_cmd_set_op_tlv(&reg_data.op_tlv, reg_id, 1);
-        reg_data.spzr_reg.EnhSwP0 = 1;
-        reg_data.spzr_reg.EnhSwP0_mask = 1;
+        reg_data.spzr_reg.enh_sw_p0 = 1;
+        reg_data.spzr_reg.enh_sw_p0_mask = 1;
         PROC_DUMP("Executing ACCESS_REG_SPZR Command\n");
         err = sx_ACCESS_REG_SPZR(dev, &reg_data);
         break;
@@ -767,6 +804,8 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
 
         running = sx_proc_str_get_u32(running, &local_port);
         reg_data.mpsc_reg.local_port = local_port;
+        running = sx_proc_str_get_u32(running, &lp_msb);
+        reg_data.mpsc_reg.lp_msb = lp_msb;
         running = sx_proc_str_get_u32(running, &rate);
         reg_data.mpsc_reg.rate = rate;
         running = sx_proc_str_get_u32(running, &enable);
@@ -811,6 +850,7 @@ print_err:
 
 void __query_fw(struct sx_dev *my_dev, char *running)
 {
+    struct sx_dev     *dev;
     struct ku_query_fw fw;
     u32                dev_id;
 
@@ -818,8 +858,10 @@ void __query_fw(struct sx_dev *my_dev, char *running)
     if (dev_id == 0) {
         dev_id = my_dev->device_id;
     }
-    if (sx_glb.sx_dpt.dpt_info[dev_id].sx_pcie_info.sx_dev != NULL) {
-        my_dev = sx_glb.sx_dpt.dpt_info[dev_id].sx_pcie_info.sx_dev;
+
+    dev = sx_dev_db_get_dev_by_id(dev_id);
+    if (dev) {
+        my_dev = dev;
     }
     fw.dev_id = dev_id;
 
@@ -841,28 +883,31 @@ void __query_fw(struct sx_dev *my_dev, char *running)
               fw.fw_minutes, fw.fw_day, fw.fw_month, fw.fw_year);
 
     PROC_DUMP("Executing QUERY_FW_2 Command\n");
-    sx_QUERY_FW_2(my_dev, dev_id);
+    sx_QUERY_FW_2(my_dev, dev_id, false);
     PROC_DUMP("Finished Executing QUERY_FW_2 Command:\n");
     PROC_DUMP("local_out_mb_offset = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_offset);
+              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_offset[HCR1]);
     PROC_DUMP("local_out_mb_size = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_size);
+              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_size[HCR1]);
     PROC_DUMP("local_in_mb_offset = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_offset);
+              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_offset[HCR1]);
     PROC_DUMP("local_in_mb_size = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_size);
+              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_size[HCR1]);
 }
 
 void __query_cq(struct sx_dev *my_dev, char *running)
 {
     struct ku_query_cq cq_context;
+    struct sx_dev     *dev;
     u32                cqn, dev_id;
 
     running = sx_proc_str_get_u32(running, &cqn);
 
     dev_id = my_dev->device_id;
-    if (sx_glb.sx_dpt.dpt_info[dev_id].sx_pcie_info.sx_dev != NULL) {
-        my_dev = sx_glb.sx_dpt.dpt_info[dev_id].sx_pcie_info.sx_dev;
+
+    dev = sx_dev_db_get_dev_by_id(dev_id);
+    if (dev) {
+        my_dev = dev;
     }
 
     PROC_DUMP("Executing QUERY_CQ Command to dev %d !\n", dev_id);
@@ -873,12 +918,22 @@ void __query_cq(struct sx_dev *my_dev, char *running)
 
 void __query_board_info(struct sx_dev *my_dev, char *running)
 {
-    struct sx_board board;
+    int                        i;
+    struct ku_query_board_info board;
 
     memset(&board, 0, sizeof(board));
     PROC_DUMP("Executing QUERY_BOARDINFO Command\n");
     sx_QUERY_BOARDINFO(my_dev, &board);
     PROC_DUMP("Finished Executing QUERY_BOARDINFO Command:\n");
+    PROC_DUMP("xm_exists = %d\n", board.xm_exists);
+    PROC_DUMP("xm_num_local_ports = %d\n", board.xm_num_local_ports);
+
+    if (board.xm_num_local_ports <= SX_XM_MAX_LOCAL_PORTS_LEN) {
+        for (i = 0; i < board.xm_num_local_ports; i++) {
+            PROC_DUMP("xm_local_ports[%d] = 0x%x\n", i, board.xm_local_ports[i]);
+        }
+    }
+
     PROC_DUMP("vsd_vendor_id = 0x%x\n", board.vsd_vendor_id);
     PROC_DUMP("board_id = %s\n", board.board_id);
     PROC_DUMP("inta_pin = 0x%x\n", board.inta_pin);
@@ -928,7 +983,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
     char          *running;
     char          *cmd_str;
     size_t         buf_len = 0;
-    struct sx_dev *my_dev = sx_glb.tmp_dev_ptr;
+    struct sx_dev *my_dev = sx_dev_db_get_default_device();
 
     if (!my_dev) {
         err = -ENODEV;
@@ -1034,7 +1089,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
 
     p = strstr(cmd_str, "q_aq_cap");
     if (p != NULL) {
-        struct sx_dev_cap *dev_cap = &my_dev->dev_cap;
+        struct sx_dev_cap *dev_cap = &sx_priv(my_dev)->dev_cap;
 
         PROC_DUMP("Executing QUERY_AQ_CAP Command\n");
         sx_QUERY_AQ_CAP(my_dev);
@@ -1112,6 +1167,8 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("ib_router_ecmp_lid_range = %u\n", profile->ib_router_ecmp_lid_range);
         PROC_DUMP("split_ready = %u\n", profile->split_ready);
         PROC_DUMP("cqe_version = %u\n", params->cqe_version);
+        PROC_DUMP("umlabel = %u\n", profile->umlabel);
+        PROC_DUMP("cqe_time_stamp_type = %u\n", params->cqe_time_stamp_type);
 
         vfree(profile);
         vfree(params);
@@ -1126,20 +1183,6 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         running = sx_proc_str_get_u32(running, &dev_id);
         running = sx_proc_str_get_u32(running, &reg_id);
         sx_proc_handle_access_reg(my_dev, p, dev_id, reg_id, running);
-        cmd++;
-    }
-
-    p = strstr(cmd_str, "get_pci");
-    if (p != NULL) {
-        unsigned int    sx_pci_dev_id, vendor, device;
-        struct pci_dev *sx_pci_dev;
-
-        IGNORE_IF_NO_PCI("get_pci", count);
-
-        running = sx_proc_str_get_u32(running, &sx_pci_dev_id);
-        running = sx_proc_str_get_u32(running, &vendor);
-        running = sx_proc_str_get_u32(running, &device);
-        sx_dpt_find_pci_dev(sx_pci_dev_id, vendor, device, &sx_pci_dev);
         cmd++;
     }
 
@@ -1177,9 +1220,14 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
             goto out;
         }
 
-        PROC_DUMP("Executing sw_reset\n");
+        PROC_DUMP_DBG("Executing sw_reset\n");
         err = sx_reset(my_dev, 1);
-        PROC_DUMP("Finished Executing sw_reset. err = %d\n", err);
+        if (err) {
+            PROC_DUMP_DBG("Failed in Executing sw_reset. err = %d\n", err);
+        } else {
+            PROC_DUMP_DBG("Finished Executing sw_reset. err = %d\n", err);
+        }
+
         cmd++;
     }
     p = strstr(cmd_str, "sys_status");
@@ -1194,60 +1242,70 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
             goto out;
         }
 
-        PROC_DUMP("Executing sys_status\n");
+        PROC_DUMP_DBG("Executing sys_status\n");
         err = get_system_status(my_dev, &sys_status);
-        PROC_DUMP("System Status: 0x%x\n", sys_status);
-        PROC_DUMP("Finished Executing sys_status. err = %d\n", err);
+        if (err) {
+            PROC_DUMP_DBG("Failed in Executing get_system_status. err = %d\n", err);
+        } else {
+            PROC_DUMP_DBG("Finished Executing get_system_status. err = %d\n", err);
+            PROC_DUMP_DBG("System Status: 0x%x\n", sys_status);
+        }
         cmd++;
     }
     p = strstr(cmd_str, "enable_swid");
     if (p != NULL) {
-        u32 swid;
+        struct sx_priv *priv = sx_priv(my_dev);
+        u32             swid;
 
         IGNORE_IF_NO_PCI("enable_swid", count);
 
         running = sx_proc_str_get_u32(running, &swid);
-        spin_lock(&my_dev->profile_lock);
-        if (!my_dev->profile_set || (swid >= NUMBER_OF_SWIDS)
-            || (my_dev->profile.swid_type[swid] ==
+        spin_lock(&priv->profile.profile_lock);
+        if (!priv->profile.pci_profile_set || (swid >= NUMBER_OF_SWIDS)
+            || (priv->profile.pci_profile.swid_type[swid] ==
                 SX_KU_L2_TYPE_DONT_CARE) ||
-            sx_bitmap_test(&sx_priv(my_dev)->swid_bitmap,
+            sx_bitmap_test(&priv->swid_bitmap,
                            swid)) {
             PROC_DUMP("Err in param, not executing enable_swid\n");
-            spin_unlock(&my_dev->profile_lock);
+            spin_unlock(&priv->profile.profile_lock);
             goto out;
         }
 
-        spin_unlock(&my_dev->profile_lock);
-        PROC_DUMP("Executing enable_swid. dev_id = %u, "
-                  "swid num = %u\n",
-                  my_dev->device_id, swid);
+        spin_unlock(&priv->profile.profile_lock);
+        PROC_DUMP_DBG("Executing enable_swid. dev_id = %u, "
+                      "swid num = %u\n",
+                      my_dev->device_id, swid);
         err = sx_enable_swid(my_dev, my_dev->device_id, swid, 0x1c0 + swid, 0);
-        PROC_DUMP("Finished Executing enable_swid. err = %d\n", err);
+        if (err) {
+            PROC_DUMP_DBG("Failed in Executing enable_swid. err = %d\n", err);
+        } else {
+            PROC_DUMP_DBG("Finished Executing enable_swid. err = %d\n", err);
+        }
         cmd++;
     }
 
     p = strstr(cmd_str, "disable_swid");
     if (p != NULL) {
-        u32 swid;
+        struct sx_priv *priv = sx_priv(my_dev);
+        u32             swid;
 
         IGNORE_IF_NO_PCI("disable_swid", count);
 
         running = sx_proc_str_get_u32(running, &swid);
-        spin_lock(&my_dev->profile_lock);
-        if (!my_dev->profile_set || (swid >= NUMBER_OF_SWIDS)
-            || (my_dev->profile.swid_type[swid] ==
+        spin_lock(&priv->profile.profile_lock);
+        if (!priv->profile.pci_profile_set || (swid >= NUMBER_OF_SWIDS)
+            || (priv->profile.pci_profile.swid_type[swid] ==
                 SX_KU_L2_TYPE_DONT_CARE) ||
             !sx_bitmap_test(&sx_priv(my_dev)->swid_bitmap,
                             swid)) {
             PROC_DUMP("Err in param not executing disable_swid\n");
-            spin_unlock(&my_dev->profile_lock);
+            spin_unlock(&priv->profile.profile_lock);
             goto out;
         }
-        spin_unlock(&my_dev->profile_lock);
-        PROC_DUMP("Executing disable_swid. swid num = %u\n", swid);
+        spin_unlock(&priv->profile.profile_lock);
+        PROC_DUMP_DBG("Executing disable_swid. swid num = %u\n", swid);
         sx_disable_swid(my_dev, swid);
-        PROC_DUMP("Finished Executing disable_swid\n");
+        PROC_DUMP_DBG("Finished Executing disable_swid\n");
         cmd++;
     }
 
@@ -1255,10 +1313,13 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
     if (p != NULL) {
         IGNORE_IF_NO_PCI("change_conf", count);
 
-        PROC_DUMP("Executing change_configuration. \n");
+        PROC_DUMP_DBG("Executing change_configuration. \n");
         err = sx_change_configuration(my_dev);
-        PROC_DUMP("Finished Executing change_configuration. "
-                  "err = %d\n", err);
+        if (err) {
+            PROC_DUMP_DBG("Failed in Executing change_configuration. err = %d\n", err);
+        } else {
+            PROC_DUMP_DBG("Finished Executing change_configuration. err = %d\n", err);
+        }
         cmd++;
     }
 
@@ -1267,9 +1328,12 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         IGNORE_IF_NO_PCI("pcidrv_restart", count);
 
         PROC_DUMP("Executing restart pci driver. \n");
-        err = sx_restart_one_pci(my_dev->pdev);
-        PROC_DUMP("Finished restart pci driver. "
-                  "err = %d\n", err);
+        err = sx_restart_one_pci(my_dev, true, true);
+        if (err) {
+            PROC_DUMP_DBG("Failed in restarting pci driver. err = %d\n", err);
+        } else {
+            PROC_DUMP_DBG("Finished restarting pci driver. err = %d\n", err);
+        }
         cmd++;
     }
 
@@ -1291,9 +1355,16 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         cmd++;
     }
 
+    p = strstr(cmd_str, "dump_fw");
+    if (p != NULL) {
+        PROC_DUMP("Dump fw: \n");
+        __sx_proc_dump_fw_icm(my_dev);
+        cmd++;
+    }
+
     p = strstr(cmd_str, "dump_swid");
     if (p != NULL) {
-        PROC_DUMP("Dump active swids: \n");
+        PROC_DUMP_DBG("Dump active swids: \n");
         __sx_proc_dump_swids(my_dev);
         cmd++;
     }
@@ -1302,7 +1373,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
     if (p != NULL) {
         IGNORE_IF_NO_PCI("dump_sdq", count);
 
-        PROC_DUMP("Dump active sdqs: \n");
+        PROC_DUMP_DBG("Dump active sdqs: \n");
         __sx_proc_dump_sdq(my_dev);
         cmd++;
     }
@@ -1311,7 +1382,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
     if (p != NULL) {
         IGNORE_IF_NO_PCI("dump_rdq", count);
 
-        PROC_DUMP("Dump active rdqs: \n");
+        PROC_DUMP_DBG("Dump active rdqs: \n");
         __sx_proc_dump_rdq(my_dev);
         cmd++;
     }
@@ -1320,7 +1391,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
     if (p != NULL) {
         IGNORE_IF_NO_PCI("dump_eq", count);
 
-        PROC_DUMP("Dump active eqs: \n");
+        PROC_DUMP_DBG("Dump active eqs: \n");
         __sx_proc_dump_eq(my_dev);
         cmd++;
     }
@@ -1333,8 +1404,34 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
 
         running = sx_proc_str_get_u32(running, &rdq_idx);
 
-        PROC_DUMP("Show rdqs data: \n");
+        PROC_DUMP_DBG("Show rdqs data: \n");
         __sx_proc_dump_rdq_single(my_dev, rdq_idx);
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "rdq_start");
+    if (p != NULL) {
+        u32 rdq_idx;
+
+        IGNORE_IF_NO_PCI("rdq_start", count);
+
+        running = sx_proc_str_get_u32(running, &rdq_idx);
+
+        PROC_DUMP_DBG("Enable handling events for RDQ [%d] \n", rdq_idx);
+        __sx_proc_rdq_start(my_dev, rdq_idx);
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "rdq_stop");
+    if (p != NULL) {
+        u32 rdq_idx;
+
+        IGNORE_IF_NO_PCI("rdq_stop", count);
+
+        running = sx_proc_str_get_u32(running, &rdq_idx);
+
+        PROC_DUMP_DBG("Disable handling events for RDQ [%d] \n", rdq_idx);
+        __sx_proc_rdq_stop(my_dev, rdq_idx);
         cmd++;
     }
 
@@ -1342,21 +1439,21 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
     if (p != NULL) {
         IGNORE_IF_NO_PCI("dev_prof", count);
 
-        PROC_DUMP("Set dev profile: \n");
+        PROC_DUMP_DBG("Set dev profile: \n");
         __sx_proc_set_dev_profile(my_dev);
         cmd++;
     }
 
     p = strstr(cmd_str, "dump_synd");
     if (p != NULL) {
-        PROC_DUMP("Dump syndromes: \n");
+        PROC_DUMP_DBG("Dump syndromes: \n");
         sx_core_dump_synd_tbl(my_dev);
         cmd++;
     }
 
     p = strstr(cmd_str, "dump_stats");
     if (p != NULL) {
-        PROC_DUMP("Dump statistics: \n");
+        PROC_DUMP_DBG("Dump statistics: \n");
         __dump_stats(my_dev);
         cmd++;
     }
@@ -1367,8 +1464,8 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         running = sx_proc_str_get_u32(running, &reg_id);
         running = sx_proc_str_get_u32(running, &max_cnt);
 
-        PROC_DUMP("trace_reg id:0x%x max_cnt:%d :\n",
-                  reg_id, max_cnt);
+        PROC_DUMP_DBG("trace_reg id:0x%x max_cnt:%d :\n",
+                      reg_id, max_cnt);
         __sx_proc_dump_reg(my_dev, reg_id, max_cnt);
         cmd++;
     }
@@ -1516,6 +1613,102 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         cmd++;
     }
 
+    p = strstr(cmd_str, "accuflows");
+    if (p != NULL) {
+        unsigned int op;
+        running = sx_proc_str_get_u32(running, &op);
+        sx_af_counters_proc_fs_handler((sx_af_counters_proc_fs_handler_op_e)op);
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "ptp_max_diff_clear");
+    if (p != NULL) {
+        char *op = NULL;
+
+        running = sx_proc_str_get_str(running, &op);
+        if (op) {
+            if ((strcmp(op, "RX") == 0) || (strcmp(op, "RX_TX") == 0)) {
+                sx_priv(my_dev)->ptp.hwd.spc1.max_diff[0] = 0;
+                sx_priv(my_dev)->ptp.hwd.spc1.max_diff_ts[0] = 0;
+            }
+            if ((strcmp(op, "TX") == 0) || (strcmp(op, "RX_TX") == 0)) {
+                sx_priv(my_dev)->ptp.hwd.spc1.max_diff[1] = 0;
+                sx_priv(my_dev)->ptp.hwd.spc1.max_diff_ts[1] = 0;
+            }
+        }
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "sdq_max_diff_clear");
+    if (p != NULL) {
+        unsigned int sdqn = (unsigned int)-1;
+        running = sx_proc_str_get_u32(running, &sdqn);
+        if ((sdqn < NUMBER_OF_SDQS) && sx_priv(my_dev)->sdq_table.dq && sx_priv(my_dev)->sdq_table.dq[sdqn]) {
+            sx_priv(my_dev)->sdq_table.dq[sdqn]->max_comp_time = 0;
+            sx_priv(my_dev)->sdq_table.dq[sdqn]->max_comp_ts = 0;
+        }
+
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "health_check_trigger");
+    if (p) {
+        struct sx_health_check_trigger_params params;
+        u32                                   dev_id;
+        char                                 *op = NULL;
+
+        memset(&params, 0, sizeof(params));
+
+        running = sx_proc_str_get_str(running, &op);
+        if (!op) {
+            PROC_DUMP("health-check-trigger: missing operation\n");
+            goto out_health_check_trigger;
+        }
+
+        if (strcmp(op, "add_dev") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_ADD_DEV;
+        } else if (strcmp(op, "del_dev") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_DEL_DEV;
+        } else if (strcmp(op, "sysfs") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_SYSFS;
+        } else if (strcmp(op, "catas") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_CATAS;
+        } else if (strcmp(op, "cmd_ifc") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_CMD_IFC;
+        } else if (strcmp(op, "sdq") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_SDQ;
+        } else if (strcmp(op, "rdq") == 0) {
+            params.op = SX_HEALTH_CHECK_TRIGGER_OP_RDQ;
+        } else {
+            PROC_DUMP("health-check-trigger: invalid operation\n");
+            goto out_health_check_trigger;
+        }
+
+        if (params.op != SX_HEALTH_CHECK_TRIGGER_OP_SYSFS) {
+            running = sx_proc_str_get_u32(running, &dev_id);
+            if (dev_id == 0) {
+                PROC_DUMP("health-check-trigger: missing dev-id\n");
+                goto out_health_check_trigger;
+            }
+
+            params.dev_id = (u8)dev_id;
+
+            if ((params.op == SX_HEALTH_CHECK_TRIGGER_OP_SDQ) || (params.op == SX_HEALTH_CHECK_TRIGGER_OP_RDQ)) {
+                if (!running) {
+                    PROC_DUMP("health-check-trigger: missing dqn\n");
+                    goto out_health_check_trigger;
+                }
+
+                running = sx_proc_str_get_u32(running, &params.params.dq_params.dqn);
+            }
+        }
+
+        sx_health_check_set_debug_trigger(&params);
+
+out_health_check_trigger:
+        cmd++;
+    }
+
 #ifdef CONFIG_SX_DEBUG
     p = strstr(cmd_str, "sx_debug_level");
     if (p != NULL) {
@@ -1562,7 +1755,6 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("  access_reg [dev_id] [reg_id] [additional info]- runs "
                   "ACCESS_REG (get) for the register with the "
                   "given reg_id\n");
-        PROC_DUMP("  get_pci -  walk pci devices\n");
         PROC_DUMP("  mem_wr [width 1 2 4] [address] [value] - "
                   "write memory\n");
         PROC_DUMP("  mem_rd [width 1 2 4] [address] - read memory\n");
@@ -1575,10 +1767,13 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("  pcidrv_restart - restart pci driver\n");
         PROC_DUMP("  dump_buf [size] [address] - dumps a buffer\n");
         PROC_DUMP("  dump_swid - dumps active swids\n");
+        PROC_DUMP("  dump_fw_icm - dumps ICM\n");
         PROC_DUMP("  dump_sdq - dumps opened sdqs\n");
         PROC_DUMP("  dump_rdq - dumps opened rdqs\n");
         PROC_DUMP("  dump_eq - dumps opened eqs\n");
         PROC_DUMP("  show_rdq_post <rdq> - dumps one rdq\n");
+        PROC_DUMP("  rdq_start <rdq> - enable handling events for RDQ\n");
+        PROC_DUMP("  rdq_stop <rdq> - disable handling events for RDQ\n");
         PROC_DUMP("  dev_prof - set dev_profile\n");
         PROC_DUMP("  dump_synd - dump syndromes\n");
         PROC_DUMP("  dump_stats - dump statistics\n");
@@ -1596,6 +1791,10 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("  set_mkey [dev_id] [m_key_h] [m_key_l] - set system mkey\n");
         PROC_DUMP("  get_mkey [dev_id] - get system mkey\n");
         PROC_DUMP("  dump_ptp - dump PTP internal DB's\n");
+        PROC_DUMP("  accuflows [op] - query the Accumulated counters, op: [0 - clear the dbg DB]\n");
+        PROC_DUMP("  health_check_trigger <add_dev|del_dev|sysfs|catas|cmf_ifc|sdq|rdq> [dev-id] [dqn]\n");
+        PROC_DUMP("  ptp_max_diff_clear <RX | TX | RX_TX>\n");
+        PROC_DUMP("  sdq_max_diff_clear <sdq>\n");
 #ifdef CONFIG_SX_DEBUG
         PROC_DUMP("  sx_debug_level [disable(0)/enable(1)/query(3)] - Enable sx_debug_level\n");
         PROC_DUMP("  sx_debug_cq [cqn] - the CQ number to print CQ debug for\n");
@@ -1606,7 +1805,16 @@ out:
     return count;
 }
 
-static const struct file_operations sx_proc_fops = {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static const struct proc_ops sx_proc_ops = {
+    .proc_open = sx_proc_open,
+    .proc_read = seq_read,
+    .proc_lseek = seq_lseek,
+    .proc_release = single_release,
+    .proc_write = sx_proc_write,
+};
+#else
+static const struct file_operations sx_proc_ops = {
     .owner = THIS_MODULE,
     .open = sx_proc_open,
     .read = seq_read,
@@ -1614,6 +1822,7 @@ static const struct file_operations sx_proc_fops = {
     .release = single_release,
     .write = sx_proc_write,
 };
+#endif
 
 int sx_core_init_proc_fs(void)
 {
@@ -1632,7 +1841,7 @@ int sx_core_init_proc_fs(void)
     }
 
     proc_entry = proc_create(proc_file_name,
-                             S_IFREG | S_IRUGO | S_IWUGO, dir_proc_entry, &sx_proc_fops);
+                             S_IFREG | S_IRUGO | S_IWUGO, dir_proc_entry, &sx_proc_ops);
     if (proc_entry == NULL) {
         printk(KERN_WARNING "create proc %s failed\n",
                proc_file_name);
@@ -1734,6 +1943,59 @@ void __sx_proc_dump_swids(struct sx_dev *dev)
     }
 }
 
+void __sx_proc_dump_fw_icm(struct sx_dev *dev)
+{
+    struct sx_priv    *priv = sx_priv(dev);
+    struct sx_icm     *icm;
+    struct sx_icm_iter iter;
+    int                iii = 0;
+    int                jjj = 0;
+    int                nent = 0;
+    int                lg;
+    __be64             pages;
+    int                ts = 0, tc = 0;
+
+    if ((icm = priv->fw.fw_icm) == NULL) {
+        printk(KERN_INFO "dev_priv->fw->fw_icm is null \n");
+        return;
+    }
+
+    printk(KERN_INFO "FW_ICM");
+
+    for (sx_icm_first(icm, &iter);
+         !sx_icm_last(&iter);
+         sx_icm_next(&iter)) {
+        printk(KERN_INFO "[%d] icm_addr:%#llxp icm_size:%lu",
+               iii,
+               (unsigned long long)sx_icm_addr(&iter),
+               sx_icm_size(&iter)
+               );
+
+        lg = ffs(sx_icm_addr(&iter) | sx_icm_size(&iter)) - 1;
+        if (lg < SX_ICM_PAGE_SHIFT) {
+            sx_warn(dev, "Got FW area not aligned to "
+                    "%d (%llx/%lx).\n", SX_ICM_PAGE_SIZE,
+                    (unsigned long long)sx_icm_addr(&iter),
+                    sx_icm_size(&iter));
+            return;
+        }
+
+        for (jjj = 0; jjj < (sx_icm_size(&iter) >> lg); ++jjj) {
+            pages =
+                cpu_to_be64((sx_icm_addr(&iter) + (jjj << lg)) |
+                            (lg - SX_ICM_PAGE_SHIFT));
+            ts += 1 << (lg - 10);
+            ++tc;
+            printk(KERN_INFO "[%d/%d] nent:%d page:%#llx", iii, jjj, nent, pages);
+            if (++nent == SX_MAILBOX_SIZE / 16) {
+                nent = 0;
+            }
+        }
+
+        iii++;
+    }
+}
+
 void __sx_proc_dump_sdq(struct sx_dev *dev)
 {
     struct sx_priv     *priv = sx_priv(dev);
@@ -1745,7 +2007,7 @@ void __sx_proc_dump_sdq(struct sx_dev *dev)
         return;
     }
 
-    for (i = 0; i < dev->dev_cap.max_num_sdqs; i++) {
+    for (i = 0; i < priv->dev_cap.max_num_sdqs; i++) {
         if (sdq_table->dq[i]) {
             printk(KERN_INFO "[sdq %d]: dqn:%d, is_send:%d, "
                    "head:%d, tail:%d,"
@@ -1793,14 +2055,15 @@ void __sx_proc_dump_rdq(struct sx_dev *dev)
         return;
     }
 
-    for (i = 0; i < dev->dev_cap.max_num_rdqs; i++) {
+    for (i = 0; i < priv->dev_cap.max_num_rdqs; i++) {
         if (rdq_table->dq[i]) {
             cqn = i + NUMBER_OF_SDQS;
             printk(KERN_INFO "[rdq %d]: dqn:%d, is_send:%d, "
                    "head:%d, tail:%d, wqe_cnt:%d, "
                    "wqe_shift:%d,is_flush:%d, state:%d, "
                    "ref_cnt: %d e_sz:%d \n cqn:%d, cq_con_idx:%d, "
-                   "cq_nent:%d, cq_ref_cnt: %d, ts_en:%d, is_monitor:%d \n",
+                   "cq_nent:%d, cq_ref_cnt: %d, cq_on_hold:%d, "
+                   "ts_en:%d, is_monitor:%d \n",
                    i,
                    rdq_table->dq[i]->dqn,
                    rdq_table->dq[i]->is_send,
@@ -1811,12 +2074,13 @@ void __sx_proc_dump_rdq(struct sx_dev *dev)
                    rdq_table->dq[i]->is_flushing,
                    rdq_table->dq[i]->state,
                    atomic_read(&rdq_table->dq[i]->refcount),
-                   rdq_table->dq[i]->dev->profile.rdq_properties[rdq_table->dq[i]->dqn].entry_size,
+                   priv->profile.pci_profile.rdq_properties[rdq_table->dq[i]->dqn].entry_size,
                    rdq_table->dq[i]->cq->cqn,
                    rdq_table->dq[i]->cq->cons_index,
                    rdq_table->dq[i]->cq->nent,
                    atomic_read(&rdq_table->dq[i]->cq->refcount),
-                   (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, cqn) ? 1 : 0),
+                   cq_table->cq[cqn]->dbg_cq_on_hold,
+                   IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn),
                    (int)rdq_table->dq[i]->is_monitor);
         }
     }
@@ -1870,8 +2134,7 @@ void __sx_proc_dump_rdq_single(struct sx_dev *dev, int rdq)
                rdq_table->dq[i]->state,
                atomic_read(
                    &rdq_table->dq[i]->refcount),
-               rdq_table->dq[i]->dev->profile.rdq_properties[rdq_table->dq[i]->dqn].entry_size,
-
+               priv->profile.pci_profile.rdq_properties[rdq_table->dq[i]->dqn].entry_size,
                rdq_table->dq[i]->cq->cqn,
                rdq_table->dq[i]->cq->cons_index,
                rdq_table->dq[i]->cq->nent,
@@ -1898,6 +2161,86 @@ void __sx_proc_dump_rdq_single(struct sx_dev *dev, int rdq)
         }
         printk("\n");
     }
+}
+
+void __sx_proc_rdq_start(struct sx_dev *dev, uint8_t rdq)
+{
+    struct sx_priv     *priv = sx_priv(dev);
+    struct sx_dq_table *rdq_table = &priv->rdq_table;
+    struct sx_cq_table *cq_table = &priv->cq_table;
+    uint8_t             cqn = 0;
+    int                 cq_on_hold = 0;
+    unsigned long       rdq_table_flags = 0;
+    unsigned long       cq_table_flags = 0;
+
+    printk(KERN_INFO "Enabling handling events for RDQ [%d] \n", rdq);
+
+    if (rdq_table == NULL) {
+        printk(KERN_ERR "RDQ table is empty \n");
+        return;
+    }
+
+    if (cq_table == NULL) {
+        printk(KERN_ERR "CQ table is empty \n");
+        return;
+    }
+
+    spin_lock_irqsave(&rdq_table->lock, rdq_table_flags);
+    if (!rdq_table->dq[rdq]) {
+        printk(KERN_ERR "RDQ %d doesn't exist \n", rdq);
+        spin_unlock_irqrestore(&rdq_table->lock, rdq_table_flags);
+        return;
+    } else {
+        cqn = rdq_table->dq[rdq]->cq->cqn;
+    }
+    spin_unlock_irqrestore(&rdq_table->lock, rdq_table_flags);
+
+    spin_lock_irqsave(&cq_table->lock, cq_table_flags);
+    cq_on_hold = cq_table->cq[cqn]->dbg_cq_on_hold;
+    spin_unlock_irqrestore(&cq_table->lock, cq_table_flags);
+
+    if (cq_on_hold) {
+        spin_lock_irqsave(&cq_table->lock, cq_table_flags);
+        cq_table->cq[cqn]->dbg_cq_on_hold = 0;
+        spin_unlock_irqrestore(&cq_table->lock, cq_table_flags);
+        sx_cq_flush_rdq(dev, rdq);
+    }
+}
+
+void __sx_proc_rdq_stop(struct sx_dev *dev, uint8_t rdq)
+{
+    struct sx_priv     *priv = sx_priv(dev);
+    struct sx_dq_table *rdq_table = &priv->rdq_table;
+    struct sx_cq_table *cq_table = &priv->cq_table;
+    uint8_t             cqn = 0;
+    unsigned long       rdq_table_flags = 0;
+    unsigned long       cq_table_flags = 0;
+
+    printk(KERN_INFO "Disabling handling events for RDQ [%d] \n", rdq);
+
+    if (rdq_table == NULL) {
+        printk(KERN_ERR "RDQ table is empty \n");
+        return;
+    }
+
+    if (cq_table == NULL) {
+        printk(KERN_ERR "CQ table is empty \n");
+        return;
+    }
+
+    spin_lock_irqsave(&rdq_table->lock, rdq_table_flags);
+    if (!rdq_table->dq[rdq]) {
+        printk(KERN_ERR "RDQ %d doesn't exist \n", rdq);
+        spin_unlock_irqrestore(&rdq_table->lock, rdq_table_flags);
+        return;
+    } else {
+        cqn = rdq_table->dq[rdq]->cq->cqn;
+    }
+    spin_unlock_irqrestore(&rdq_table->lock, rdq_table_flags);
+
+    spin_lock_irqsave(&cq_table->lock, cq_table_flags);
+    cq_table->cq[cqn]->dbg_cq_on_hold = 1;
+    spin_unlock_irqrestore(&cq_table->lock, cq_table_flags);
 }
 
 /* Current values are for IB single swid with AR enabled */
@@ -1966,6 +2309,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
     struct profile_driver_params addition_params;
 
     addition_params.cqe_version = 0;
+    addition_params.cqe_time_stamp_type = 0;
 
     sx_SET_PROFILE(dev, &single_part_eth_device_profile, &addition_params);
 }
@@ -1973,7 +2317,8 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
 
 void __dump_stats(struct sx_dev* sx_dev)
 {
-    int swid, pkt_type, synd;
+    struct sx_priv *priv = sx_priv(sx_dev);
+    int             swid, pkt_type, synd, rdq;
 
     for (swid = 0; swid < NUMBER_OF_SWIDS + 1; swid++) {
         printk("=========================\n");
@@ -1985,50 +2330,71 @@ void __dump_stats(struct sx_dev* sx_dev)
         }
 
         for (pkt_type = 0; pkt_type < PKT_TYPE_NUM; pkt_type++) {
-            if (0 != sx_dev->stats.rx_by_pkt_type[swid][pkt_type]) {
+            if (0 != priv->stats.rx_by_pkt_type[swid][pkt_type]) {
                 printk("rx pkt of type [%s (%d)]: %llu \n",
                        sx_cqe_packet_type_str[pkt_type], pkt_type,
-                       sx_dev->stats.rx_by_pkt_type[swid][pkt_type]);
+                       priv->stats.rx_by_pkt_type[swid][pkt_type]);
             }
 
-            if (0 != sx_dev->stats.tx_by_pkt_type[swid][pkt_type]) {
+            if (0 != priv->stats.tx_by_pkt_type[swid][pkt_type]) {
                 printk("tx pkt of type [%s (%d)]: %llu (%llu bytes)\n",
                        ku_pkt_type_str[pkt_type], pkt_type,
-                       sx_dev->stats.tx_by_pkt_type[swid][pkt_type],
-                       sx_dev->stats.tx_by_pkt_type_bytes[swid][pkt_type]);
+                       priv->stats.tx_by_pkt_type[swid][pkt_type],
+                       priv->stats.tx_by_pkt_type_bytes[swid][pkt_type]);
             }
         }     /* for (pkt_type=0; pkt_type<PKT_TYPE_NUM; pkt_type++) { */
 
         for (synd = 0; synd < NUM_HW_SYNDROMES; synd++) {
-            if (0 != sx_dev->stats.rx_by_synd[swid][synd]) {
+            if (0 != priv->stats.rx_by_synd[swid][synd]) {
                 printk("rx pkt on synd [%d]: %llu (%llu bytes)\n", synd,
-                       sx_dev->stats.rx_by_synd[swid][synd],
-                       sx_dev->stats.rx_by_synd_bytes[swid][synd]);
+                       priv->stats.rx_by_synd[swid][synd],
+                       priv->stats.rx_by_synd_bytes[swid][synd]);
             }
 
-            if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
-                printk("events on synd [%d]: %llu\n", synd,
-                       sx_dev->stats.rx_eventlist_by_synd[synd]);
+            /* this counters aren't per swid so print them for swid 0 only */
+            if (swid == 0) {
+                if (0 != priv->stats.rx_eventlist_by_synd[synd]) {
+                    printk("events on synd [%d]: %llu\n", synd,
+                           priv->stats.rx_eventlist_by_synd[synd]);
+                }
+
+                if (0 != priv->stats.tx_loopback_ok_by_synd[synd]) {
+                    printk("tx loopback_ok on synd [%d]: %llu\n", synd,
+                           priv->stats.tx_loopback_ok_by_synd[synd]);
+                }
+
+                if (0 != priv->stats.tx_loopback_dropped_by_synd[synd]) {
+                    printk("tx loopback_dropped on synd [%d]: %llu\n", synd,
+                           priv->stats.tx_loopback_dropped_by_synd[synd]);
+                }
             }
         }     /* for (synd=0; synd<PKT_TYPE_NUM; synd++) { */
+
+        for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
+            if (0 != priv->stats.rx_by_rdq[swid][rdq]) {
+                printk("rx pkt on rdq [%d]: %llu (%llu bytes)\n", rdq,
+                       priv->stats.rx_by_rdq[swid][rdq],
+                       priv->stats.rx_by_rdq_bytes[swid][rdq]);
+            }
+        }    /* for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) { */
     }
 
     printk("=========================\n");
     for (synd = 0; synd < NUM_HW_SYNDROMES; synd++) {
         for (pkt_type = 0; pkt_type < PKT_TYPE_NUM; pkt_type++) {
-            if (sx_dev->stats.rx_unconsumed_by_synd[synd][pkt_type] != 0) {
+            if (priv->stats.rx_unconsumed_by_synd[synd][pkt_type] != 0) {
                 printk("rx unconsumed on synd [%d] type [%s]: %llu \n",
                        synd, sx_cqe_packet_type_str[pkt_type],
-                       sx_dev->stats.rx_unconsumed_by_synd[synd][pkt_type]);
+                       priv->stats.rx_unconsumed_by_synd[synd][pkt_type]);
             }
         }
     }
     /* rx_eventlist_drops_by_synd */
     printk("=========================\n");
     for (synd = 0; synd < NUM_HW_SYNDROMES; synd++) {
-        if (sx_dev->stats.rx_eventlist_drops_by_synd[synd] != 0) {
+        if (priv->stats.rx_eventlist_drops_by_synd[synd] != 0) {
             printk("rx event list drops on synd [%d]: %llu \n",
-                   synd, sx_dev->stats.rx_eventlist_drops_by_synd[synd]);
+                   synd, priv->stats.rx_eventlist_drops_by_synd[synd]);
         }
     }
 
@@ -2038,11 +2404,11 @@ void __dump_stats(struct sx_dev* sx_dev)
            "filtered_lag_packets_counter: %llu \n"
            "filtered_port_packets_counter: %llu \n"
            "loopback_packets_counter: %llu \n",
-           sx_dev->eventlist_drops_counter,
-           sx_dev->unconsumed_packets_counter,
-           sx_dev->filtered_lag_packets_counter,
-           sx_dev->filtered_port_packets_counter,
-           sx_dev->loopback_packets_counter);
+           priv->stats.eventlist_drops_counter,
+           priv->stats.unconsumed_packets_counter,
+           priv->stats.filtered_lag_packets_counter,
+           priv->stats.filtered_port_packets_counter,
+           priv->stats.loopback_packets_counter);
 }
 
 void __sx_proc_dump_reg(struct sx_dev *my_dev, u32 reg_id, u32 max_cnt)
@@ -2184,13 +2550,14 @@ void __dump_net_dev_oper_state(void)
 
 void __dump_kdbs(void)
 {
-    struct sx_dev *my_dev = sx_glb.
-                            sx_dpt.dpt_info[DEFAULT_DEVICE_ID].
-                            sx_pcie_info.sx_dev;
-    struct sx_priv *priv = sx_priv(my_dev);
+    struct sx_dev  *my_dev = NULL;
+    struct sx_priv *priv = NULL;
     int             i, j, is_valid = 0, is_printed = 0;
     uint16_t        phy_port_max = 0, rif_id = 0, fid = 0;
     uint16_t        lag_max = 0, lag_member_max = 0;
+
+    my_dev = sx_dev_db_get_default_device();
+    priv = sx_priv(my_dev);
 
     if (sx_core_get_phy_port_max(my_dev, &phy_port_max)) {
         printk(KERN_ERR PFX "Failed to get max number of phy ports.\n");
@@ -2263,15 +2630,6 @@ void __dump_kdbs(void)
     }
 
     printk("============================\n");
-    printk("ETH SYSTEM_PORT_RP :\n");
-    for (i = 0; i < phy_port_max; i++) { /* system port */
-        if (priv->local_is_rp[i] != 0) {
-            printk("(local %d), ", i);
-        }
-    }
-    printk("\n");
-
-    printk("============================\n");
     printk("ETH LAG_RP :\n");
     for (i = 0; i < lag_max; i++) { /* lid */
         if (priv->lag_is_rp[i] != 0) {
@@ -2304,6 +2662,22 @@ void __dump_kdbs(void)
             i++;
             printk("%-7u| %-7u| %-7u\n",
                    i, rif_id, priv->rif_id_to_hwfid[rif_id]);
+        }
+    }
+    printk("\n");
+
+    printk("============================\n");
+    printk("RIF data dump :\n");
+    printk("%-7s| %-7s| %-15s| %-7s|\n", "RIF", "IS_LAG", "LAG/PORT", "VLAN");
+    printk("------------------------------------------\n");
+    i = 0;
+    for (rif_id = 0; rif_id < MAX_RIFS_NUM; rif_id++) {
+        if (priv->rif_data[rif_id].is_valid) {
+            printk("%-7u| %-7u| %-15u| %-7u|\n",
+                   rif_id, priv->rif_data[rif_id].is_lag,
+                   priv->rif_data[rif_id].is_lag ?
+                   priv->rif_data[rif_id].lag_id : priv->rif_data[rif_id].local_port,
+                   priv->rif_data[rif_id].vlan_id);
         }
     }
     printk("\n");
@@ -2500,6 +2874,9 @@ void __dump_kdbs(void)
             printk("%u\t| DOWN\t|\n", i);
         }
     }
+
+    printk("============================\n");
+    printk("warm_boot_mode: %d\n", priv->warm_boot_mode);
 }
 
 

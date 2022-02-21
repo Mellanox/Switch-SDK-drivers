@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef __SX_DBG_DUMP_PROC_H__
@@ -39,6 +20,24 @@
 typedef int (*dbg_dump_proc_show_cb_t)(struct seq_file* seq_file, void* v);
 typedef size_t (*dbg_dump_proc_size_cb_t)(void);
 
+#define print_table_header(seqfile, fmt, args ...)                                                                                                \
+    do {                                                                                                                                          \
+        seq_printf((seqfile), fmt "\n", ## args);                                                                                                 \
+        seq_printf((seqfile),                                                                                                                     \
+                   "------------------------------------------------------------------------------------------------------------------------\n"); \
+    } while (0)
+
+#define print_empty_line(seqfile)    \
+    do {                             \
+        seq_printf((seqfile), "\n"); \
+    } while (0)
+
+#define print_separate_line(seqfile)                                                                                                              \
+    do {                                                                                                                                          \
+        seq_printf((seqfile),                                                                                                                     \
+                   "........................................................................................................................\n"); \
+    } while (0)
+
 /************************************************
  *  Function declarations
  ***********************************************/
@@ -49,6 +48,7 @@ void sx_dbg_dump_proc_fs_deinit(void);
 int sx_dbg_dump_proc_fs_register(const char *name, dbg_dump_proc_show_cb_t show_cb, dbg_dump_proc_size_cb_t size_cb);
 void sx_dbg_dump_proc_fs_unregister(const char *name);
 
+void print_header(struct seq_file *m, const char* header);
 const char * trap_id_str(u16 trap_id);
 
 #endif /* __SX_DBG_DUMP_PROC_H__ */
