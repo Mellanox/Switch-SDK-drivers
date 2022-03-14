@@ -196,7 +196,11 @@ out:
 }
 
 
-int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
+int sx_core_add_synd_l2(u8                          swid,
+                        u16                         hw_synd,
+                        struct sx_dev              *dev,
+                        struct ku_port_vlan_params *port_vlan_params,
+                        u8                          is_register)
 {
     union sx_event_data *event_data;
 
@@ -207,6 +211,7 @@ int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
+    event_data->eth_l3_synd.is_register = is_register;
     switch (port_vlan_params->port_vlan_type) {
     case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
@@ -225,6 +230,9 @@ int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port
     case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
         event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
+
+    default:
         break;
     }
 
@@ -235,7 +243,11 @@ int sx_core_add_synd_l2(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port
 }
 
 
-int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
+int sx_core_add_synd_l3(u8                          swid,
+                        u16                         hw_synd,
+                        struct sx_dev              *dev,
+                        struct ku_port_vlan_params *port_vlan_params,
+                        u8                          is_register)
 {
     union sx_event_data *event_data;
 
@@ -246,6 +258,7 @@ int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
+    event_data->eth_l3_synd.is_register = is_register;
     switch (port_vlan_params->port_vlan_type) {
     case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
@@ -264,6 +277,9 @@ int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port
     case KU_PORT_VLAN_PARAMS_TYPE_VLAN:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
         event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
+        break;
+
+    default:
         break;
     }
 
@@ -274,7 +290,11 @@ int sx_core_add_synd_l3(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port
 }
 
 
-int sx_core_add_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_port_vlan_params *port_vlan_params)
+int sx_core_add_synd_phy(u8                          swid,
+                         u16                         hw_synd,
+                         struct sx_dev              *dev,
+                         struct ku_port_vlan_params *port_vlan_params,
+                         u8                          is_register)
 {
     union sx_event_data *event_data;
 
@@ -285,6 +305,7 @@ int sx_core_add_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_por
 
     event_data->eth_l3_synd.swid = swid;
     event_data->eth_l3_synd.hw_synd = hw_synd;
+    event_data->eth_l3_synd.is_register = is_register;
     switch (port_vlan_params->port_vlan_type) {
     case KU_PORT_VLAN_PARAMS_TYPE_GLOBAL:
         event_data->eth_l3_synd.type = L3_SYND_TYPE_GLOBAL;
@@ -304,8 +325,10 @@ int sx_core_add_synd_phy(u8 swid, u16 hw_synd, struct sx_dev *dev, struct ku_por
         event_data->eth_l3_synd.type = L3_SYND_TYPE_VLAN;
         event_data->eth_l3_synd.vlan = port_vlan_params->vlan;
         break;
-    }
 
+    default:
+        break;
+    }
     sx_core_dispatch_event(dev, SX_DEV_EVENT_ADD_SYND_PHY_NETDEV, event_data);
     kfree(event_data);
 

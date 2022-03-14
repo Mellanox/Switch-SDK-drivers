@@ -1,0 +1,5 @@
+#include <linux/version.h>
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)) || (!IS_ENABLED(CONFIG_NET_DEVLINK))
+#define SX_DROP_MONITOR_DISABLED
+#endif

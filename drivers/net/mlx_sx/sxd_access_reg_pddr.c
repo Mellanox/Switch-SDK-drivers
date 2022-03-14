@@ -1,7 +1,7 @@
 /*
- * Copyright (C) Mellanox Technologies, Ltd. 2010-2019 ALL RIGHTS RESERVED.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software product is a proprietary product of Mellanox Technologies, Ltd.
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
  * (the "Company") and all right, title, and interest in and to the software product,
  * including all associated intellectual property rights, are and shall
  * remain exclusively with the Company.
@@ -63,11 +63,18 @@ sxd_status_t convert_pddr_module_info(sxd_emad_pddr_module_info_t  *reg_module_i
     user_kernel_info_p->tx_cdr_cap = reg_module_info_p->rx_tx_cdr_cap & 0xF;
     user_kernel_info_p->tx_cdr_state = reg_module_info_p->tx_cdr_state;
     user_kernel_info_p->rx_cdr_state = reg_module_info_p->rx_cdr_state;
-    user_kernel_info_p->vendor_name = cl_ntoh32(reg_module_info_p->vendor_name);
-    user_kernel_info_p->vendor_pn = cl_ntoh32(reg_module_info_p->vendor_pn);
-    user_kernel_info_p->fw_version = cl_ntoh16(reg_module_info_p->fw_version);
-    user_kernel_info_p->vendor_rev = cl_ntoh16(reg_module_info_p->vendor_rev);
-    user_kernel_info_p->vendor_sn = cl_ntoh32(reg_module_info_p->vendor_sn);
+    for (i = 0; i < SXD_VENDOR_NAME_LEN; i++) {
+        user_kernel_info_p->vendor_name[i] = cl_ntoh32(reg_module_info_p->vendor_name[i]);
+    }
+    for (i = 0; i < SXD_VENDOR_SN_LEN; i++) {
+        user_kernel_info_p->vendor_sn[i] = cl_ntoh32(reg_module_info_p->vendor_sn[i]);
+    }
+    for (i = 0; i < SXD_VENDOR_PN_LEN; i++) {
+        user_kernel_info_p->vendor_pn[i] = cl_ntoh32(reg_module_info_p->vendor_pn[i]);
+    }
+
+    user_kernel_info_p->fw_version = cl_ntoh32(reg_module_info_p->fw_version);
+    user_kernel_info_p->vendor_rev = cl_ntoh32(reg_module_info_p->vendor_rev);
     user_kernel_info_p->temperature = cl_ntoh16(reg_module_info_p->temperature);
     user_kernel_info_p->voltage = cl_ntoh16(reg_module_info_p->voltage);
 

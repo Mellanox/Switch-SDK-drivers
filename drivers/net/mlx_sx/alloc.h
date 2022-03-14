@@ -42,6 +42,9 @@
 /************************************************
  * Function prototypes
  ***********************************************/
+u32 sx_bitmap_num_bits(struct sx_bitmap *bitmap);
+void sx_bitmap_clear_all(struct sx_bitmap *bitmap);
+void sx_bitmap_copy(struct sx_bitmap *dst, struct sx_bitmap *src);
 u32 sx_bitmap_test(struct sx_bitmap *bitmap, u32 obj);
 u32 sx_bitmap_set(struct sx_bitmap *bitmap, u32 obj);
 u32 sx_bitmap_alloc(struct sx_bitmap *bitmap);
