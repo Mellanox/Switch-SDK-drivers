@@ -39,6 +39,24 @@
 typedef int (*dbg_dump_proc_show_cb_t)(struct seq_file* seq_file, void* v);
 typedef size_t (*dbg_dump_proc_size_cb_t)(void);
 
+#define print_table_header(seqfile, fmt, args ...)                                                                                                \
+    do {                                                                                                                                          \
+        seq_printf((seqfile), fmt "\n", ## args);                                                                                                 \
+        seq_printf((seqfile),                                                                                                                     \
+                   "------------------------------------------------------------------------------------------------------------------------\n"); \
+    } while (0)
+
+#define print_empty_line(seqfile)    \
+    do {                             \
+        seq_printf((seqfile), "\n"); \
+    } while (0)
+
+#define print_separate_line(seqfile)                                                                                                              \
+    do {                                                                                                                                          \
+        seq_printf((seqfile),                                                                                                                     \
+                   "........................................................................................................................\n"); \
+    } while (0)
+
 /************************************************
  *  Function declarations
  ***********************************************/
@@ -49,6 +67,7 @@ void sx_dbg_dump_proc_fs_deinit(void);
 int sx_dbg_dump_proc_fs_register(const char *name, dbg_dump_proc_show_cb_t show_cb, dbg_dump_proc_size_cb_t size_cb);
 void sx_dbg_dump_proc_fs_unregister(const char *name);
 
+void print_header(struct seq_file *m, const char* header);
 const char * trap_id_str(u16 trap_id);
 
 #endif /* __SX_DBG_DUMP_PROC_H__ */
