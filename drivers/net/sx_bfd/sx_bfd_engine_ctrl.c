@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/types.h>
@@ -45,43 +26,33 @@ static int sx_bfd_parse_cmd(char* data, int cmd)
 
     switch (cmd) {
     case SX_BFD_CMD_START_TX_OFFLOAD:
-        printk(KERN_DEBUG "START_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_add(data, NULL);
 
     case SX_BFD_CMD_UPDATE_TX_OFFLOAD:
-        printk(KERN_DEBUG "UPDATE_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_update(data);
 
     case SX_BFD_CMD_STOP_TX_OFFLOAD:
-        printk(KERN_DEBUG "STOP_TX_OFFLOAD.\n");
         return sx_bfd_tx_sess_del(data, NULL);
 
     case SX_BFD_CMD_START_RX_OFFLOAD:
-        printk(KERN_DEBUG "START_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_add(data);
 
     case SX_BFD_CMD_UPDATE_RX_OFFLOAD:
-        printk(KERN_DEBUG "UPDATE_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_update(data);
 
     case SX_BFD_CMD_STOP_RX_OFFLOAD:
-        printk(KERN_DEBUG "STOP_RX_OFFLOAD.\n");
         return sx_bfd_rx_sess_del(data);
 
     case SX_BFD_CMD_GET_RX_STATS:
-        printk(KERN_DEBUG "Request RX statistics\n");
         return sx_bfd_get_rx_sess_stats(data, false);
 
     case SX_BFD_CMD_GET_TX_STATS:
-        printk(KERN_DEBUG "Request TX statistics\n");
         return sx_bfd_get_tx_sess_stats(data, false);
 
     case SX_BFD_CMD_GET_AND_CLEAR_RX_STATS:
-        printk(KERN_DEBUG "Request & Clear RX statistics\n");
         return sx_bfd_get_rx_sess_stats(data, true);
 
     case SX_BFD_CMD_GET_AND_CLEAR_TX_STATS:
-        printk(KERN_DEBUG "Request & Clear TX statistics\n");
         return sx_bfd_get_tx_sess_stats(data, true);
 
     default:

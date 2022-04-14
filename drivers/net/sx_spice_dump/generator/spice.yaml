@@ -1,0 +1,6 @@
+nbu-proprietary:
+    include:
+        - "sxd_kernel/drivers/net/sx_spice_dump/.*\\.(c|h)$"
+    exclude:
+        - "^(?!.*\\.(h|c)$)"
+        - "^(?!sxd_kernel/drivers/net/sx_spice_dump/).+"
