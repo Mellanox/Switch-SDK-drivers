@@ -8,14 +8,14 @@ This directory contains SDK/FW binary packages.
 
 #### SDK
 ```
-SDK_VER=4.4.3360
+SDK_VER=4.4.3382
 ```
 
 #### FW
 ```
-FW_SPC1_VER=13_2008_3358
-FW_SPC2_VER=29_2008_3358
-FW_SPC3_VER=30_2008_3358
+FW_SPC1_VER=13_2008_3382
+FW_SPC2_VER=29_2008_3382
+FW_SPC3_VER=30_2008_3382
 ```
 
 ### Packages
