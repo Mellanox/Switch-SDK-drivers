@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/time.h>
@@ -49,13 +30,22 @@ struct sgmii_transaction_entry {
     int                          meta_is_valid;
     struct isx_meta              meta;
     void                        *context;
+    int                          interval;
 };
 static int __sgmii_transaction_compare_cb(const void* key1, const void *key2)
 {
-    const sgmii_transaction_id_t *tr_id1 = (const sgmii_transaction_id_t*)key1;
-    const sgmii_transaction_id_t *tr_id2 = (const sgmii_transaction_id_t*)key2;
+    const sgmii_transaction_id_t tr_id1 = *(sgmii_transaction_id_t*)key1;
+    const sgmii_transaction_id_t tr_id2 = *(sgmii_transaction_id_t*)key2;
 
-    return ((*tr_id1) - (*tr_id2));
+    if (tr_id1 > tr_id2) {
+        return 1;
+    }
+
+    if (tr_id1 < tr_id2) {
+        return -1;
+    }
+
+    return 0;
 }
 
 
@@ -125,7 +115,7 @@ static void __sgmii_transaction_task(void *task_param)
 
     sgmii_queue_task(__sgmii_transaction_task,
                      &entry, sizeof(entry), /* yes, sizeof pointer! */
-                     msecs_to_jiffies(sgmii_get_send_interval_msec()));
+                     msecs_to_jiffies(entry->interval));
 
 out:
     spin_unlock_bh(&tr_db->db_lock);
@@ -169,69 +159,44 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
 }
 
 
-int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db, sgmii_transaction_id_t tr_id)
-{
-    struct sx_core_map_info        *map_info;
-    struct sgmii_transaction_entry *entry;
-    int                             err;
-
-    spin_lock_bh(&tr_db->db_lock);
-
-    err = sx_core_map_remove(&tr_db->db_map, &tr_id, &map_info);
-    if (err) { /* transaction not found */
-        goto out;
-    }
-
-    /* if we get here, the transaction was in the map - so we know that the entry is scheduled
-     * for retransmission by __sgmii_transaction_task(). the entry will not be deallocated here.
-     * it will be marked as 'completed' and the worker thread will delete it eventually.
-     */
-    entry = container_of(map_info, struct sgmii_transaction_entry, map_info);
-    __sgmii_transaction_complete(NULL, entry, SGMII_TR_COMP_ST_TERMINATED, NULL);
-    entry->completed = 1;
-
-out:
-    spin_unlock_bh(&tr_db->db_lock);
-    return err;
-}
-
-
-int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
-                           struct sk_buff              *skb,
-                           sgmii_transaction_id_t       tr_id,
-                           struct sgmii_dev            *sgmii_dev,
-                           const struct isx_meta       *meta,
-                           void                        *context)
+int sgmii_send_transaction(struct sgmii_transaction_meta *tr_meta,
+                           struct sgmii_dev              *sgmii_dev,
+                           const struct isx_meta         *isx_meta,
+                           void                          *context)
 {
     struct sgmii_transaction_entry *entry, *existing_entry;
     struct sx_core_map_info        *existing_info;
-    int                             ret = -ENOMEM, max_attempts;
+    int                             ret = -ENOMEM;
+    int                             max_attempts = 1;
+    int                             interval = 100;
 
     entry = kmalloc(sizeof(struct sgmii_transaction_entry), GFP_ATOMIC);
     if (!entry) {
         goto free_orig_skb;
     }
 
-    max_attempts = sgmii_get_send_attempts();
+    max_attempts = sgmii_get_send_attempts_by_transport(tr_meta->transport_type);
+    interval = sgmii_get_send_interval_msec_by_transport(tr_meta->transport_type);
 
-    entry->tr_db = tr_db;
-    entry->tr_id = tr_id;
+    entry->tr_db = tr_meta->tr_db;
+    entry->tr_id = tr_meta->tr_id;
     entry->completed = 0;
     entry->attempts_total = max_attempts;
     entry->attempts_so_far = 0;
     entry->sgmii_dev = sgmii_dev;
-    entry->skb = skb;
+    entry->skb = tr_meta->skb;
+    entry->interval = interval;
 
-    entry->meta_is_valid = (meta != NULL);
+    entry->meta_is_valid = (isx_meta != NULL);
     if (entry->meta_is_valid) {
-        memcpy(&entry->meta, meta, sizeof(entry->meta));
+        memcpy(&entry->meta, isx_meta, sizeof(entry->meta));
     }
 
     entry->context = context;
 
-    spin_lock_bh(&tr_db->db_lock);
+    spin_lock_bh(&tr_meta->tr_db->db_lock);
 
-    ret = sx_core_map_lookup(&tr_db->db_map, &entry->tr_id, &existing_info);
+    ret = sx_core_map_lookup(&tr_meta->tr_db->db_map, &entry->tr_id, &existing_info);
     if (ret == 0) { /* joining an existing transaction */
         existing_entry = container_of(existing_info, struct sgmii_transaction_entry, map_info);
         existing_entry->attempts_total = max_attempts;
@@ -239,7 +204,7 @@ int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
         goto out;
     }
 
-    ret = sx_core_map_insert(&tr_db->db_map, &entry->tr_id, &entry->map_info, GFP_ATOMIC);
+    ret = sx_core_map_insert(&tr_meta->tr_db->db_map, &entry->tr_id, &entry->map_info, GFP_ATOMIC);
     if (ret) {
         goto out;
     }
@@ -247,12 +212,12 @@ int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
     sgmii_dev_inc_ref(sgmii_dev);
     sgmii_queue_task(__sgmii_transaction_task, &entry, sizeof(entry) /* yes, sizeof pointer! */, 0);
 
-    spin_unlock_bh(&tr_db->db_lock);
+    spin_unlock_bh(&tr_meta->tr_db->db_lock);
 
     return 0;
 
 out:
-    spin_unlock_bh(&tr_db->db_lock);
+    spin_unlock_bh(&tr_meta->tr_db->db_lock);
 
     if (entry) {
         kfree(entry);
@@ -261,7 +226,7 @@ out:
 free_orig_skb:
 
     /* no matter what, we free original skb so it will activate its destructor (just like with PCI) */
-    sx_skb_free(skb);
+    sx_skb_free(tr_meta->skb);
 
     return ret;
 }
@@ -274,7 +239,10 @@ int sgmii_send_transaction_sync(int                            dev_id,
                                 struct sk_buff               **rx_skb)
 {
     struct sgmii_sync_transaction_context context;
-    int                                   err;
+    int                                   err = 0;
+    u8                                    free_context_skb = 0;
+
+    memset(&context, 0, sizeof(context));
 
     init_completion(&context.completion);
     err = send_cb(dev_id, skb, meta, &context); /* callback fills 'context.tr_db' and 'context.tr_id' */
@@ -282,18 +250,22 @@ int sgmii_send_transaction_sync(int                            dev_id,
         return err;
     }
 
-    err = wait_for_completion_interruptible(&context.completion);
-    if (err == -ERESTARTSYS) {
-        /* this will synchronously terminate the transaction and fill 'context.status'
-         *  to SGMII_TR_COMP_ST_TERMINATED */
-        sgmii_transaction_terminate(context.tr_db, context.tr_id);
-    }
+    do {
+        err = wait_for_completion_interruptible(&context.completion);
+    } while (err == -ERESTARTSYS);
+
+    /* context.rx_skb holds a copy of the original RX skb (if it is not NULL).
+     * so either it is given to the user (and he is the responsible to free it) or
+     * we free it here.
+     */
+    free_context_skb = (context.rx_skb != NULL);
 
     switch (context.status) {
     case SGMII_TR_COMP_ST_COMPLETED:
         err = 0;
         if (rx_skb) {
-            *rx_skb = context.rx_skb;
+            *rx_skb = context.rx_skb; /* caller of this function is responsible to free skb! */
+            free_context_skb = 0;
         }
         break;
 
@@ -305,13 +277,13 @@ int sgmii_send_transaction_sync(int                            dev_id,
         err = -ETIMEDOUT;
         break;
 
-    case SGMII_TR_COMP_ST_TERMINATED:
-        err = -ERESTARTSYS;
-        break;
-
     default:
         err = -EIO;
         break;
+    }
+
+    if (free_context_skb) {
+        kfree_skb(context.rx_skb);
     }
 
     return err;
@@ -341,7 +313,7 @@ int sgmii_transaction_db_init(struct sgmii_transaction_db       *tr_db,
         return -EINVAL;
     }
 
-    ret = sx_core_map_init(&tr_db->db_map, __sgmii_transaction_compare_cb, sizeof(sgmii_transaction_id_t), 0);
+    ret = sx_core_map_init(&tr_db->db_map, __sgmii_transaction_compare_cb, sizeof(sgmii_transaction_id_t));
     if (ret) {
         printk(KERN_ERR "failed to initialize SGMII transaction database\n");
         return ret;
