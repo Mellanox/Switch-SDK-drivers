@@ -11,10 +11,13 @@
 # detailed in the file "LICENSE.txt".
 #
 #
- 
-#obj-$(CONFIG_SX_NETDEV)                   += sx_netdev.o
-#obj-m	+=	sx_netdev.o
-obj-$(CONFIG_SX_NETDEV)	+=	sx_netdev.o
 
-sx_netdev-y := sx_netdev_main.o sx_netdev_rtnetlink.o sx_bridge_rtnetlink.o
+EXTRA_CFLAGS += $(SXD_KERNEL_EXTRA_CFLAGS) -I$(src)
+KBUILD_EXTRA_SYMBOLS := $(EXTRA_SYMVERS)
+obj-m += sx_netdev.o
+
+sx_netdev-objs := sx_netdev_main.o      \
+                  sx_netdev_rtnetlink.o \
+                  sx_bridge_rtnetlink.o \
+                  sx_psample.o
 

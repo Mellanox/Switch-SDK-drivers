@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 /************************************************
@@ -53,6 +34,7 @@ extern int      cpu_traffic_tasklet_reschedule_enable;
 extern atomic_t cq_backup_polling_enabled;
 extern int      handle_monitor_rdq_in_timer;
 static void sx_intr_tasklet_handler(unsigned long data);
+extern int enable_cpu_port_loopback;
 
 /************************************************
  * Functions                                    *
@@ -92,12 +74,26 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
     struct sx_priv              *priv = sx_priv(dev);
     struct cpu_traffic_priority *cpu_traffic_prio = &priv->cq_table.cpu_traffic_prio;
     struct sx_eqe               *eqe;
-    struct timespec              timestamp;
     u8                           active_cpu_low_prio_bitmap_changes = 0;
     u8                           active_wjh_bitmap_changes = 0;
     u8                           is_cmd_ifc_only = 0;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    struct timespec64 timestamp;
+
+    ktime_get_real_ts64(&timestamp);
+#else
+    struct timespec timestamp;
+
     getnstimeofday(&timestamp);
+#endif
+
+
+    /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if ((priv->pause_cqn >= 0) && !priv->pause_cqn_completed && sx_is_cq_idle(dev, priv->pause_cqn)) {
+        complete(&priv->pause_cqn_completion);
+        priv->pause_cqn_completed = 1;
+    }
 
     /* In Pelican it's possible that we get an interrupt
      * before the EQe is written. So we will ignore it and
@@ -127,11 +123,22 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
                 break; /* SHOULD NEVER HAPPEN */
             }
 
+            /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
+            if (eqe->cqn == priv->pause_cqn) {
+                break;
+            }
+
             if (handle_monitor_rdq_in_timer &&
-                sx_bitmap_test(&priv->active_monitor_cq_bitmap, eqe->cqn)) {
+                sx_bitmap_test(&priv->monitor_cq_bitmap, eqe->cqn)) {
+                if (sx_bitmap_test(&priv->active_monitor_cq_bitmap, eqe->cqn)) {
+                    break; /* This CQ's bit is already set */
+                }
+
+                sx_bitmap_set(&priv->active_monitor_cq_bitmap, eqe->cqn);
                 active_wjh_bitmap_changes = 1;
-            } else if (!cpu_traffic_priority_active ||
-                       sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, eqe->cqn)) {
+            } else if (!enable_cpu_port_loopback &&    /* in case loopback enabled move all traffic to be handled by kernel thread */
+                       (!cpu_traffic_priority_active ||
+                        sx_bitmap_test(&cpu_traffic_prio->high_prio_cq_bitmap, eqe->cqn))) {
                 if (sx_bitmap_test(&cpu_traffic_prio->active_high_prio_cq_bitmap, eqe->cqn)) {
                     break; /* This CQ's bit is already set */
                 }
@@ -189,6 +196,31 @@ static void sx_iterate_eq(struct sx_dev *dev, struct sx_eq *eq, int *set_ci)
             sx_eq_set_ci(eq, 0);
             *set_ci = 0;
         }
+    }
+
+    /* this FORCE is required for a case when RDQ became FULL during
+     *  switch RDQ mode from Regular to Monitor.
+     *  In this case CQ will stop notify so we need to force
+     *  CQ iteration.
+     */
+    if (priv->force_iter_monitor_cq >= 0) {
+        sx_bitmap_set(&priv->active_monitor_cq_bitmap,
+                      priv->force_iter_monitor_cq);
+        active_wjh_bitmap_changes = 1;
+        priv->force_iter_monitor_cq = -1;
+    }
+
+    if (priv->force_iter_low_prio_cq >= 0) {
+        sx_bitmap_set(&cpu_traffic_prio->active_low_prio_cq_bitmap,
+                      priv->force_iter_low_prio_cq);
+        active_cpu_low_prio_bitmap_changes = 1;
+        priv->force_iter_low_prio_cq = -1;
+    }
+
+    if (priv->force_iter_high_prio_cq >= 0) {
+        sx_bitmap_set(&cpu_traffic_prio->active_high_prio_cq_bitmap,
+                      priv->force_iter_high_prio_cq);
+        priv->force_iter_high_prio_cq = -1;
     }
 
     if (active_cpu_low_prio_bitmap_changes) {
@@ -363,12 +395,12 @@ static int sx_create_eq(struct sx_dev *dev, int nent, struct sx_eq *eq)
         goto err_out_free_pages;
     }
 
-    eq->ci_db = dev->db_base + SX_DBELL_EQ_CI_OFFSET + 4 * eq->eqn;
-    eq->arm_db = dev->db_base + SX_DBELL_EQ_ARM_OFFSET + 4 * eq->eqn;
+    eq->ci_db = priv->db_base + SX_DBELL_EQ_CI_OFFSET + 4 * eq->eqn;
+    eq->arm_db = priv->db_base + SX_DBELL_EQ_ARM_OFFSET + 4 * eq->eqn;
     memset(eq_context, 0, sizeof *eq_context);
     eq_context->flags = SX_EQ_STATE_ARMED;
     eq_context->log_eq_size = ilog2(eq->nent) & 0xf;
-    eq_context->int_msi_x = !!(dev->flags & SX_FLAG_MSI_X);
+    eq_context->int_msi_x = !!(priv->flags & SX_FLAG_MSI_X);
 
     for (i = 0; i < npages; ++i) {
         eq_context->dma_addr[i] = cpu_to_be64(eq->page_list[i].map);
@@ -475,7 +507,7 @@ int sx_init_eq_table(struct sx_dev *dev)
         goto err_out_async;
     }
 
-    if (dev->flags & SX_FLAG_MSI_X) {
+    if (priv->flags & SX_FLAG_MSI_X) {
         err = request_irq(priv->eq_table.eq[0].irq,
                           sx_msi_x_interrupt,
                           0, DRV_NAME "_msix", dev);

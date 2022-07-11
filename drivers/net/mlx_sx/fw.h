@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef SX_FW_H
@@ -36,14 +17,23 @@
 #include <linux/mlx_sx/device.h>
 #include "icm.h"
 
+#define NUM_OF_HCRS 2
+#define HCR1        0
+#define HCR2        1
+
 struct profile_driver_params {
     u8 cqe_version;
+    u8 cqe_time_stamp_type;
 };
 
 int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profile_driver_params *params);
 int sx_GET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profile_driver_params *params_p);
-int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id);
-int sx_MAP_FA(struct sx_dev *dev, struct sx_icm *icm);
+int sx_SET_KVH_CACHE_PARAMS(struct sx_dev             *dev,
+                            struct profile_kvh_params *kvh_params);
+int sx_GET_KVH_CACHE_PARAMS(struct sx_dev             *dev,
+                            struct profile_kvh_params *kvh_params_p);
+int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id, bool enforce_hcr1);
+int sx_MAP_FA(struct sx_dev *dev, struct sx_icm *icm, sxd_map_memory_type_e type);
 int sx_UNMAP_FA(struct sx_dev *dev);
 
 #endif /* SX_FW_H */
