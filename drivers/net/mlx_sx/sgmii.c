@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/module.h>
@@ -38,13 +19,21 @@
 #include "sx_dbg_dump_proc.h"
 
 int use_sgmii = 0;
-int sgmii_send_attempts = 3;
+int sgmii_send_attempts = 1; /* no retries! */
 module_param_named(sgmii_send_attempts, sgmii_send_attempts, int, 0644);
 MODULE_PARM_DESC(sgmii_send_attempts, "how many attempts to send a packet");
 
-int sgmii_send_interval_msec = 100;
+int sgmii_cr_send_attempts = 1; /* no retries! */
+module_param_named(sgmii_cr_send_attempts, sgmii_cr_send_attempts, int, 0644);
+MODULE_PARM_DESC(sgmii_cr_send_attempts, "how many attempts to send a CR packet");
+
+int sgmii_send_interval_msec = 5000; /* 5 seconds */
 module_param_named(sgmii_send_interval_msec, sgmii_send_interval_msec, int, 0644);
 MODULE_PARM_DESC(sgmii_send_interval_msec, "interval between sending attempts");
+
+int sgmii_cr_send_interval_msec = 100; /* 100 milliseconds */
+module_param_named(sgmii_cr_send_interval_msec, sgmii_cr_send_interval_msec, int, 0644);
+MODULE_PARM_DESC(sgmii_cr_send_interval_msec, "interval between CR sending attempts");
 
 int sgmii_rx_pps = 50000;
 module_param_named(sgmii_rx_pps, sgmii_rx_pps, int, 0644);
@@ -68,6 +57,47 @@ uint8_t is_sgmii_supported(void)
     return use_sgmii != 0;
 }
 
+int sgmii_get_send_attempts_by_transport(sxd_command_type_t transport_type)
+{
+    int max_attempts = 1;
+
+    switch (transport_type) {
+    case SXD_COMMAND_TYPE_CR_ACCESS:
+        max_attempts = sgmii_get_cr_send_attempts();
+        break;
+
+    default:
+        max_attempts = sgmii_get_send_attempts();
+        break;
+    }
+    return max_attempts;
+}
+
+int sgmii_get_cr_send_attempts(void)
+{
+    return sgmii_cr_send_attempts;
+}
+
+int sgmii_get_send_interval_msec_by_transport(sxd_command_type_t transport_type)
+{
+    int interval = 100;
+
+    switch (transport_type) {
+    case SXD_COMMAND_TYPE_CR_ACCESS:
+        interval = sgmii_get_cr_send_interval_msec();
+        break;
+
+    default:
+        interval = sgmii_get_send_interval_msec();
+        break;
+    }
+    return interval;
+}
+
+int sgmii_get_cr_send_interval_msec(void)
+{
+    return sgmii_cr_send_interval_msec;
+}
 
 int sgmii_get_send_attempts(void)
 {
@@ -233,6 +263,8 @@ static int __sgmii_general_info_handler(struct seq_file *m, void *v)
     seq_printf(m, "Network interface name ....................... %s\n", netdev_name);
     seq_printf(m, "Network interface MAC address................. %02x:%02x:%02x:%02x:%02x:%02x\n",
                netdev_mac[0], netdev_mac[1], netdev_mac[2], netdev_mac[3], netdev_mac[4], netdev_mac[5]);
+    seq_printf(m, "Maximum CR send attempts ......................%d\n", sgmii_get_cr_send_attempts());
+    seq_printf(m, "Interval between CR send attempts (in msec) ...%d\n", sgmii_get_cr_send_interval_msec());
     seq_printf(m, "Maximum send attempts ........................ %d\n", sgmii_get_send_attempts());
     seq_printf(m, "Interval between send attempts (in msec) ..... %d\n", sgmii_get_send_interval_msec());
     seq_printf(m, "Rate limiter (Packets-per-Second):\n");
