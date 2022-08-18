@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef DQ_H_
@@ -59,6 +40,7 @@ struct sx_dq_context {
     __be64 dma_addr[8];   /* DQE buffer dma addresses */
     /* Physical Address of Descriptor Queue page <i> (i=0,1,...,7) */
 };
+#define DONT_FORCE_SDQ_ID 0xff
 
 /************************************************
  * Functions
@@ -83,7 +65,13 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
 
 int sx_core_add_rdq_to_monitor_rdq_list(struct sx_dq *dq);
 void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq);
-
+int emad_build(int dev_id, const uint8_t *reg_buff,
+               uint32_t reg_buff_len, struct sk_buff **skb,
+               struct isx_meta *meta,
+               uint32_t tid_high,
+               uint32_t tid_low,
+               gfp_t gfp, uint16_t reg_id,
+               uint8_t method);
 #endif /* DQ_H_ */
 /************************************************
  *                  EOF                         *
