@@ -1,88 +1,19 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include "fw.h"
 #include "fw_internal.h"
 #include <linux/mlx_sx/kernel_user.h>
-
-#define MCIA_REG_ID 0x9014
-
-enum {
-    MCIA_INVALID_PORT = 0x17,
-    MCIA_PORT_NOT_SUPP = 0x27,
-    MCIA_NOT_CONNECTED = 0x37,
-    MCIA_NO_EEPROM = 0x47,
-    MCIA_INVALID_PAGE = 0x57,
-    MCIA_INVALID_DEVICE_ADDR = 0x67,
-    MCIA_INVALID_I2C_DEV_ADDR = 0x77,
-    MCIA_CABLE_NOT_SUPP = 0x87,
-    MCIA_I2C_ERROR = 0x97
-};
-
-static const char * mcia_err_str(u8 status)
-{
-    switch (status) {
-    case MCIA_INVALID_PORT:
-        return "Invalid port";
-
-    case MCIA_PORT_NOT_SUPP:
-        return "Port not supported";
-
-    case MCIA_NOT_CONNECTED:
-        return "Not connected";
-
-    case MCIA_NO_EEPROM:
-        return "No EEPROM";
-
-    case MCIA_INVALID_PAGE:
-        return "Invalid page";
-
-    case MCIA_INVALID_DEVICE_ADDR:
-        return "Invalid device address";
-
-    case MCIA_INVALID_I2C_DEV_ADDR:
-        return "Invalid I2C device address";
-
-    case MCIA_CABLE_NOT_SUPP:
-        return "Cable not supported";
-
-    case MCIA_I2C_ERROR:
-        return "I2C";
-
-    default:
-        return "Unknown";
-    }
-}
-
 
 void set_operation_tlv(void *inbox, struct ku_operation_tlv *op_tlv)
 {
@@ -135,12 +66,17 @@ void get_operation_tlv(void *outbox, struct ku_operation_tlv *op_tlv)
     SX_GET(op_tlv->op_class, outbox, CLASS_OFFSET);
     SX_GET(op_tlv->tid, outbox, TID_OFFSET);
 
-    if (op_tlv->status) {
-        if (op_tlv->register_id != MCIA_REG_ID) {
-            printk(KERN_WARNING "get_operation_tlv: Err: Got status 0x%x for register 0x%x\n",
-                   op_tlv->status, op_tlv->register_id);
-        } else {
-            printk(KERN_WARNING "MCIA register reported %s error\n", mcia_err_str(op_tlv->status));
-        }
+    /* validate TLV header integrity */
+    if (op_tlv->length != 4 /* length of operation TLV */) {
+        printk(KERN_ERR "Operation TLV is invalid: length=%u\n", op_tlv->length);
+        print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 16, 1, outbox, 16, 0);
+        return;
+    }
+
+    /* validate TLV header integrity */
+    if (op_tlv->type != TLV_TYPE_OPERATION_E) {
+        printk(KERN_ERR "Operation TLV is invalid: type=%u\n", op_tlv->type);
+        print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 16, 1, outbox, 16, 0);
+        return;
     }
 }

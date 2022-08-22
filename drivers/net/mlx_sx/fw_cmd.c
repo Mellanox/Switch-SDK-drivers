@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include "fw.h"
@@ -37,9 +18,7 @@
 #include "fw_internal.h"
 #include <linux/mlx_sx/cmd.h>
 #include <linux/mlx_sx/driver.h>
-#include "sxd_access_reg_pddr.h"
 
-extern struct sx_globals sx_glb;
 static void get_board_id(void *vsd, char *board_id)
 {
 #define VSD_OFFSET_SX_BOARD_ID 0xd0
@@ -86,8 +65,9 @@ int sx_QUERY_RSRC(struct sx_dev *dev, struct ku_query_rsrc* query_rsrc)
             SX_GET(resource_id, outbox,
                    (i * QUERY_RSRC_RESOURCE_ENTRY_SIZE) + QUERY_RSRC_RESOURCE_ID_OFFSET);
             if (resource_id == MLXSW_CMD_QUERY_RESOURCES_TABLE_END_ID) {
-                return 0;
+                goto out;
             }
+
             if (resource_id == query_rsrc->rsrc_id) {
                 SX_GET(resource_val, outbox, (i * QUERY_RSRC_RESOURCE_ENTRY_SIZE) + QUERY_RSRC_RESOURCE_VAL_OFFSET);
                 query_rsrc->rsrc_val = ((1ull << QUERY_RSRC_RESOURCE_VAL_WIDTH_BITS) - 1) & resource_val;
@@ -100,16 +80,20 @@ out:
     sx_free_cmd_mailbox(dev, mailbox);
     return err;
 }
+EXPORT_SYMBOL(sx_QUERY_RSRC);
 
 #define QUERY_FW_IN_MB_SIZE 0x5c
 int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
 {
+    struct sx_priv        *priv = sx_priv(dev);
     struct sx_fw           fw;
-    struct sx_cmd         *cmd = &sx_priv(dev)->cmd;
+    struct sx_cmd         *cmd = &priv->cmd;
     struct sx_cmd_mailbox *mailbox;
     u32                   *outbox;
     int                    err = 0;
     int                    target_dev_id;
+
+    memset(&fw, 0, sizeof(fw));
 
     fw.local_in_mb_size = 0;
     fw.local_out_mb_offset = 0;
@@ -148,6 +132,15 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
 #define QUERY_FW_DB_PAGE_BAR_OFFSET    0x48
 #define QUERY_FW_FRC_OFFSET            0x50
 #define QUERY_FW_FRC_BAR_OFFSET        0x58
+#define QUERY_FW_UTC_SEC_OFFSET        0x70
+#define QUERY_FW_UTC_SEC_BAR_OFFSET    0x78
+#define QUERY_FW_UTC_NSEC_OFFSET       0x80
+#define QUERY_FW_UTC_NSEC_BAR_OFFSET   0x88
+#define QUERY_FW_CR_DUMP_OFFSET        0x90
+#define QUERY_FW_CR_DUMP_BAR_OFFSET    0x98
+#define QUERY_FW_DUMP_HOST_SIZE_FLAT   0x9c
+#define QUERY_FW_DUMP_HOST_SIZE_GW     0xa0
+#define QUERY_FW_DUMP_HOST_SIZE_GDB    0xa4
 #define QUERY_FW_SIZE_OFFSET           0x00
 
     mailbox = sx_alloc_cmd_mailbox(dev, target_dev_id);
@@ -198,12 +191,21 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
     SX_GET(fw.doorbell_page_bar,    outbox, QUERY_FW_DB_PAGE_BAR_OFFSET);
     SX_GET(fw.frc_offset, outbox, QUERY_FW_FRC_OFFSET);
     SX_GET(fw.frc_bar,    outbox, QUERY_FW_FRC_BAR_OFFSET);
+    SX_GET(fw.utc_sec_offset, outbox, QUERY_FW_UTC_SEC_OFFSET);
+    SX_GET(fw.utc_sec_bar, outbox, QUERY_FW_UTC_SEC_BAR_OFFSET);
+    SX_GET(fw.utc_nsec_offset, outbox, QUERY_FW_UTC_NSEC_OFFSET);
+    SX_GET(fw.utc_nsec_bar, outbox, QUERY_FW_UTC_NSEC_BAR_OFFSET);
+    SX_GET(fw.cr_dump_offset, outbox, QUERY_FW_CR_DUMP_OFFSET);
+    SX_GET(fw.cr_dump_bar, outbox, QUERY_FW_CR_DUMP_BAR_OFFSET);
     SX_GET(fw.fw_hour,    outbox, QUERY_FW_FW_HOUR_OFFSET);
     SX_GET(fw.fw_minutes, outbox, QUERY_FW_FW_MINUTES_OFFSET);
     SX_GET(fw.fw_seconds, outbox, QUERY_FW_FW_SECONDS_OFFSET);
     SX_GET(fw.fw_year,    outbox, QUERY_FW_FW_YEAR_OFFSET);
     SX_GET(fw.fw_month,   outbox, QUERY_FW_FW_MONTH_OFFSET);
     SX_GET(fw.fw_day,     outbox, QUERY_FW_FW_DAY_OFFSET);
+    SX_GET(fw.cap_dump_host_size_flat, outbox, QUERY_FW_DUMP_HOST_SIZE_FLAT);
+    SX_GET(fw.cap_dump_host_size_gw,   outbox, QUERY_FW_DUMP_HOST_SIZE_GW);
+    SX_GET(fw.cap_dump_host_size_gdb,  outbox, QUERY_FW_DUMP_HOST_SIZE_GDB);
 
     if (NULL != query_fw) {
         query_fw->core_clk = fw.core_clock;
@@ -218,9 +220,18 @@ int sx_QUERY_FW(struct sx_dev *dev, struct ku_query_fw* query_fw)
         query_fw->fw_rev = fw.fw_ver;
         query_fw->frc_offset = fw.frc_offset;
         query_fw->frc_bar = fw.frc_bar;
+        query_fw->utc_sec_offset = fw.utc_sec_offset;
+        query_fw->utc_sec_bar = fw.utc_sec_bar;
+        query_fw->utc_nsec_offset = fw.utc_nsec_offset;
+        query_fw->utc_nsec_bar = fw.utc_nsec_bar;
+        query_fw->cr_dump_offset = fw.cr_dump_offset;
+        query_fw->cr_dump_bar = fw.cr_dump_bar;
+        query_fw->cap_dump_host_size_flat = fw.cap_dump_host_size_flat;
+        query_fw->cap_dump_host_size_gw = fw.cap_dump_host_size_gw;
+        query_fw->cap_dump_host_size_gdb = fw.cap_dump_host_size_gdb;
     }
 
-    if ((0 == sx_priv(dev)->is_fw_initialized) &&
+    if ((!priv->is_fw_initialized) &&
         ((DPT_PATH_PCI_E == sx_glb.sx_dpt.dpt_info[target_dev_id].cmd_path) ||
          is_sgmii_device(target_dev_id))) {
         memcpy(&sx_priv(dev)->fw, &fw, sizeof(fw));
@@ -233,12 +244,13 @@ out:
 }
 EXPORT_SYMBOL(sx_QUERY_FW);
 
-int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id)
+int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id, bool enforce_hcr1)
 {
     struct sx_fw          *fw = &sx_priv(dev)->fw;
     struct sx_cmd_mailbox *mailbox;
     int                    err = 0;
     u32                    out_mb_info, in_mb_info;
+    int                    sx_cmd = SX_CMD_QUERY_FW;
 
 #define QUERY_FW_OUT_MB_INFO_OFFSET 0x00
 #define QUERY_FW_IN_MB_INFO_OFFSET  0x04
@@ -247,7 +259,18 @@ int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id)
         return PTR_ERR(mailbox);
     }
     mailbox->imm_data = 0ULL;
-    err = sx_cmd_imm(dev, sx_dev_id, 0, mailbox, 0, 1, SX_CMD_QUERY_FW,
+
+    /*
+     * Since there are two separate mailboxes in FW, one for I2C commands and one for PCI commands,
+     * we need to make sure we have both of them in case we use both access paths. This function is called
+     * when I2C path is set as cmd_path (ctrl_cmd_set_cmd_path) and explicitly asks FW for the PCI mailbox addresses as well.
+     * This is required since some commands can only use PCI mailboxes, even when cmd path is set to I2C.
+     */
+    if (enforce_hcr1) {
+        sx_cmd = SX_CMD_QUERY_FW_HCR1;
+    }
+
+    err = sx_cmd_imm(dev, sx_dev_id, 0, mailbox, 0, 1, sx_cmd,
                      SX_CMD_TIME_CLASS_A, QUERY_FW_IN_MB_SIZE);
     if (err) {
         goto out;
@@ -270,15 +293,15 @@ int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id)
            "out_mb_offset=0x%x\n"
            "out_mb_size=%u\n",
            sx_dev_id,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_size,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size);
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset[HCR1],
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_size[HCR1],
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset[HCR1],
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size[HCR1]);
 #endif
-    sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset = (in_mb_info & 0x000FFFFF);
-    sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_size = in_mb_info >> 20;
-    sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset = (out_mb_info & 0x000FFFFF);
-    sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size = out_mb_info >> 20;
+    sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset[HCR1] = (in_mb_info & 0x000FFFFF);
+    sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_size[HCR1] = in_mb_info >> 20;
+    sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset[HCR1] = (out_mb_info & 0x000FFFFF);
+    sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size[HCR1] = out_mb_info >> 20;
 #ifdef SX_DEBUG
     printk(KERN_INFO PFX "sx_QUERY_FW_2 for dev_id %u results:\n"
            "in_mb_offset=0x%x\n"
@@ -286,17 +309,17 @@ int sx_QUERY_FW_2(struct sx_dev *dev, int sx_dev_id)
            "out_mb_offset=0x%x\n"
            "out_mb_size=%u\n",
            sx_dev_id,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_size,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset,
-           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size);
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset[HCR1],
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_size[HCR1],
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset[HCR1],
+           sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size[HCR1]);
 #endif
 out:
     sx_free_cmd_mailbox(dev, mailbox);
     return err;
 }
 
-static int sx_map_cmd(struct sx_dev *dev, u16 op, struct sx_icm *icm)
+static int sx_map_cmd(struct sx_dev *dev, u16 op, struct sx_icm *icm, sxd_map_memory_type_e type)
 {
     struct sx_cmd_mailbox *mailbox;
     struct sx_icm_iter     iter;
@@ -335,7 +358,7 @@ static int sx_map_cmd(struct sx_dev *dev, u16 op, struct sx_icm *icm)
         for (i = 0; i < (sx_icm_size(&iter) >> lg); ++i) {
             pages[nent] =
                 cpu_to_be64((sx_icm_addr(&iter) + (i << lg)) |
-                            (lg - SX_ICM_PAGE_SHIFT));
+                            (lg - SX_ICM_PAGE_SHIFT) | (type << SX_ICM_TYPE_SHIFT));
             ts += 1 << (lg - 10);
             ++tc;
 
@@ -372,9 +395,9 @@ out:
 }
 
 
-int sx_MAP_FA(struct sx_dev *dev, struct sx_icm *icm)
+int sx_MAP_FA(struct sx_dev *dev, struct sx_icm *icm, sxd_map_memory_type_e type)
 {
-    return sx_map_cmd(dev, SX_CMD_MAP_FA, icm);
+    return sx_map_cmd(dev, SX_CMD_MAP_FA, icm, type);
 }
 
 int sx_UNMAP_FA(struct sx_dev *dev)
@@ -390,7 +413,7 @@ int sx_QUERY_AQ_CAP(struct sx_dev *dev)
     u32                   *outbox;
     u8                     field;
     int                    err;
-    struct sx_dev_cap     *dev_cap = &dev->dev_cap;
+    struct sx_dev_cap     *dev_cap = &sx_priv(dev)->dev_cap;
 
 #define QUERY_DEV_CAP_MAX_SDQ_SZ_OFFSET 0x0
 #define QUERY_DEV_CAP_MAX_SDQ_OFFSET    0x3
@@ -452,15 +475,21 @@ out:
 }
 EXPORT_SYMBOL(sx_QUERY_AQ_CAP);
 
-int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct sx_board *board)
+int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct ku_query_board_info *board)
 {
     struct sx_cmd_mailbox *mailbox;
     u32                   *outbox;
     int                    err;
+    u8                     xm_exis_and_num_ports;
 
-#define QUERY_ADAPTER_INTA_PIN_OFFSET      0x10
-#define QUERY_ADAPTER_VSD_VENDOR_ID_OFFSET 0x1e
-#define QUERY_ADAPTER_VSD_OFFSET           0x20
+#define QUERY_ADAPTER_XM_EXIST_AND_PORTS_NUM_OFFSET 0x03
+#define QUERY_ADAPTER_XM_PORTS_OFFSET               0x04
+#define QUERY_ADAPTER_INTA_PIN_OFFSET               0x10
+#define QUERY_ADAPTER_VSD_VENDOR_ID_OFFSET          0x1e
+#define QUERY_ADAPTER_VSD_OFFSET                    0x20
+#define QUERY_ADAPTER_XM_EXIST_BITMASK              0x01 /* bit 1 */
+#define QUERY_ADAPTER_XM_PORTS_NUM_BITMASK          0x07 /* bits 0-2 after right shift*/
+#define QUERY_ADAPTER_XM_PORTS_NUM_INTERNAL_OFFSET  4
 
     memset(board, 0, sizeof(*board));
     mailbox = sx_alloc_cmd_mailbox(dev, dev->device_id);
@@ -474,6 +503,18 @@ int sx_QUERY_BOARDINFO(struct sx_dev *dev, struct sx_board *board)
     if (err) {
         goto out;
     }
+
+    SX_GET(xm_exis_and_num_ports, outbox,
+           QUERY_ADAPTER_XM_EXIST_AND_PORTS_NUM_OFFSET);
+    board->xm_exists = (xm_exis_and_num_ports & QUERY_ADAPTER_XM_EXIST_BITMASK);
+
+    board->xm_num_local_ports =
+        (xm_exis_and_num_ports >> QUERY_ADAPTER_XM_PORTS_NUM_INTERNAL_OFFSET) & QUERY_ADAPTER_XM_PORTS_NUM_BITMASK;
+
+    SX_GET(board->xm_local_ports[3], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET);
+    SX_GET(board->xm_local_ports[2], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET + 1);
+    SX_GET(board->xm_local_ports[1], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET + 2);
+    SX_GET(board->xm_local_ports[0], outbox, QUERY_ADAPTER_XM_PORTS_OFFSET + 3);
 
     SX_GET(board->vsd_vendor_id, outbox,
            QUERY_ADAPTER_VSD_VENDOR_ID_OFFSET);
@@ -494,6 +535,7 @@ EXPORT_SYMBOL(sx_QUERY_BOARDINFO);
 #define PROFILE_SET_MASK_H_OFFSET                  0x00
 #define PROFILE_SET_MASK_L_OFFSET                  0x08
 #define PROFILE_MAX_VEPA_OFFSET                    0x13
+#define PROFILE_PORT_PROFILE_NUM_OFFSET            0x14
 #define PROFILE_MAX_LAG_OFFSET                     0x16
 #define PROFILE_MAX_PORT_OFFSET                    0x1a
 #define PROFILE_MAX_MID_OFFSET                     0x1e
@@ -515,9 +557,11 @@ EXPORT_SYMBOL(sx_QUERY_BOARDINFO);
 #define PROFILE_AR_GRP_CAP_OFFSET                  0x4e
 #define PROFILE_ARN_OFFSET                         0x50
 #define PROFILE_ARN_BIT_N                          7
+#define PROFILE_KVH_XLT_CACHE_MODE                 0x52
 #define PROFILE_UBRIDGE_SPLIT_READY_OFFSET         0x53
 #define PROFILE_SPLIT_READY_BIT_N                  1
 #define PROFILE_UBRIDGE_BIT_N                      4
+#define PROFILE_UMLABEL_BIT_N                      5
 #define PROFILE_KVD_LINEAR_SIZE_OFFSET             0x54
 #define PROFILE_KVD_HASH_SINGLE_SIZE_OFFSET        0x58
 #define PROFILE_KVD_HASH_DOUBLE_SIZE_OFFSET        0x5C
@@ -534,6 +578,7 @@ EXPORT_SYMBOL(sx_QUERY_BOARDINFO);
 #define PROFILE_IB_RTR_ECMP_BIT_N                  6
 #define PROFILE_IB_RTR_MCF_BIT_N                   5
 #define PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET       0xa2
+#define PROFILE_CQE_TIME_STAMP_TYPE_OFFSET         0xb2
 #define PROFILE_CQE_VERSION_OFFSET                 0xb3
 #define PROFILE_RESERVED1_OFFSET                   0xb4
 #define CONFIG_PROFILE_MB_SIZE                     0xb8
@@ -586,6 +631,7 @@ int sx_GET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     profile->split_ready = (profile->split_ready >> PROFILE_SPLIT_READY_BIT_N) & 0x1;
     SX_GET(profile->ubridge_mode, outbox, PROFILE_UBRIDGE_SPLIT_READY_OFFSET);
     profile->ubridge_mode = (profile->ubridge_mode >> PROFILE_UBRIDGE_BIT_N) & 0x1;
+    profile->umlabel = (profile->ubridge_mode >> PROFILE_UMLABEL_BIT_N) & 0x1;
     SX_GET(profile->kvd_linear_size, outbox, PROFILE_KVD_LINEAR_SIZE_OFFSET);
     SX_GET(profile->kvd_hash_single_size, outbox, PROFILE_KVD_HASH_SINGLE_SIZE_OFFSET);
     SX_GET(profile->kvd_hash_double_size, outbox, PROFILE_KVD_HASH_DOUBLE_SIZE_OFFSET);
@@ -626,6 +672,7 @@ int sx_GET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     profile->ib_router_ecmp = (tmp >> PROFILE_IB_RTR_ECMP_BIT_N) & 0x1;
     profile->ib_router_mcf = (tmp >> PROFILE_IB_RTR_MCF_BIT_N) & 0x1;
     SX_GET(profile->ib_router_ecmp_lid_range, outbox, PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET);
+    SX_GET(params.cqe_time_stamp_type, outbox, PROFILE_CQE_TIME_STAMP_TYPE_OFFSET);
     SX_GET(params.cqe_version, outbox, PROFILE_CQE_VERSION_OFFSET);
     SX_GET(profile->reserved1, outbox, PROFILE_RESERVED1_OFFSET);
 
@@ -656,6 +703,8 @@ int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     SX_PUT(inbox, profile->set_mask_0_63, PROFILE_SET_MASK_L_OFFSET);
     SX_PUT(inbox, profile->set_mask_64_127, PROFILE_SET_MASK_H_OFFSET);
     SX_PUT(inbox, profile->max_vepa_channels, PROFILE_MAX_VEPA_OFFSET);
+    temp_u8 = profile->port_profile_num << 4;
+    SX_PUT(inbox, temp_u8, PROFILE_PORT_PROFILE_NUM_OFFSET);
     SX_PUT(inbox, profile->max_lag, PROFILE_MAX_LAG_OFFSET);
     SX_PUT(inbox, profile->max_port_per_lag, PROFILE_MAX_PORT_OFFSET);
     SX_PUT(inbox, profile->max_mid, PROFILE_MAX_MID_OFFSET);
@@ -680,6 +729,7 @@ int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     SX_PUT(inbox, (u8)(profile->arn << PROFILE_ARN_BIT_N), PROFILE_ARN_OFFSET);
     temp_u8 = (u8)((!!(profile->split_ready)) << PROFILE_SPLIT_READY_BIT_N);
     temp_u8 |= (u8)((!!(profile->ubridge_mode)) << PROFILE_UBRIDGE_BIT_N);
+    temp_u8 |= (u8)((!!(profile->umlabel)) << PROFILE_UMLABEL_BIT_N);
     SX_PUT(inbox, temp_u8, PROFILE_UBRIDGE_SPLIT_READY_OFFSET);
     SX_PUT(inbox, profile->kvd_linear_size, PROFILE_KVD_LINEAR_SIZE_OFFSET);
     SX_PUT(inbox, profile->kvd_hash_single_size, PROFILE_KVD_HASH_SINGLE_SIZE_OFFSET);
@@ -738,6 +788,7 @@ int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
                    (profile->ib_router_mcf & 0x1) << PROFILE_IB_RTR_MCF_BIT_N);
     SX_PUT(inbox, temp_u8, PROFILE_IB_RTR_FLAGS_OFFSET);
     SX_PUT(inbox, profile->ib_router_ecmp_lid_range, PROFILE_IB_RTR_ECMP_LID_RANGE_OFFSET);
+    SX_PUT(inbox, params->cqe_time_stamp_type, PROFILE_CQE_TIME_STAMP_TYPE_OFFSET);
     SX_PUT(inbox, params->cqe_version, PROFILE_CQE_VERSION_OFFSET);
 
     err = sx_cmd(dev, profile->dev_id, mailbox, 0, 1, SX_CMD_CONFIG_PROFILE,
@@ -746,6 +797,63 @@ int sx_SET_PROFILE(struct sx_dev *dev, struct ku_profile *profile, struct profil
     sx_free_cmd_mailbox(dev, mailbox);
     return err;
 }
+
+int sx_SET_KVH_CACHE_PARAMS(struct sx_dev *dev, struct profile_kvh_params *kvh_params)
+{
+    struct sx_cmd_mailbox *mailbox;
+    struct ku_profile      profile;
+    u32                   *inbox;
+    int                    err;
+
+
+    mailbox = sx_alloc_cmd_mailbox(dev, dev->device_id);
+    if (IS_ERR(mailbox)) {
+        return PTR_ERR(mailbox);
+    }
+
+    inbox = mailbox->buf;
+    memset(inbox, 0, SX_MAILBOX_SIZE);
+    memset(&profile, 0, sizeof(struct ku_profile));
+
+    profile.set_mask_0_63 = 0x800000000;   /* Bit35 set_kvh_xlt_cache_mode*/
+    SX_PUT(inbox, profile.set_mask_0_63, PROFILE_SET_MASK_L_OFFSET);
+    SX_PUT(inbox, kvh_params->kvh_xlt_cache_mode, PROFILE_KVH_XLT_CACHE_MODE);
+
+
+    err = sx_cmd(dev, dev->device_id, mailbox, 0, 1, SX_CMD_CONFIG_PROFILE,
+                 SX_CMD_TIME_CLASS_A, CONFIG_PROFILE_MB_SIZE);
+
+    sx_free_cmd_mailbox(dev, mailbox);
+    return err;
+}
+
+int sx_GET_KVH_CACHE_PARAMS(struct sx_dev *dev, struct profile_kvh_params *kvh_params_p)
+{
+    struct sx_cmd_mailbox *mailbox;
+    u32                   *outbox;
+    int                    err;
+
+    mailbox = sx_alloc_cmd_mailbox(dev, dev->device_id);
+    if (IS_ERR(mailbox)) {
+        return PTR_ERR(mailbox);
+    }
+
+    memset(kvh_params_p, 0, sizeof(struct profile_kvh_params));
+
+    outbox = mailbox->buf;
+    err = sx_cmd_box(dev, dev->device_id, 0, mailbox, 0, 0x2,
+                     SX_CMD_CONFIG_PROFILE, SX_CMD_TIME_CLASS_A,
+                     CONFIG_PROFILE_MB_SIZE);
+    if (err) {
+        goto out;
+    }
+    SX_GET(kvh_params_p->kvh_xlt_cache_mode, outbox, PROFILE_KVH_XLT_CACHE_MODE);
+
+out:
+    sx_free_cmd_mailbox(dev, mailbox);
+    return err;
+}
+EXPORT_SYMBOL(sx_GET_KVH_CACHE_PARAMS);
 
 int sx_SET_SYSTEM_M_KEY(struct sx_dev *dev, struct ku_system_m_key *system_m_key)
 {

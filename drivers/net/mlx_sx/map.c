@@ -1,57 +1,22 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/errno.h>
-#include <linux/rwlock_types.h>
-#include <linux/rwlock.h>
 #include "map.h"
 
-#define R_LOCK(map)                                              \
-    do { if ((map)->use_lock) { read_lock_bh(&(map)->lock);    } \
-    } while (0)
-#define R_UNLOCK(map)                                            \
-    do { if ((map)->use_lock) { read_unlock_bh(&(map)->lock);  } \
-    } while (0)
-#define W_LOCK(map)                                              \
-    do { if ((map)->use_lock) { write_lock_bh(&(map)->lock);   } \
-    } while (0)
-#define W_UNLOCK(map)                                            \
-    do { if ((map)->use_lock) { write_unlock_bh(&(map)->lock); } \
-    } while (0)
-
-
-int sx_core_map_init(struct sx_core_map *map, sx_core_map_compare_cb_t compare_cb, size_t key_size, uint8_t use_lock)
+int sx_core_map_init(struct sx_core_map *map, sx_core_map_compare_cb_t compare_cb, size_t key_size)
 {
     if (!map || !compare_cb || (key_size == 0)) {
         return -EINVAL;
@@ -60,12 +25,51 @@ int sx_core_map_init(struct sx_core_map *map, sx_core_map_compare_cb_t compare_c
     map->map = RB_ROOT;
     map->compare_cb = compare_cb;
     map->key_size = key_size;
-    map->use_lock = use_lock;
 
-    if (map->use_lock) {
-        rwlock_init(&map->lock);
+    return 0;
+}
+
+int sx_core_map_is_empty(struct sx_core_map* map, bool *is_empty)
+{
+    if (!map || !is_empty) {
+        return -EINVAL;
     }
 
+    *is_empty = (rb_first(&map->map) == NULL);
+    return 0;
+}
+
+int sx_core_map_get_first(struct sx_core_map *map, struct sx_core_map_info **info)
+{
+    struct rb_node *node;
+
+    if (!map || !info) {
+        return -EINVAL;
+    }
+
+    node = rb_first(&map->map);
+    if (!node) {
+        return -ENOENT;
+    }
+
+    *info = container_of(node, struct sx_core_map_info, rb_node);
+    return 0;
+}
+
+int sx_core_map_get_next(struct sx_core_map *map, struct sx_core_map_info *curr, struct sx_core_map_info **info)
+{
+    struct rb_node *node;
+
+    if (!map || !curr || !info) {
+        return -EINVAL;
+    }
+
+    node = rb_next(&curr->rb_node);
+    if (!node) {
+        return -ENOENT;
+    }
+
+    *info = container_of(node, struct sx_core_map_info, rb_node);
     return 0;
 }
 
@@ -87,8 +91,6 @@ int sx_core_map_insert(struct sx_core_map *map, const void *key, struct sx_core_
     }
 
     memcpy(info->key, key, map->key_size);
-
-    W_LOCK(map);
 
     new_node = &map->map.rb_node;
 
@@ -117,12 +119,10 @@ int sx_core_map_insert(struct sx_core_map *map, const void *key, struct sx_core_
     rb_insert_color(&info->rb_node, &map->map);
 
 out:
-    W_UNLOCK(map);
     return ret;
 }
 
 
-/* should be called under lock (if case map is using lock) */
 struct sx_core_map_info * __sx_core_map_lookup(struct sx_core_map *map, const void *key)
 {
     struct sx_core_map_info *info;
@@ -159,8 +159,6 @@ int sx_core_map_remove(struct sx_core_map *map, const void *key, struct sx_core_
         return -EINVAL;
     }
 
-    W_LOCK(map);
-
     _info = __sx_core_map_lookup(map, key);
     if (info) {
         *info = _info;
@@ -175,10 +173,30 @@ int sx_core_map_remove(struct sx_core_map *map, const void *key, struct sx_core_
     kfree((_info)->key);
 
 out:
-    W_UNLOCK(map);
     return ret;
 }
 
+int sx_core_map_remove_all(struct sx_core_map *map, sx_core_map_traverse_cb_t destructor_cb, void *context)
+{
+    struct rb_node          *node;
+    struct sx_core_map_info *info;
+
+    if (!map) {
+        return -EINVAL;
+    }
+
+    while ((node = rb_first(&map->map)) != NULL) {
+        info = container_of(node, struct sx_core_map_info, rb_node);
+        if (destructor_cb) {
+            destructor_cb(info->key, info, context);
+        }
+
+        rb_erase(&info->rb_node, &map->map);
+        kfree(info->key);
+    }
+
+    return 0;
+}
 
 int sx_core_map_lookup(struct sx_core_map *map, const void *key, struct sx_core_map_info **info)
 {
@@ -188,14 +206,10 @@ int sx_core_map_lookup(struct sx_core_map *map, const void *key, struct sx_core_
         return -EINVAL;
     }
 
-    R_LOCK(map);
-
     _info = __sx_core_map_lookup(map, key);
     if (info) {
         *info = _info;
     }
-
-    R_UNLOCK(map);
 
     return (_info != NULL) ? 0 : -ENOENT;
 }
@@ -211,8 +225,6 @@ int sx_core_map_traverse(struct sx_core_map *map, sx_core_map_traverse_cb_t trav
         return -EINVAL;
     }
 
-    R_LOCK(map);
-
     for (node = rb_first(&map->map); node; node = rb_next(node)) {
         info = container_of(node, struct sx_core_map_info, rb_node);
         if (traverse_cb(info->key, info, context) != 0) {
@@ -221,6 +233,5 @@ int sx_core_map_traverse(struct sx_core_map *map, sx_core_map_traverse_cb_t trav
         }
     }
 
-    R_UNLOCK(map);
     return ret;
 }
