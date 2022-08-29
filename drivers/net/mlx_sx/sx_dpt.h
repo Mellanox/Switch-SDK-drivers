@@ -35,7 +35,7 @@
 
 #include <linux/pci.h>
 #include <linux/mlx_sx/device.h>
-
+#include "fw.h"
 
 #define SX_GET_PCI_BUS_ID(x)  (((x) & 0xFF0000) >> 16)
 #define SX_GET_PCI_DEV_ID(x)  (((x) & 0x00FF00) >> 8)
@@ -56,11 +56,12 @@ struct sx_dpt_info {
     struct ku_dpt_i2c_info   sx_i2c_info;
     struct ku_dpt_pcie_info  sx_pcie_info;
     struct ku_dpt_sgmii_info sx_sgmii_info;
-    u32                      in_mb_size;
-    u32                      in_mb_offset;
-    u32                      out_mb_size;
-    u32                      out_mb_offset;
-    u64                      fw_rev;
+    /* Each HCR has its own in and out mailboxes in FW */
+    u32 in_mb_size[NUM_OF_HCRS];
+    u32 in_mb_offset[NUM_OF_HCRS];
+    u32 out_mb_size[NUM_OF_HCRS];
+    u32 out_mb_offset[NUM_OF_HCRS];
+    u64 fw_rev;
 };
 struct sx_dpt_s {
     struct sx_dpt_info dpt_info[MAX_NUM_OF_REMOTE_SWITCHES + 1];
@@ -108,7 +109,8 @@ bool sx_dpt_is_path_valid(int sx_dev_id, enum  ku_dpt_path_type path);
  * param[in] returns: 0 success
  *	   !0 error
  */
-int sx_dpt_add_dev_path(int                    sx_dev_id,
+int sx_dpt_add_dev_path(struct sx_dev         *dev,
+                        int                    sx_dev_id,
                         enum  ku_dpt_path_type path,
                         union ku_dpt_path_info path_data,
                         uint8_t                is_local);

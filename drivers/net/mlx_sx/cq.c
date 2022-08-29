@@ -44,7 +44,6 @@
 #include <linux/kthread.h>
 #include <linux/if_vlan.h>
 #include <linux/filter.h>
-#include <linux/ptp_classify.h>
 #include <linux/mlx_sx/device.h>
 #include <linux/mlx_sx/driver.h>
 #include <linux/mlx_sx/cmd.h>
@@ -52,6 +51,7 @@
 #include <linux/workqueue.h>
 #include <linux/vmalloc.h>
 #include <linux/mlx_sx/skb_hook.h>
+#include <linux/ktime.h>
 #include "sx.h"
 #include "cq.h"
 #include "dq.h"
@@ -59,10 +59,13 @@
 #include "alloc.h"
 #include "sx_proc.h"
 #include "sx_clock.h"
+#include "ptp.h"
 #include "sgmii.h"
+#include "bulk_cntr_event.h"
+#include "ber_monitor.h"
+#include "drop_monitor.h"
 
-#define CREATE_TRACE_POINTS
-#include "trace.h"
+#include "trace_func.h"
 
 #include <linux/module.h>
 #include <linux/timer.h>
@@ -74,8 +77,19 @@
 /************************************************
  *  Definitions
  ***********************************************/
+#define IB_CRC_LENGTH  (6) /* CRC length of all IB packets except IB_Raw */
+#define IB_VCRC_LENGTH (2) /* CRC length of IB_Raw packets */
 
 #define MAX_MATCHING_LISTENERS 100
+
+static inline int PORT_VLAN_BIT_IS_SET(u64* arr, u64 num)
+{
+    u64 tmp;
+
+    tmp = (arr)[(num) / 64];
+    return tmp & (1ULL << ((num) % 64)) ? 1 : 0;
+}
+
 
 #ifdef CONFIG_SX_DEBUG
 int sx_debug_cqn;
@@ -105,9 +119,10 @@ extern int               rx_dump;
 extern int               rx_dump_cnt;
 extern int               cpu_traffic_priority_disrupt_low_prio_upon_stress;
 extern int               cpu_traffic_priority_disrupt_low_prio_upon_stress_delay;
-extern int               mon_cq_thread_delay_time_usec;
+extern uint              mon_cq_thread_cpu_util_percent;
 extern int               enable_monitor_rdq_trace_points;
 extern int               enable_cpu_port_loopback;
+extern int               enable_keep_packet_crc;
 unsigned int             credit_thread_vals[1001] = {0};
 unsigned int             arr_count = 0;
 atomic_t                 cq_backup_polling_enabled = ATOMIC_INIT(1);
@@ -184,6 +199,11 @@ void sx_fill_ci_from_cqe_v0(struct completion_info *ci, union sx_cqe *u_cqe)
     ci->dest_sysport = 0xFFFF;
     ci->dest_is_lag = 0;
     ci->dest_lag_subport = 0;
+    ci->mirror_reason = 0;
+    ci->mirror_cong = 0xFFFF;
+    ci->mirror_lantency = 0xFFFFFF;
+    ci->mirror_tclass = 0x1F;
+    ci->mirror_elephant = 0;
 }
 
 void sx_fill_ci_from_cqe_v2(struct completion_info *ci, union sx_cqe *u_cqe)
@@ -198,6 +218,12 @@ void sx_fill_ci_from_cqe_v2(struct completion_info *ci, union sx_cqe *u_cqe)
     ci->dest_sysport = be16_to_cpu(u_cqe->v2->ep_system_port_lag_id);
     ci->dest_is_lag = u_cqe->v2->mirror_tclass_mirror_elph_ep_lag & 0x1;
     ci->dest_lag_subport = (ci->dest_is_lag) ? u_cqe->v2->ep_lag_subport & 0x1F : 0;
+    ci->mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
+    ci->mirror_cong = (be16_to_cpu(u_cqe->v2->vlan_mirror_cong2) & 0xF) << 12;
+    ci->mirror_cong |= (be32_to_cpu(u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) >> 20) & 0xFFF;
+    ci->mirror_lantency = (be16_to_cpu(u_cqe->v2->mirror_latency2) << 8) | u_cqe->v2->mirror_latency1;
+    ci->mirror_tclass = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 3) & 0x1F;
+    ci->mirror_elephant = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 1) & 0x3;
 }
 
 void sx_fill_params_from_cqe_v0(union sx_cqe *u_cqe,
@@ -282,99 +308,57 @@ static u8 check_trap_port_in_filter_db(struct sx_dev *dev, u16 hw_synd, u8 is_la
     return ret;
 }
 
-static void cpu_loopback_work_handler(struct work_struct *work)
+static void sx_cpu_port_loopback(struct completion_info *ci)
 {
-    struct cpu_loopback_data *cpu_lp_wdata = container_of(work, struct cpu_loopback_data, dwork.work);
-    struct isx_meta           meta;
-    struct sk_buff           *skb = cpu_lp_wdata->ci->skb;
-    struct sk_buff           *tmp_skb = NULL;
-    int                       len = 0;
-    int                       err = 0;
+    struct isx_meta meta;
+    struct sk_buff *skb = ci->skb;
+    struct sk_buff *tmp_skb = NULL;
+    int             len = 0;
+    int             err = 0;
+
+    /*
+     * check if called from tasklet context drop the packet
+     */
+    if (in_softirq()) {
+        err = -EINVAL;
+        goto out;
+    }
 
     memset(&meta, 0, sizeof(meta));
     meta.dev_id = 1;
     meta.type = SX_PKT_TYPE_ETH_CTL_UC;
 
     /* No LAG support */
-    meta.system_port_mid = cpu_lp_wdata->ci->sysport;
+    meta.system_port_mid = ci->sysport;
 
     len = skb->len;
     tmp_skb = alloc_skb(ISX_HDR_SIZE + len, GFP_KERNEL);
     if (!tmp_skb) {
-        sx_skb_free(skb);
         printk(KERN_INFO PFX "%s: fail to alloc_skb\n", __func__);
+        err = -ENOMEM;
         goto out;
     }
 
     skb_reserve(tmp_skb, ISX_HDR_SIZE);
     memcpy(skb_put(tmp_skb, len), skb->data, len);
-    sx_skb_free(skb);
 
-    err = sx_core_post_send(cpu_lp_wdata->ci->dev, tmp_skb, &meta);
+    err = sx_core_post_send(ci->dev, tmp_skb, &meta);
     if (err) {
         printk(KERN_INFO PFX "%s: sx_core_post_send FAILED\n", __func__);
-    }
-
-out:
-    /* Free memory */
-    kfree(cpu_lp_wdata->ci);
-    kfree(cpu_lp_wdata);
-}
-
-static void sx_cpu_port_loopback(struct completion_info *ci)
-{
-    struct cpu_loopback_data *cpu_lp_wdata = NULL;
-
-    cpu_lp_wdata = kzalloc(sizeof(*cpu_lp_wdata), GFP_ATOMIC);
-    if (!cpu_lp_wdata) {
-        printk(KERN_ERR PFX "%s: Fail to alloc memory to loopback trap\n", __func__);
-        return;
-    }
-
-    cpu_lp_wdata->ci = ci;
-    INIT_DELAYED_WORK(&cpu_lp_wdata->dwork, cpu_loopback_work_handler);
-
-    queue_delayed_work(ci->dev->generic_wq, &cpu_lp_wdata->dwork, 0);
-}
-
-static void ber_monitor_work_handler(struct work_struct *work)
-{
-    struct ber_work_data      *ber_wdata = container_of(work, struct ber_work_data, dwork.work);
-    struct ku_access_ppbmc_reg ppbmc_reg_data;
-    int                        err = 0;
-
-    memset(&ppbmc_reg_data, 0, sizeof(ppbmc_reg_data));
-
-    ppbmc_reg_data.dev_id = ber_wdata->dev->device_id;
-    sx_cmd_set_op_tlv(&ppbmc_reg_data.op_tlv, PPBMC_REG_ID, 1);
-    ppbmc_reg_data.ppbmc_reg.local_port = ber_wdata->local_port;
-
-    /* Read PPBMC */
-    err = sx_ACCESS_REG_PPBMC(ber_wdata->dev, &ppbmc_reg_data);
-    if (err) {
-        printk(KERN_ERR PFX "Query PPBMC failed for local_port %d (err %d) \n",
-               ber_wdata->local_port, err);
-    }
-
-    /* If armed - no need to re-arm */
-    if (ppbmc_reg_data.ppbmc_reg.e != 0) {
         goto out;
     }
 
-    ppbmc_reg_data.ppbmc_reg.e = 2; /* Generate single event */
-    ppbmc_reg_data.ppbmc_reg.monitor_type = 0; /* monitor type is RO field */
-    sx_cmd_set_op_tlv(&ppbmc_reg_data.op_tlv, PPBMC_REG_ID, 2);
-
-    /* Set PPBMC */
-    err = sx_ACCESS_REG_PPBMC(ber_wdata->dev, &ppbmc_reg_data);
-    if (err) {
-        printk(KERN_ERR PFX "Set PPBMC failed for local_port %d (err %d) \n",
-               ber_wdata->local_port, err);
-    }
+    ci->dev->stats.tx_loopback_ok_by_synd[ci->hw_synd]++;
 
 out:
+
+    if (err) {
+        ci->dev->stats.tx_loopback_dropped_by_synd[ci->hw_synd]++;
+    }
+
     /* Free memory */
-    kfree(ber_wdata);
+    sx_skb_free(skb);
+    kfree(ci);
 }
 
 static void sx_handle_ppbme_event(struct completion_info *ci)
@@ -383,10 +367,6 @@ static void sx_handle_ppbme_event(struct completion_info *ci)
     struct sx_emad            *emad_header = &ppbme->emad_header;
     int                        reg_id = be16_to_cpu(emad_header->emad_op.register_id);
     unsigned short             type_len, ethertype;
-    struct ber_work_data      *ber_wdata = NULL;
-    u8                         monitor_state = 0, old_monitor_state = 0, ber_monitor_bitmask = 0;
-    struct sx_priv            *priv = sx_priv((struct sx_dev *)ci->dev);
-    unsigned long              flags;
 
     type_len = ntohs(ppbme->tlv_header.type_len);
     ethertype = ntohs(ppbme->emad_header.eth_hdr.ethertype);
@@ -401,49 +381,7 @@ static void sx_handle_ppbme_event(struct completion_info *ci)
         return;
     }
 
-    if (ppbme->local_port > MAX_PHYPORT_NUM) {
-        printk(KERN_ERR PFX "Received local_port %d is invalid (max. %d) \n",
-               ppbme->local_port, MAX_PHYPORT_NUM);
-        return;
-    }
-
-    spin_lock_irqsave(&priv->db_lock, flags);
-    old_monitor_state = priv->port_ber_monitor_state[ppbme->local_port];
-    priv->port_ber_monitor_state[ppbme->local_port] = ppbme->monitor_state;
-    ber_monitor_bitmask = priv->port_ber_monitor_bitmask[ppbme->local_port];
-    spin_unlock_irqrestore(&priv->db_lock, flags);
-
-    /* If monitor state didn't changed: silently drop the event */
-    monitor_state = ppbme->monitor_state;
-    if (old_monitor_state == monitor_state) {
-        ci->info.dont_care.drop_enable = 1;
-        goto rearm;
-    }
-
-    /* If user didn't request to be notified for the received monitor state:
-     * Silently drop the event  */
-    if (monitor_state == 0) {
-        ci->info.dont_care.drop_enable = 1;
-    } else if ((1 << (monitor_state - 1)) & ber_monitor_bitmask) {
-        ci->info.dont_care.drop_enable = 0;
-    } else {
-        ci->info.dont_care.drop_enable = 1;
-    }
-
-rearm:
-    /* Re-arm */
-    ber_wdata = kzalloc(sizeof(*ber_wdata), GFP_ATOMIC);
-    if (!ber_wdata) {
-        printk(KERN_ERR PFX "Fail to alloc memory to re-arm event for local_port %d\n",
-               ppbme->local_port);
-        return;
-    }
-
-    ber_wdata->dev = ci->dev;
-    ber_wdata->local_port = ppbme->local_port;
-    INIT_DELAYED_WORK(&ber_wdata->dwork, ber_monitor_work_handler);
-
-    queue_delayed_work(ci->dev->generic_wq, &ber_wdata->dwork, 0);
+    sx_core_ber_monitor_handle_ppbme_event(ci);
 }
 
 static void sx_handle_sbctr_event(struct completion_info *ci)
@@ -454,6 +392,7 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
     unsigned short             type_len, ethertype;
     u64                        old_tc_vec = 0, tc_vec = 0, new_tc_vec = 0;
     u8                         entity = 0, fp = 0, maybe_flag = 0, port_state = 0;
+    u8                         dir_ing = 0;
     struct sx_priv            *priv = sx_priv((struct sx_dev *)ci->dev);
     unsigned long              flags;
 
@@ -475,18 +414,17 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
                sbctr->local_port, MAX_PHYPORT_NUM);
         return;
     }
-
+    dir_ing = sbctr->dir_ing & 0x1;
     entity = sbctr->fp_entity & 0x3;
     fp = (sbctr->fp_entity >> 4) & 0x1;
     tc_vec = be64_to_cpu(sbctr->tc_vec);
 
+    spin_lock_irqsave(&priv->db_lock, flags);
     if (entity == 0) { /* entity is port tc */
         /* Update DB only upon port_tc event */
-        spin_lock_irqsave(&priv->db_lock, flags);
-        old_tc_vec = priv->tele_thrs_tc_vec[sbctr->local_port];
-        priv->tele_thrs_tc_vec[sbctr->local_port] = tc_vec;
-        port_state = priv->tele_thrs_state[sbctr->local_port];
-        spin_unlock_irqrestore(&priv->db_lock, flags);
+        old_tc_vec = priv->tele_thrs_tc_vec[sbctr->local_port][dir_ing];
+        priv->tele_thrs_tc_vec[sbctr->local_port][dir_ing] = tc_vec;
+        port_state = priv->tele_thrs_state[sbctr->local_port][dir_ing];
 
         if (tc_vec == old_tc_vec) {
             /* No change in tc_vec state */
@@ -506,7 +444,8 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
         } else {
             /* Set new tc_vec:
              * High 32 bits marks the changed TCs
-             * Low 32 bits keeps TCs value */
+             * Low 32 bits keeps TCs value
+             * Valid bits [0..15] */
             new_tc_vec = ((old_tc_vec ^ tc_vec) << 32) | (tc_vec & 0xFFFF);
 
             /* re-write the event */
@@ -518,13 +457,12 @@ static void sx_handle_sbctr_event(struct completion_info *ci)
     }
 
     /* Update port state field */
-    spin_lock_irqsave(&priv->db_lock, flags);
     if (maybe_flag) {
-        SX_TELE_THRS_MAYBE_SET(priv->tele_thrs_state[sbctr->local_port]);
+        SX_TELE_THRS_MAYBE_SET(priv->tele_thrs_state[sbctr->local_port][dir_ing]);
     } else {
-        SX_TELE_THRS_MAYBE_CLR(priv->tele_thrs_state[sbctr->local_port]);
+        SX_TELE_THRS_MAYBE_CLR(priv->tele_thrs_state[sbctr->local_port][dir_ing]);
     }
-    SX_TELE_THRS_FIRST_EVENT_SET(priv->tele_thrs_state[sbctr->local_port]);
+    SX_TELE_THRS_FIRST_EVENT_SET(priv->tele_thrs_state[sbctr->local_port][dir_ing]);
     spin_unlock_irqrestore(&priv->db_lock, flags);
 }
 
@@ -533,6 +471,30 @@ static void sx_parse_event(struct completion_info *ci)
     ci->info.dont_care.drop_enable = 0;
 
     switch (ci->hw_synd) {
+    case SXD_TRAP_ID_PPCNT:
+        sx_bulk_cntr_handle_ppcnt(ci);
+        break;
+
+    case SXD_TRAP_ID_MGPCB:
+        sx_bulk_cntr_handle_mgpcb(ci);
+        break;
+
+    case SXD_TRAP_ID_PBSR:
+        sx_bulk_cntr_handle_pbsr(ci);
+        break;
+
+    case SXD_TRAP_ID_SBSRD:
+        sx_bulk_cntr_handle_sbsrd(ci);
+        break;
+
+    case SXD_TRAP_ID_CEER:
+        sx_bulk_cntr_handle_ceer(ci);
+        break;
+
+    case SXD_TRAP_ID_MOCS_DONE:
+        sx_bulk_cntr_handle_mocs_done(ci);
+        break;
+
     case SXD_TRAP_ID_PPBME:
         sx_handle_ppbme_event(ci);
         break;
@@ -581,57 +543,39 @@ static u32 get_qpn(u16 hw_synd, struct sk_buff *skb)
 
     return qpn;
 }
-static int is_port_Vlan_matching(struct completion_info *ci, struct listener_port_vlan_entry *listener)
+
+
+static int listener_register_filter_entry_match_dispatch(struct completion_info                *ci,
+                                                         struct listener_register_filter_entry *listener_register_filter)
 {
-    switch (listener->match_crit) {
-    case PORT_VLAN_MATCH_GLOBAL:
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.global);
-        break;
-
-    case PORT_VLAN_MATCH_PORT_VALID:
-        if (ci->sysport != listener->sysport) {
-            COUNTER_INC(&listener->counters.listener_port_vlan.mismtach.sysport);
-            return 0;
-        }
-
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.sysport);
-        break;
-
-    case PORT_VLAN_MATCH_LAG_VALID:
-        if (!(ci->is_lag) || (ci->sysport != listener->lag_id)) {
-            COUNTER_INC(&listener->counters.listener_port_vlan.mismtach.lag);
-            return 0;
-        }
-
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.lag);
-        break;
-
-    case PORT_VLAN_MATCH_VLAN_VALID:
-        if (ci->vid != listener->vlan) {
-            COUNTER_INC(&listener->counters.listener_port_vlan.mismtach.vlan);
-            return 0;
-        }
-
-        COUNTER_INC(&listener->counters.listener_port_vlan.accepted.vlan);
-        break;
+    if ((listener_register_filter->is_global_filter) ||
+        PORT_VLAN_BIT_IS_SET(listener_register_filter->ports_filters, ci->sysport) ||
+        ((ci->is_lag) && PORT_VLAN_BIT_IS_SET(listener_register_filter->lags_filters, ci->sysport)) ||
+        (PORT_VLAN_BIT_IS_SET(listener_register_filter->vlans_filters, ci->vid))) {
+        return 0;
     }
-
-    return 1;
+    if ((listener_register_filter->is_global_register) ||
+        (PORT_VLAN_BIT_IS_SET(listener_register_filter->ports_registers, ci->sysport) ||
+         ((ci->is_lag) && PORT_VLAN_BIT_IS_SET(listener_register_filter->lags_registers, ci->sysport)) ||
+         (PORT_VLAN_BIT_IS_SET(listener_register_filter->vlans_registers, ci->vid)))) {
+        return 1;
+    }
+    return 0;
 }
 
-static int is_matching(struct completion_info          *ci,
-                       struct listener_port_vlan_entry *listener_port_vlan,
-                       struct listener_entry           *listener)
+static int is_matching(struct completion_info *ci, struct listener_entry *listener)
 {
     if ((listener->swid != ci->swid) &&
         (listener->swid != SWID_NUM_DONT_CARE)) {
-        COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.common.swid);
+        return 0;
+    }
+    /* If the packet came from a user (loopback), don't return it to the same user */
+    if ((ci->context != NULL) && (listener->context == ci->context)) {
         return 0;
     }
 
-    /* If the packet came from a user (loopback), don't return it to the same user */
-    if ((ci->context != NULL) && (listener->context == ci->context)) {
-        COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.common.context);
+    /* in case we want to send the trap to a certain process, other processes won't get it */
+    if ((ci->target_pid != TARGET_PID_DONT_CARE) && (listener->pid != ci->target_pid)) {
         return 0;
     }
 
@@ -640,63 +584,41 @@ static int is_matching(struct completion_info          *ci,
         if (listener->critireas.dont_care.drop_enable && ci->info.dont_care.drop_enable) {
             break;
         }
-
-        if (listener->critireas.dont_care.sysport ==
-            SYSPORT_DONT_CARE_VALUE) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_dont_care);
-            return 1;
-        }
-
-        /* LAGs will also work in the same way */
-        if (ci->sysport != listener->critireas.dont_care.sysport) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_dont_care.sysport);
-            break;
-        }
-
-        COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_dont_care);
         return 1;
 
     case L2_TYPE_ETH:
         if ((ci->pkt_type != PKT_TYPE_ETH) &&
             (ci->pkt_type != PKT_TYPE_FCoETH)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.no_eth);
             break;
         }
 
         if ((ci->info.eth.ethtype != listener->critireas.eth.ethtype) &&
             (listener->critireas.eth.ethtype !=
              ETHTYPE_DONT_CARE_VALUE)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.ethtype);
             break;
         }
 
         if ((ci->info.eth.dmac != listener->critireas.eth.dmac)
             && (listener->critireas.eth.dmac !=
                 DMAC_DONT_CARE_VALUE)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.dmac);
             break;
         }
 
         if ((listener->critireas.eth.emad_tid != TID_DONT_CARE_VALUE) &&
             (ci->info.eth.emad_tid !=
              listener->critireas.eth.emad_tid)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.emad_tid);
             break;
         }
 
         if ((listener->critireas.eth.from_rp != IS_RP_DONT_CARE_E) &&
             (ci->info.eth.from_rp != listener->critireas.eth.from_rp)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.from_rp);
             break;
         }
 
         if ((listener->critireas.eth.from_bridge != IS_BRIDGE_DONT_CARE_E) &&
             (ci->info.eth.from_bridge != listener->critireas.eth.from_bridge)) {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_eth.from_bridge);
             break;
         }
-
-        COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_eth);
         return 1;
 
     case L2_TYPE_IB:
@@ -710,18 +632,11 @@ static int is_matching(struct completion_info          *ci,
                 (listener->critireas.ib.is_oob_originated_mad != 255) /* don't care */) {
                 break;
             }
-
             if ((ci->info.ib.qpn == listener->critireas.ib.qpn) ||
                 (listener->critireas.ib.qpn == QPN_DONT_CARE_VALUE)) {
-                COUNTER_INC(&listener_port_vlan->counters.listener.accepted.l2_ib);
                 return 1;
             }
-
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_ib.qpn);
-        } else {
-            COUNTER_INC(&listener_port_vlan->counters.listener.mismatch.l2_ib.no_ib);
         }
-
         break;
 
     default:
@@ -736,15 +651,13 @@ static int is_matching(struct completion_info          *ci,
  */
 int dispatch_pkt(struct sx_dev *dev, struct completion_info *ci, u16 entry, int dispatch_default)
 {
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos;
-    struct list_head                *port_vlan_pos;
-    unsigned long                    flags;
-    cq_handler                       listener_handler; /*The completion handler*/
-    void                            *listener_context; /*to pass to the handler*/
-    int                              num_found = 0;
-    u8                               is_default;
+    struct listener_entry *listener;
+    struct list_head      *pos;
+    unsigned long          flags;
+    cq_handler             listener_handler;           /*The completion handler*/
+    void                  *listener_context;           /*to pass to the handler*/
+    int                    num_found = 0;
+    u8                     is_default;
 
     /* validate the syndrome range */
     if (entry > NUM_HW_SYNDROMES) {
@@ -752,32 +665,25 @@ int dispatch_pkt(struct sx_dev *dev, struct completion_info *ci, u16 entry, int 
                entry, NUM_HW_SYNDROMES);
         return -1;
     }
-
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     /* Checking syndrome registration and NUM_HW_SYNDROMES callback iff dispatch_default set */
     /* I don't like the syndrome dispatchers at all, but it's too late to change */
     while (1) {
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                if (is_port_Vlan_matching(ci, port_vlan_listener)) {
-                    list_for_each(pos, &(port_vlan_listener->listener.list)) {
-                        listener = list_entry(pos, struct listener_entry, list);
-
-                        if (listener->is_default && (num_found == 0)) {
-                            COUNTER_INC(&port_vlan_listener->counters.listener.accepted.def);
-                            is_default = 1;
-                        } else {
-                            is_default = 0;
-                        }
-
-                        if (is_default || is_matching(ci, port_vlan_listener, listener)) {
-                            listener_handler = listener->handler;
-                            listener_context = listener->context;
-                            listener_handler(ci, listener_context);
-                            listener->rx_pkts++;
-                            ++num_found;
-                        }
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each(pos, &sx_glb.listeners_rf_db[entry].list) {
+                listener = list_entry(pos, struct listener_entry, list);
+                if (listener->is_default && (num_found == 0)) {
+                    is_default = 1;
+                } else {
+                    is_default = 0;
+                }
+                if (listener_register_filter_entry_match_dispatch(ci, &(listener->listener_register_filter))) {
+                    if (is_default || is_matching(ci, listener)) {
+                        listener_handler = listener->handler;
+                        listener_context = listener->context;
+                        listener_handler(ci, listener_context);
+                        listener->rx_pkts++;
+                        ++num_found;
                     }
                 }
             }
@@ -824,117 +730,9 @@ static int chk_completion_info(struct completion_info *ci)
     return err;
 }
 
-int rx_ptp_trap_handler(struct sx_priv *priv, struct completion_info *ci, int cqn)
-{
-    int                       err = 0;
-    struct ptp_rx_event_data *rx_ptp_event;
-    u8                        need_timestamp;
-    u16                       ptp_evt_seqid = 0;
-    u8                        ptp_domain_num = 0, ptp_msg_type = 0;
-    u16                       lag_id = 0, sysport = 0;
 
-    /* PTP L2 Peer to Peer packets received with LLDP trap */
-    if ((ci->hw_synd == PTP_EVENT_PTP0_TRAP_ID) || (ci->hw_synd == PTP_GENERAL_PTP1_TRAP_ID) ||
-        (ci->hw_synd == ETH_L2_LLDP_TRAP_ID)) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_TOTAL]);
-
-        err = sx_ptp_pkt_parse(ci->skb, NULL, &ptp_evt_seqid, &ptp_domain_num, &ptp_msg_type);
-        if (err) {
-            if (ci->hw_synd == PTP_EVENT_PTP0_TRAP_ID) {
-                err = -EINVAL;
-                printk(KERN_ERR PFX "Failed to parse ptp packet(). err: %d \n", err);
-            }
-
-            goto dispatch;
-        }
-
-        if (ci->is_lag) {
-            lag_id = ci->sysport;
-            sysport = priv->lag_member_to_local_db[lag_id][ci->lag_subport];
-        } else {
-            sysport = ci->sysport;
-        }
-
-        /*  with LLDP trap ptp general messages should be dispatch without timestamp */
-        if (((u16)(1 << ptp_msg_type) & PTP_MSG_GENERAL_ALL) && (ci->hw_synd == ETH_L2_LLDP_TRAP_ID)) {
-            need_timestamp = 0;
-        } else if (ci->hw_synd == PTP_GENERAL_PTP1_TRAP_ID) {
-            need_timestamp = 0;
-        } else {
-            need_timestamp = 1;
-
-            if (atomic64_dec_return(&ptp_rx_budget[sysport]) < 0) {
-                /* no more budget for this RX PTP packet! */
-                atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_RATE_LIMIT]);
-            }
-
-            atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_NEED_TIMESTAMP]);
-        }
-
-        priv->ptp_cqn = cqn;
-
-        rx_ptp_event = ptp_allocate_rx_event_data(GFP_ATOMIC);
-        if (!rx_ptp_event) {
-            atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_OUT_OF_MEMORY]);
-            goto out;
-        }
-
-        INIT_LIST_HEAD(&rx_ptp_event->common.list);
-        rx_ptp_event->common.sequence_id = ptp_evt_seqid;
-        rx_ptp_event->common.domain_num = ptp_domain_num;
-        rx_ptp_event->common.msg_type = ptp_msg_type;
-        rx_ptp_event->common.need_timestamp = need_timestamp;
-        rx_ptp_event->common.since = jiffies;
-        rx_ptp_event->ci = ci;
-
-        spin_lock_bh(&ptp_rx_db.sysport_lock[sysport]);
-        list_add_tail(&rx_ptp_event->common.list, &ptp_rx_db.sysport_events_list[sysport]);
-        atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_PENDING_EVENTS]);
-
-        if (!need_timestamp) {
-            ptp_dequeue_general_messages(sysport, &ptp_rx_db);
-        } else if (IS_PTP_MODE_POLLING) {
-            up(&ptp_polling_sem);
-        }
-
-        spin_unlock_bh(&ptp_rx_db.sysport_lock[sysport]);
-
-        return 0;
-    }
-
-#define MTPPTR_OFFSET (0x24)
-
-    if (ci->hw_synd == PTP_ING_PTP_TRAP_ID) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_INGRESS][PTP_COUNTER_FIFO_TRAP]);
-        if (IS_PTP_MODE_EVENTS) {
-            ptp_lookup_event(ci->skb->data + MTPPTR_OFFSET, &ptp_rx_db);
-        }
-
-        goto out;
-    }
-
-    if (ci->hw_synd == PTP_EGR_PTP_TRAP_ID) {
-        atomic64_inc(&ptp_counters[PTP_PACKET_EGRESS][PTP_COUNTER_FIFO_TRAP]);
-        ptp_lookup_event(ci->skb->data + MTPPTR_OFFSET, &ptp_tx_db);
-
-        goto out;
-    }
-
-dispatch:
-    dispatch_pkt(&priv->dev, ci, ci->hw_synd, 1);
-
-out:
-    sx_skb_free(ci->skb);
-    kfree(ci);
-
-    return err;
-}
-
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-/* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
- * - should be removed before Phoenix bring up;
- * - skip UP PUDE event on the port if port admin status is DOWN;
- */
+#ifdef SW_PUDE_EMULATION
+/* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
 static int __verify_hw_synd(struct sx_priv *priv, struct completion_info *ci)
 {
     int                       err = 0;
@@ -962,18 +760,19 @@ static int __verify_hw_synd(struct sx_priv *priv, struct completion_info *ci)
 out:
     return err;
 }
-#endif
+#endif /* SW_PUDE_EMULATION */
 
 /*
  * extracts the needed data from the cqe and from the packet, calls
  * the filter listeners with that info
  */
-int rx_skb(void                  *context,
-           struct sk_buff        *skb,
-           union sx_cqe          *u_cqe,
-           const struct timespec *timestamp,
-           int                    is_from_monitor_rdq,
-           struct listener_entry* force_listener)
+int rx_skb(void                         *context,
+           struct sk_buff               *skb,
+           union sx_cqe                 *u_cqe,
+           const struct sx_rx_timestamp *rx_timestamp,
+           int                           is_from_monitor_rdq,
+           struct listener_entry       * force_listener,
+           u8                            dev_id)
 {
     struct completion_info *ci = NULL;
     struct sx_priv         *priv = sx_priv((struct sx_dev *)context);
@@ -982,6 +781,7 @@ int rx_skb(void                  *context,
     u8                      dqn = 0, cqn = 0;
     u16                     truncate_size = 0;
     u8                      crc_present = 0;
+    u8                      remove_crc = 0;
     struct sx_dev         * sx_device = (struct sx_dev *)context;
     u8                      swid = 0;
     u8                      is_from_rp = IS_RP_DONT_CARE_E;
@@ -1018,6 +818,8 @@ int rx_skb(void                  *context,
 
     __sx_core_dev_specific_cb_release_reference(sx_device);
 
+    remove_crc = (crc_present && !enable_keep_packet_crc);
+
     /* TODO: WA because LP packets return with hw_synd = 0 */
     if (!hw_synd) {
         hw_synd = 1;
@@ -1026,6 +828,8 @@ int rx_skb(void                  *context,
                "probably a LP response\n");
 #endif
     }
+
+    cqn = dqn + NUMBER_OF_SDQS;
 
     /* update skb->len to the real len,
      * instead of the max len we allocated */
@@ -1043,14 +847,14 @@ int rx_skb(void                  *context,
     ci->context = NULL;
     ci->dev = sx_device;
     ci->hw_synd = hw_synd;
+    ci->device_id = dev_id;
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
-     * - should be removed before Phoenix bring up */
+#ifdef SW_PUDE_EMULATION
+    /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
     if (__verify_hw_synd(priv, ci) != 0) {
         goto out;
     }
-#endif
+#endif /* SW_PUDE_EMULATION */
 
     err = __sx_core_dev_specific_cb_get_reference(sx_device);
     if (err) {
@@ -1061,6 +865,15 @@ int rx_skb(void                  *context,
     priv->dev_specific_cb.sx_fill_ci_from_cqe_cb(ci, u_cqe);
 
     __sx_core_dev_specific_cb_release_reference(sx_device);
+
+#if defined (PD_BU) && defined (SPECTRUM4_BU)
+    /* WA for HW bug 2431837 (on Griffin): HW sends TAC aggregated packet with invalid sysport.
+     *  Changing it to be 0 like for events */
+    if (ci->sysport == 0xffff) {
+        printk(KERN_NOTICE "changing sysport for synd [0x%x] from 0xffff to 0. \n", ci->hw_synd);
+        ci->sysport = 0;
+    }
+#endif
 
     /* If packet arrived from external port then ci->sysport != 0 or is_lag != 0 */
     if ((ci->sysport != 0) || (ci->is_lag != 0)) {
@@ -1093,10 +906,7 @@ int rx_skb(void                  *context,
         ci->swid = 0;
     }
 
-    ci->has_timestamp = (timestamp != NULL);
-    if (ci->has_timestamp) {
-        memcpy(&ci->timestamp, timestamp, sizeof(ci->timestamp));
-    }
+    SX_RX_TIMESTAMP_COPY(&ci->rx_timestamp, rx_timestamp);
 
     sx_core_skb_hook_rx_call(sx_device, skb);
 
@@ -1121,6 +931,8 @@ int rx_skb(void                  *context,
                ci->pkt_type, skb->len, ci->is_lag);
         printk(KERN_DEBUG PFX "rx_skb: dest sysport:%#x, dest is_lag:%d, dest lag_subport:%d user_def_val:%#08x\n",
                ci->dest_sysport, ci->dest_is_lag, ci->dest_lag_subport, ci->user_def_val);
+        printk(KERN_DEBUG PFX "rx_skb: mirror_tclass:%d, mirror_cong:%d, mirror_latency:%d \n",
+               ci->mirror_tclass, ci->mirror_cong, ci->mirror_lantency);
 
         if (rx_dump) {
             int i;
@@ -1152,15 +964,21 @@ int rx_skb(void                  *context,
     sx_glb.stats.rx_by_pkt_type[ci->swid][ci->pkt_type]++;
     sx_glb.stats.rx_by_synd[ci->swid][ci->hw_synd]++;
     sx_glb.stats.rx_by_synd_bytes[ci->swid][ci->hw_synd] += skb->len;
+    sx_glb.stats.rx_by_rdq[ci->swid][dqn]++;
+    sx_glb.stats.rx_by_rdq_bytes[ci->swid][dqn] += skb->len;
 
     if (ci->swid < NUMBER_OF_SWIDS) {
         sx_device->stats.rx_by_pkt_type[ci->swid][ci->pkt_type]++;
         sx_device->stats.rx_by_synd[ci->swid][ci->hw_synd]++;
         sx_device->stats.rx_by_synd_bytes[ci->swid][ci->hw_synd] += skb->len;
+        sx_device->stats.rx_by_rdq[ci->swid][dqn]++;
+        sx_device->stats.rx_by_rdq_bytes[ci->swid][dqn] += skb->len;
     } else {
         sx_device->stats.rx_by_pkt_type[NUMBER_OF_SWIDS][ci->pkt_type]++;
         sx_device->stats.rx_by_synd[NUMBER_OF_SWIDS][ci->hw_synd]++;
         sx_device->stats.rx_by_synd_bytes[NUMBER_OF_SWIDS][ci->hw_synd] += skb->len;
+        sx_device->stats.rx_by_rdq[NUMBER_OF_SWIDS][dqn]++;
+        sx_device->stats.rx_by_rdq_bytes[NUMBER_OF_SWIDS][dqn] += skb->len;
     }
 
     if (enable_cpu_port_loopback) { /* it's a DEBUG feature */
@@ -1173,7 +991,7 @@ int rx_skb(void                  *context,
                 skb->len = truncate_size;
             }
 
-            if (crc_present) {
+            if (remove_crc) {
                 ci->original_packet_size -= ETH_CRC_LENGTH;
 
                 if (!truncate_size) {
@@ -1201,9 +1019,7 @@ int rx_skb(void                  *context,
     }
 
     /* Some events need to be silently drop in driver */
-    if ((ci->sysport == 0) && (ci->is_lag == 0)) {
-        sx_parse_event(ci);
-    }
+    sx_parse_event(ci);
 
     switch (ci->pkt_type) {
     case PKT_TYPE_ETH:
@@ -1227,10 +1043,10 @@ int rx_skb(void                  *context,
             ci->vid = get_vid_from_db((struct sx_dev *)context,
                                       ci->is_lag, ci->sysport);
         }
-        if (crc_present) {
+        if (remove_crc) {
             ci->original_packet_size -= ETH_CRC_LENGTH;
         }
-        if (crc_present && !truncate_size) {
+        if (remove_crc && !truncate_size) {
             skb->len -= ETH_CRC_LENGTH;
         }
 
@@ -1259,10 +1075,22 @@ int rx_skb(void                  *context,
         }
         break;
 
-    case PKT_TYPE_IB_Raw: /* TODO: Extract qpn from IB Raw pkts */
     case PKT_TYPE_IB_non_Raw:
     case PKT_TYPE_FCoIB:
     case PKT_TYPE_ETHoIB:
+        ci->info.ib.qpn = get_qpn(hw_synd, skb);
+        if (ci->info.ib.qpn == 0xffffffff) {
+            if (printk_ratelimit()) {
+                printk(KERN_WARNING PFX "Received IB packet "
+                       "is not valid. Dropping the packet\n");
+            }
+            err = -EINVAL;
+            goto out;
+        }
+
+    /* fall-through */
+
+    case PKT_TYPE_IB_Raw:
         if (is_sgmii_supported()) {
             err = sgmii_get_mad_header_info(skb->data,
                                             skb->len,
@@ -1274,20 +1102,10 @@ int rx_skb(void                  *context,
             }
         }
 
-        ci->info.ib.qpn = get_qpn(hw_synd, skb);
-        if (ci->info.ib.qpn == 0xffffffff) {
-            if (printk_ratelimit()) {
-                printk(KERN_WARNING PFX "Received IB packet "
-                       "is not valid. Dropping the packet\n");
-            }
-            err = -EINVAL;
-            goto out;
-        }
-
         /* Extract the IB port from the sysport */
         ci->sysport = (ci->sysport >> 4) & 0x7f;
-        if (crc_present && !truncate_size) {
-            skb->len -= IB_CRC_LENGTH;
+        if (remove_crc && !truncate_size) {
+            skb->len -= (ci->pkt_type == PKT_TYPE_IB_Raw) ? IB_VCRC_LENGTH : IB_CRC_LENGTH;
         }
         break;
 
@@ -1317,9 +1135,15 @@ int rx_skb(void                  *context,
 #endif
 
     if (priv->tstamp.is_ptp_enable && !is_from_monitor_rdq) {
-        cqn = dqn + NUMBER_OF_SDQS;
-        err = rx_ptp_trap_handler(priv, ci, cqn);
-        return err;
+        err = sx_core_ptp_rx_handler(priv, ci, cqn);
+
+        /* if (err != 0) it is not a real error, it just means that either it is not a PTP packet/event or
+         *               it is a PTP packet that got its timestamp and should continue the packet flow as
+         *               usual [dispatch_pkt(), free skb, free ci].
+         * if (err == 0) it means that packet is being handled by PTP and processing is done here (only on SPC1) */
+        if (!err) {
+            return 0;
+        }
     }
 
     if (force_listener == NULL) {
@@ -1512,74 +1336,128 @@ out:
     return err;
 }
 
-void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe,
-                                         u16          *trap_id,
-                                         u8           *is_err,
-                                         u8           *is_send,
-                                         u8           *dqn,
-                                         u16          *wqe_counter,
-                                         u16          *byte_count)
+void sx_fill_poll_one_params_from_cqe_v0(union sx_cqe *u_cqe, struct sx_cqe_params *cqe_params)
 {
-    *dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
+    cqe_params->dqn = (u_cqe->v0->e_sr_dqn_owner >> 1) & SX_CQE_DQN_MASK;
     if (be16_to_cpu(u_cqe->v0->dqn5_byte_count) & SX_CQE_DQN_MSB_MASK) {
-        *dqn |= (1 << SX_CQE_DQN_MSB_SHIFT);
+        cqe_params->dqn |= (1 << SX_CQE_DQN_MSB_SHIFT);
     }
-    *is_err = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_ERR_MASK);
-    *is_send = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_SEND_MASK);
-    *wqe_counter = be16_to_cpu(u_cqe->v0->wqe_counter);
-    *trap_id = u_cqe->v0->trap_id & 0xFF;
-    *byte_count = be16_to_cpu(u_cqe->v0->dqn5_byte_count) & 0x3FFF;
+    cqe_params->is_err = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_ERR_MASK);
+    cqe_params->is_send = !!(u_cqe->v0->e_sr_dqn_owner & SX_CQE_IS_SEND_MASK);
+    cqe_params->wqe_counter = be16_to_cpu(u_cqe->v0->wqe_counter);
+    cqe_params->trap_id = u_cqe->v0->trap_id & 0xFF;
+    cqe_params->byte_count = be16_to_cpu(u_cqe->v0->dqn5_byte_count) & 0x3FFF;
+    cqe_params->user_def_val_orig_pkt_len = 0;
+    cqe_params->is_lag = (u_cqe->v0->lag >> 7) & 0x1;
+    cqe_params->lag_subport = u_cqe->v0->vlan2_lag_subport & 0x1F;
+    cqe_params->sysport_lag_id = be16_to_cpu(u_cqe->v0->system_port_lag_id);
+    cqe_params->mirror_reason = 0;
+    SX_RX_TIMESTAMP_INIT(&cqe_params->cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
 }
 
-void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe,
-                                         u16          *trap_id,
-                                         u8           *is_err,
-                                         u8           *is_send,
-                                         u8           *dqn,
-                                         u16          *wqe_counter,
-                                         u16          *byte_count)
+void sx_fill_poll_one_params_from_cqe_v1(union sx_cqe *u_cqe, struct sx_cqe_params *cqe_params)
 {
-    *dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
-    *is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
-    *is_send = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x4);
-    *wqe_counter = be16_to_cpu(u_cqe->v1->wqe_counter);
-    *trap_id = be16_to_cpu(u_cqe->v1->sma_check_id_trap_id) & 0x3FF;
-    *byte_count = be16_to_cpu(u_cqe->v1->isx_ulp_crc_byte_count) & 0x3FFF;
+    cqe_params->dqn = (u_cqe->v1->dqn_owner >> 1) & 0x3F;
+    cqe_params->is_err = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x8);
+    cqe_params->is_send = !!(u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x4);
+    cqe_params->wqe_counter = be16_to_cpu(u_cqe->v1->wqe_counter);
+    cqe_params->trap_id = be16_to_cpu(u_cqe->v1->sma_check_id_trap_id) & 0x3FF;
+    cqe_params->byte_count = be16_to_cpu(u_cqe->v1->isx_ulp_crc_byte_count) & 0x3FFF;
+    cqe_params->user_def_val_orig_pkt_len = 0;
+    cqe_params->is_lag = u_cqe->v1->version_e_sr_packet_ok_rp_lag & 0x1;
+    cqe_params->lag_subport = u_cqe->v1->rp_lag_subport & 0xFF;
+    cqe_params->sysport_lag_id = be16_to_cpu(u_cqe->v1->rp_system_port_lag_id);
+    cqe_params->mirror_reason = 0;
+    SX_RX_TIMESTAMP_INIT(&cqe_params->cqe_ts, 0, 0, SXD_TS_TYPE_NONE);
 }
 
-void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe,
-                                         u16          *trap_id,
-                                         u8           *is_err,
-                                         u8           *is_send,
-                                         u8           *dqn,
-                                         u16          *wqe_counter,
-                                         u16          *byte_count)
+void sx_fill_poll_one_params_from_cqe_v2(union sx_cqe *u_cqe, struct sx_cqe_params *cqe_params)
 {
-    *dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
-    *is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
-    *is_send = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x4);
-    *wqe_counter = be16_to_cpu(u_cqe->v2->wqe_counter);
-    *trap_id = be16_to_cpu(u_cqe->v2->sma_check_id_trap_id) & 0x3FF;
-    *byte_count = be16_to_cpu(u_cqe->v2->isx_ulp_crc_byte_count) & 0x3FFF;
+    cqe_params->dqn = (u_cqe->v2->dqn >> 1) & 0x3F;
+    cqe_params->is_err = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x8);
+    cqe_params->is_send = !!(u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x4);
+    cqe_params->wqe_counter = be16_to_cpu(u_cqe->v2->wqe_counter);
+    cqe_params->trap_id = be16_to_cpu(u_cqe->v2->sma_check_id_trap_id) & 0x3FF;
+    cqe_params->byte_count = be16_to_cpu(u_cqe->v2->isx_ulp_crc_byte_count) & 0x3FFF;
+    cqe_params->user_def_val_orig_pkt_len = be32_to_cpu(
+        u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) & 0xFFFFF;
+    cqe_params->is_lag = u_cqe->v2->version_e_sr_packet_ok_rp_lag & 0x1;
+    cqe_params->lag_subport = u_cqe->v2->rp_lag_subport & 0xFF;
+    cqe_params->sysport_lag_id = be16_to_cpu(u_cqe->v2->rp_system_port_lag_id);
+    cqe_params->mirror_reason = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 24) & 0xFF;
+    cqe_params->mirror_tclass = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 3) & 0x1F;
+    cqe_params->mirror_cong = ((be16_to_cpu(u_cqe->v2->vlan_mirror_cong2) & 0xF) << 12) |
+                              ((be32_to_cpu(u_cqe->v2->mirror_cong1_user_def_val_orig_pkt_len) & 0xFFF00000) >> 20);
+    cqe_params->mirror_lantency = (be16_to_cpu(u_cqe->v2->mirror_latency2) << 8) | u_cqe->v2->mirror_latency1;
+    cqe_params->dest_is_lag = u_cqe->v2->mirror_tclass_mirror_elph_ep_lag & 0x1;
+    cqe_params->dest_lag_subport = u_cqe->v2->ep_lag_subport;
+    cqe_params->dest_sysport_lag_id = be16_to_cpu(u_cqe->v2->ep_system_port_lag_id);
+    cqe_params->cqe_ts.timestamp.tv_sec =
+        (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 14) & 0xFF;
+    cqe_params->cqe_ts.timestamp.tv_nsec =
+        ((be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) & 0x3FFF) << 16) |
+        be16_to_cpu(u_cqe->v2->time_stamp1);
+    cqe_params->cqe_ts.ts_type = (be32_to_cpu(u_cqe->v2->mirror_reason_time_stamp_type_time_stamp2) >> 22) & 0x3;
+    cqe_params->mirror_elephant = (u_cqe->v2->mirror_tclass_mirror_elph_ep_lag >> 1) & 0x3;
 }
 
-static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
+
+/* the purpose of this function is to fill the desired timestamp:
+ * 1) if CQ is configured to work with HW timestamp and the timestamp-type is not 'None' (CQE holds
+ *    a valid timestamp), get the timestamp from CQE and adjust it to real UTC (CQEv2 holds only 8bit
+ *    of the seconds).
+ * 2) if CQ is configured to work with Linux timestamp, use it if valid.
+ * 3) On all other cases, put zero timestamp and mark timestamp-type to 'None'.
+ */
+void set_timestamp_of_rx_packet(struct sx_cq *cq,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                                const struct timespec64      *linux_ts,
+#else
+                                const struct timespec        *linux_ts,
+#endif
+                                const struct sx_rx_timestamp *cqe_ts, struct sx_rx_timestamp       *rx_ts)
 {
-    union sx_cqe    u_cqe = {.v0 = NULL, .v1 = NULL, .v2 = NULL};
-    u8              dqn = 0;
-    u8              is_send = 0;
-    u8              is_err = 0;
-    struct sx_dq   *dq;
-    struct sk_buff *skb;
-    int             err = 0;
-    struct sx_priv *priv = sx_priv(cq->sx_dev);
-    u16             wqe_ctr = 0;
-    u16             idx = 0;
-    u16             wqe_counter = 0;
-    u16             trap_id = 0;
-    u16             byte_count = 0;
-    unsigned long   flags;
-    uint8_t         rdq_num = 0;
+    if (IS_CQ_WORKING_WITH_TIMESTAMP(cq->sx_dev, cq->cqn)) { /* CQ is configured to get RX timestamp */
+        if ((cqe_ts->ts_type != SXD_TS_TYPE_NONE) && IS_CQ_WORKING_WITH_HW_TIMESTAMP(cq->sx_dev, cq->cqn)) {
+            sx_core_clock_cqe_ts_to_utc(sx_priv(cq->sx_dev), &cqe_ts->timestamp, &rx_ts->timestamp);
+            rx_ts->ts_type = cqe_ts->ts_type;
+        } else if (linux_ts) {
+            SX_RX_TIMESTAMP_INIT(rx_ts, linux_ts->tv_sec, linux_ts->tv_nsec, SXD_TS_TYPE_LINUX);
+        } else { /* we should not get here but to be on the safe side ... */
+            SX_RX_TIMESTAMP_INIT(rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+        }
+    } else { /* CQ is not configured to get timestamp */
+        SX_RX_TIMESTAMP_INIT(rx_ts, 0, 0, SXD_TS_TYPE_NONE);
+    }
+}
+
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static int sx_poll_one(struct sx_cq *cq, const struct timespec64 *ts_linux)
+#else
+static int sx_poll_one(struct sx_cq *cq, const struct timespec *ts_linux)
+#endif
+{
+    union sx_cqe           u_cqe = {.v0 = NULL, .v1 = NULL, .v2 = NULL};
+    struct sx_dq          *dq;
+    struct sk_buff        *skb;
+    int                    err = 0;
+    struct sx_priv        *priv = sx_priv(cq->sx_dev);
+    u16                    wqe_ctr = 0;
+    u16                    idx = 0;
+    struct sx_cqe_params   cqe_params = {0};
+    unsigned long          flags;
+    uint8_t                rdq_num = 0;
+    struct sx_rx_timestamp rx_timestamp;
+    struct sx_pkt         *curr_pkt;
+    struct list_head      *pos;
+    bool                   found = false;
+    u16                    rdq_max_buff_size = 0;
+    u64                    now, comp_time;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    int should_drop = 0;
+#endif
 
     spin_lock_irqsave(&cq->lock, flags);
     cq->sx_next_cqe_cb(cq, &u_cqe);
@@ -1589,6 +1467,7 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
     }
 
     ++cq->cons_index;
+    ++cq->cons_index_dbg;
     spin_unlock_irqrestore(&cq->lock, flags);
 
     /*
@@ -1597,29 +1476,28 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
      */
     rmb();
 
+    cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
 
-    cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err, &is_send, &dqn, &wqe_counter, &byte_count);
-
-    if (is_send) {
-        if (dqn >= NUMBER_OF_SDQS) {
+    if (cqe_params.is_send) {
+        if (cqe_params.dqn >= NUMBER_OF_SDQS) {
             sx_warn(cq->sx_dev, "dqn %d is larger than max SDQ %d.\n",
-                    dqn, NUMBER_OF_SDQS);
+                    cqe_params.dqn, NUMBER_OF_SDQS);
             return 0;
         }
     } else {
-        err = sx_core_get_rdq_num_max(&(priv->dev), &rdq_num);
+        err = sx_core_get_rdq_param_max(&(priv->dev), &rdq_num, &rdq_max_buff_size);
         if (err) {
-            printk(KERN_ERR PFX "Error: failed to get max RDQ num\n");
+            printk(KERN_ERR PFX "Error: failed to get max RDQ params (err=%d)\n", err);
             return err;
         }
 
-        if (dqn >= rdq_num) {
+        if (cqe_params.dqn >= rdq_num) {
             sx_warn(cq->sx_dev, "dqn %d is larger than max RDQ %d.\n",
-                    dqn, rdq_num);
+                    cqe_params.dqn, rdq_num);
             return 0;
         }
     }
-    dq = is_send ? priv->sdq_table.dq[dqn] : priv->rdq_table.dq[dqn];
+    dq = cqe_params.is_send ? priv->sdq_table.dq[cqe_params.dqn] : priv->rdq_table.dq[cqe_params.dqn];
 
 #ifdef SX_DEBUG
     printk(KERN_DEBUG PFX "sx_poll_one: dqn = %d, is_err = %d, "
@@ -1630,19 +1508,19 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
         if (printk_ratelimit()) {
             sx_warn(cq->sx_dev, "could not find dq context for %s "
                     "dqn = %d\n",
-                    is_send ? "send" : "recv", dqn);
+                    cqe_params.is_send ? "send" : "recv", cqe_params.dqn);
         }
 
         return 0;
     }
 
-    wqe_ctr = wqe_counter & (dq->wqe_cnt - 1);
-    if (is_err && !dq->is_flushing) {
+    wqe_ctr = cqe_params.wqe_counter & (dq->wqe_cnt - 1);
+    if (cqe_params.is_err && !dq->is_flushing) {
         sx_warn(cq->sx_dev, "got %s completion with error, "
                 "syndrom=0x%x\n",
-                is_send ? "send" : "recv", trap_id);
+                cqe_params.is_send ? "send" : "recv", cqe_params.trap_id);
 
-        if (!is_send) {
+        if (!cqe_params.is_send) {
             idx = dq->tail++ & (dq->wqe_cnt - 1);
             dq->last_completion = jiffies;
             wqe_sync_for_cpu(dq, idx);
@@ -1650,10 +1528,11 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
             dq->sge[idx].skb = NULL;
         }
 
+        SX_RX_TIMESTAMP_INIT(&rx_timestamp, 0, 0, SXD_TS_TYPE_NONE);
         goto skip;
     }
 
-    if (is_send) {
+    if (cqe_params.is_send) {
         spin_lock_bh(&dq->lock);
 
         /* find the wqe and unmap the DMA buffer.
@@ -1664,10 +1543,52 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
             idx = dq->tail++ & (dq->wqe_cnt - 1);
             dq->last_completion = jiffies;
             wqe_sync_for_cpu(dq, idx);
-            sx_skb_free(dq->sge[idx].skb);
-            dq->sge[idx].skb = NULL;
-        } while (idx != wqe_ctr);
 
+            /* if it is a TX PTP packet, put the timestamp skb */
+            if ((cqe_params.cqe_ts.ts_type != SXD_TS_TYPE_NONE) &&
+                (dq->sge[idx].skb != NULL) &&
+                (skb_shinfo(dq->sge[idx].skb)->tx_flags & SKBTX_IN_PROGRESS)) {
+                sx_core_clock_cqe_ts_to_utc(priv, &cqe_params.cqe_ts.timestamp, &cqe_params.cqe_ts.timestamp);
+                sx_core_ptp_tx_ts_handler(priv, dq->sge[idx].skb, &cqe_params.cqe_ts.timestamp);
+            }
+
+            found = false;
+            list_for_each(pos, &dq->pkts_comp_list.list_wait_for_completion) {
+                curr_pkt = list_entry(pos, struct sx_pkt, list_wait_for_completion);
+                if (curr_pkt->idx == idx) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                printk(KERN_ERR "SDQ [%u]: completion for an unknown index (idx=%u)\n",
+                       cqe_params.dqn, idx);
+            } else {
+                list_del(pos);
+                sx_skb_free(dq->sge[idx].skb);
+                dq->sge[idx].skb = NULL;
+                if (curr_pkt->completion_delay_reported) {
+                    dq->pkts_no_recv_completion--;
+                    dq->pkts_late_completion++;
+                    if (printk_ratelimit()) {
+                        sx_err(cq->sx_dev, "Receive late completion for dqn (%d) idx (%d)\n",
+                               cqe_params.dqn, idx);
+                    }
+                } else {
+                    dq->pkts_recv_completion++;
+                }
+
+                now = jiffies;
+                comp_time = now - curr_pkt->since;
+                if (comp_time > dq->max_comp_time) {
+                    dq->max_comp_time = comp_time;
+                    dq->max_comp_ts = now;
+                }
+
+                kfree(curr_pkt);
+            }
+        } while (idx != wqe_ctr);
 
         if ((0 == cq->sx_dev->global_flushing) && (0 == dq->is_flushing)) {
             sx_add_pkts_to_sdq(dq);
@@ -1682,18 +1603,22 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
         idx = dq->tail & (dq->wqe_cnt - 1);
         while (idx != wqe_ctr) {
             if (printk_ratelimit()) {
-                printk(KERN_DEBUG PFX "sx_poll_one: Err "
-                       "wqe_ctr=[%u] "
-                       "!= dq->tail=[%u]\n",
-                       wqe_ctr, dq->tail);
+                printk(KERN_DEBUG PFX "sx_poll_one: Err wqe_ctr [%u] != idx [%u] (dq->tail [%u])\n",
+                       wqe_ctr, idx, dq->tail);
             }
-/*			idx = dq->tail & (dq->wqe_cnt - 1); */
+
+            dq->tail++; /* increment before sx_core_post_recv()/post_skb() */
             wqe_sync_for_cpu(dq, idx);
-            sx_skb_free(dq->sge[idx].skb);
-            dq->sge[idx].skb = NULL;
-            dq->tail++;
+
+            if (dq->is_monitor) {
+                sx_core_post_recv(dq, NULL);
+            } else {
+                sx_skb_free(dq->sge[idx].skb);
+                dq->sge[idx].skb = NULL;
+                post_skb(dq);
+            }
+
             idx = dq->tail & (dq->wqe_cnt - 1);
-            post_skb(dq);
         }
 
         ++dq->tail;
@@ -1707,6 +1632,28 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
 
         skb = dq->sge[idx].skb;
 
+        /* Put timestamp on RX packet */
+        set_timestamp_of_rx_packet(cq, ts_linux, &cqe_params.cqe_ts, &rx_timestamp);
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+        if (enable_monitor_rdq_trace_points) {
+            should_drop = 0;
+            spin_lock_irqsave(&priv->rdq_table.lock, flags);
+            if (priv->filter_ebpf_progs[cqe_params.dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[cqe_params.dqn],
+                                                                       skb,
+                                                                       &cqe_params,
+                                                                       rdq_max_buff_size);
+            }
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+            if (should_drop != 0) {
+                sx_skb_free(skb);
+                dq->sge[idx].skb = NULL;
+                goto skip;
+            }
+        }
+#endif
+
         /*
          *   For monitor rdq we don't need to send the packet to upper layer and
          *   also not to free the packet in case of error , because the same packet
@@ -1714,29 +1661,38 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
          */
         if (dq->is_monitor) {
             if (enable_monitor_rdq_trace_points) {
-                trace_monitor_rdq_rx(skb, trap_id, timestamp);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+                spin_lock_irqsave(&priv->rdq_table.lock, flags);
+                sx_core_call_rdq_agg_trace_point_func(priv,
+                                                      cqe_params.dqn,
+                                                      rdq_max_buff_size,
+                                                      skb,
+                                                      &cqe_params,
+                                                      &rx_timestamp.timestamp);
+                spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+#endif
             }
             goto skip;
         }
 
-        if (!is_err) {
+        if (!cqe_params.is_err) {
             /* if packet length is less than 2K, let's reallocate it and reassign lower skb->truesize.
              * current skb->truesize is 10K and IP stack accounts for truesize and not for actual buffer size.
              */
-            if (byte_count <= 2048) {
+            if (cqe_params.byte_count <= 2048) {
                 struct sk_buff *new_skb;
 
                 new_skb = skb_clone(skb, GFP_ATOMIC);
                 if (new_skb) {
-                    new_skb->len = byte_count;
-                    new_skb->truesize = roundup_pow_of_two(byte_count);
+                    new_skb->len = cqe_params.byte_count;
+                    new_skb->truesize = roundup_pow_of_two(cqe_params.byte_count);
 
                     sx_skb_free(skb); /* free original 10K buffer */
                     skb = new_skb; /* use the new buffer that is much lower in size */
                 }
             }
 
-            rx_skb(cq->sx_dev, skb, &u_cqe, timestamp, 0, NULL);
+            rx_skb(cq->sx_dev, skb, &u_cqe, &rx_timestamp, 0, NULL, cq->sx_dev->device_id);
         } else {
             sx_skb_free(skb);
         }
@@ -1745,19 +1701,20 @@ static int sx_poll_one(struct sx_cq *cq, const struct timespec *timestamp)
     }
 skip:
     sx_cq_set_ci(cq);
-    if (!is_send && !dq->is_flushing) {
+    if (!cqe_params.is_send && !dq->is_flushing) {
         if (!dq->is_monitor) {
             err = post_skb(dq);
         } else {
-            if (timestamp) {
-                cq->cqe_ts_arr[idx] = *timestamp;
+            if (rx_timestamp.ts_type != SXD_TS_TYPE_NONE) {
+                SX_RX_TIMESTAMP_COPY(&cq->cqe_ts_arr[idx], &rx_timestamp);
             }
-            /* sx_core_post_recv will repost the same buffer for monitor rdq */
+
+            /* sx_core_post_recv will re-post the same buffer for monitor rdq */
             sx_core_post_recv(dq, NULL);
         }
     }
 
-    if (is_send) {
+    if (cqe_params.is_send) {
         wake_up_interruptible(&dq->tx_full_wait);
     }
 
@@ -1765,29 +1722,32 @@ skip:
 }
 
 /* return errno on error, otherwise num of handled cqes */
-int sx_cq_completion(struct sx_dev         *dev,
-                     u32                    cqn,
-                     u16                    weight,
+int sx_cq_completion(struct sx_dev *dev, u32 cqn, u16 weight,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                     const struct timespec64 *timestamp,
+#else
                      const struct timespec *timestamp,
+#endif
                      struct sx_bitmap      *prio_bitmap)
 {
-    struct sx_cq *cq;
-    unsigned long flags;
-    int           num_of_cqes = 0;
-    int           err = 0;
+    struct sx_priv *priv = sx_priv(dev);
+    struct sx_cq   *cq;
+    unsigned long   flags;
+    int             num_of_cqes = 0;
+    int             err = 0;
 
-    spin_lock_irqsave(&sx_priv(dev)->cq_table.lock, flags);
-    cq = (sx_priv(dev)->cq_table.cq[cqn]);
-    spin_unlock_irqrestore(&sx_priv(dev)->cq_table.lock, flags);
+    spin_lock_irqsave(&priv->cq_table.lock, flags);
+    cq = (priv->cq_table.cq[cqn]);
+    spin_unlock_irqrestore(&priv->cq_table.lock, flags);
     if (!cq) {
-        if (printk_ratelimit()) {
+        if (!dev->global_flushing && printk_ratelimit()) {
             sx_warn(dev, "Completion event for bogus CQ %08x\n", cqn);
         }
 
         return -EAGAIN;
     }
 
-    if (!sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, cqn)) {
+    if (!IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn)) {
         timestamp = NULL;
     }
 
@@ -1799,9 +1759,18 @@ int sx_cq_completion(struct sx_dev         *dev,
         }
     } while (!err && ++num_of_cqes < weight);
 
-    if (num_of_cqes < weight) {
+    /* for more details of this 'if', read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if ((priv->pause_cqn == cqn) || (num_of_cqes < weight)) {
         sx_bitmap_free(prio_bitmap, cqn);
         sx_cq_arm(cq);
+
+        if (priv->pause_cqn == cqn) {
+            /* make sure that the next time tasklet runs, the CQ bit in 'active_bitmap' will be off.
+             * this will ensure to signal [complete()] the ioctl() command that waits for us.
+             * for more details of the flow, read the big comment in ctrl_cmd_set_monitor_rdq().
+             */
+            tasklet_schedule(&priv->intr_tasklet);
+        }
     }
 
     if (!err || (err == -EAGAIN)) {
@@ -1951,6 +1920,8 @@ int sx_core_create_cq(struct sx_dev *dev, int nent, struct sx_cq **cq, u8 cqn)
     tcq->arm_db = dev->db_base + SX_DBELL_CQ_ARM_OFFSET + 4 * tcq->cqn;
     tcq->sx_dev = dev;
     tcq->cons_index = 0;
+    tcq->cons_index_dbg = 0;
+    tcq->cons_index_dbg_snapshot = 0;
     atomic_set(&tcq->refcount, 1);
     atomic_set(&tcq->bkp_poll_data.curr_num_cq_polls, 0);
     atomic_set(&tcq->bkp_poll_data.cq_bkp_poll_mode, 0);
@@ -2026,12 +1997,17 @@ void sx_core_destroy_cq(struct sx_dev *dev, struct sx_cq *cq)
 
 int iterate_active_cqs(struct sx_dev *dev, struct sx_bitmap *active_cq_bitmap)
 {
-    struct sx_priv  *priv = sx_priv(dev);
+    struct sx_priv *priv = sx_priv(dev);
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    struct timespec64 *ts;
+#else
     struct timespec *ts;
-    int              num_of_cqe_handled;
-    int              should_continue_polling = 0;
-    int              cqn;
-    u16              weight;
+#endif
+    int num_of_cqe_handled;
+    int should_continue_polling = 0;
+    int cqn;
+    u16 weight;
 
     weight = 1 << dev->dev_cap.log_max_sdq_sz;
     for (cqn = 0; cqn < dev->dev_cap.max_num_cqs; cqn++) {
@@ -2048,7 +2024,9 @@ int iterate_active_cqs(struct sx_dev *dev, struct sx_bitmap *active_cq_bitmap)
 
         num_of_cqe_handled = sx_cq_completion(dev, cqn, weight, ts, active_cq_bitmap);
         if (num_of_cqe_handled < 0) {
-            printk(KERN_WARNING PFX "sx_eq_int: cq_completion failed\n");
+            if (!dev->global_flushing) {
+                printk(KERN_WARNING PFX "sx_eq_int: cq_completion failed\n");
+            }
         } else if (num_of_cqe_handled == weight) {
             should_continue_polling = 1;
         }
@@ -2059,25 +2037,27 @@ int iterate_active_cqs(struct sx_dev *dev, struct sx_bitmap *active_cq_bitmap)
 
 int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
 {
-    int                err;
-    struct ku_query_cq cq_context;
-    static __be16      rx_cnt = 0;
-    unsigned long      flags;
-    struct sx_cq      *cq;
-    struct sx_dq      *rdq;
-    int                cqn;
-    struct sx_priv    *priv = sx_priv(dev);
-    int                i;
-    u32                cq_ts_enabled = 0;
-    union sx_cqe       u_cqe;
-    u8                 dqn1 = 0;
-    u8                 is_send = 0;
-    u8                 is_err = 0;
-    u16                trap_id = 0;
-    u16                byte_count = 0;
-    u16                wqe_counter = 0;
-    int                idx;
-    struct sk_buff    *skb;
+    int                    err;
+    struct ku_query_cq     cq_context;
+    u16                    rx_cnt = 0;
+    unsigned long          flags;
+    struct sx_cq          *cq;
+    struct sx_dq          *rdq;
+    int                    cqn;
+    struct sx_priv        *priv = sx_priv(dev);
+    int                    i;
+    u32                    cq_ts_enabled = 0;
+    union sx_cqe           u_cqe;
+    struct sx_cqe_params   cqe_params = {0};
+    int                    idx;
+    struct sk_buff        *skb;
+    u16                    rdq_max_buff_size = 0;
+    bool                   rx_ts_set = false;
+    struct sx_rx_timestamp rx_ts;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+    int should_drop = 0;
+#endif
 
     spin_lock_irqsave(&priv->rdq_table.lock, flags);
     rdq = priv->rdq_table.dq[dqn];
@@ -2091,6 +2071,16 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     cq = rdq->cq;
     cqn = cq->cqn;
 
+    if (!test_bit(cqn, priv->active_monitor_cq_bitmap.table)) {
+        goto out;
+    }
+
+    err = sx_core_get_rdq_param_max(dev, NULL, &rdq_max_buff_size);
+    if (err) {
+        sx_err(dev, "failed to get monitor RDQ attributes (err=%d)\n", err);
+        return err;
+    }
+
     /* read cq producer counter, which indicate the total number of
      * received packets */
     err = sx_QUERY_CQ(dev, cqn, &cq_context);
@@ -2100,49 +2090,95 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     }
 
     /* valid cqes is cqes between cons_index and producer_index */
-    if (cq_context.producer_counter == cq->cons_index) {
+    /* for more details about 'priv->pause_cqn' role, read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if (cq_context.producer_counter == (cq->cons_index & 0xffff)) {
         /* No packets was received so
          * arm cq so next time we will be waked up from interrupt */
-        rx_cnt = 0;
+        sx_bitmap_free(&priv->active_monitor_cq_bitmap, cqn);
         sx_cq_arm(cq);
         goto out;
     }
 
-    /* Calculate number of received packets */
-    rx_cnt = cq_context.producer_counter - cq->cons_index;
+    cq_ts_enabled = IS_CQ_WORKING_WITH_TIMESTAMP(dev, cq->cqn);
 
-    /* if CQ configured with TS enable add them to each cqe */
-    if (sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn)) {
-        for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
-            cq->cqe_ts_arr[i % cq->nent] = priv->cq_table.timestamps[cq->cqn];
-        }
+    /* if CQ configured with TS enable add them to each cqe.
+     * the timestamp source may change later in this function (if enable_monitor_rdq_trace_points enabled)
+     * or in sx_monitor_simulate_rx_skb(). now we have Linux timestamp but the CQ may be configured to get
+     * the timestamp from HW (thus, from CQE).
+     */
+    if (cq_ts_enabled) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+        ktime_get_real_ts64(&priv->cq_table.timestamps[cq->cqn]);
+#else
+        getnstimeofday(&priv->cq_table.timestamps[cq->cqn]);
+#endif
     }
 
-    if (enable_monitor_rdq_trace_points) {
-        cq_ts_enabled = sx_bitmap_test(&priv->cq_table.ts_bitmap, cq->cqn);
-        for (i = cq->cons_index; i < cq_context.producer_counter; i++) {
-            sx_get_cqe_all_versions(cq, i, &u_cqe);
-            if (u_cqe.v2 == NULL) {
-                continue;
-            }
-            cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &trap_id, &is_err,
-                                                    &is_send, &dqn1, &wqe_counter, &byte_count);
+    for (i = cq->cons_index & 0xffff; i != cq_context.producer_counter; i = (i + 1) & 0xffff) {
+        sx_get_cqe_all_versions(cq, i, &u_cqe);
+        if (u_cqe.v2 == NULL) {
+            break;
+        }
 
-            if (is_send) {
+        rx_cnt++;
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
+
+        if (cqe_params.is_send) {
+            continue;
+        }
+
+        if (cq_ts_enabled) {
+            cq->cqe_ts_arr[i % cq->nent].timestamp = priv->cq_table.timestamps[cq->cqn];
+            cq->cqe_ts_arr[i % cq->nent].ts_type = SXD_TS_TYPE_LINUX;
+        }
+
+        idx = i % rdq->wqe_cnt;
+        skb = rdq->sge[idx].skb;
+        rx_ts_set = false;
+
+        sx_drop_monitor_handle_monitor_rdq(cq_ts_enabled, cq, i, &cqe_params, &u_cqe, &rx_ts, &rx_ts_set, skb);
+
+        if (enable_monitor_rdq_trace_points) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+            should_drop = 0;
+            spin_lock_irqsave(&priv->rdq_table.lock, flags);
+            if (priv->filter_ebpf_progs[dqn]) {
+                should_drop = sx_core_call_rdq_filter_trace_point_func(priv->filter_ebpf_progs[dqn],
+                                                                       skb,
+                                                                       &cqe_params,
+                                                                       rdq_max_buff_size);
+            } else {
+                skb->mark = 0;
+            }
+
+            if (should_drop != 0) {
+                spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
                 continue;
             }
-            idx = i % rdq->wqe_cnt;
-            skb = rdq->sge[idx].skb;
             if (cq_ts_enabled) {
-                trace_monitor_rdq_rx(skb, trap_id, &cq->cqe_ts_arr[i % cq->nent]);
+                if (!rx_ts_set) {
+                    set_timestamp_of_rx_packet(cq, &cq->cqe_ts_arr[i % cq->nent].timestamp, &cqe_params.cqe_ts,
+                                               &rx_ts);
+                }
+                sx_core_call_rdq_agg_trace_point_func(priv,
+                                                      dqn,
+                                                      rdq_max_buff_size,
+                                                      skb,
+                                                      &cqe_params,
+                                                      &rx_ts.timestamp);
             } else {
-                trace_monitor_rdq_rx(skb, trap_id, NULL);
+                sx_core_call_rdq_agg_trace_point_func(priv, dqn, rdq_max_buff_size, skb, &cqe_params, NULL);
             }
+            spin_unlock_irqrestore(&priv->rdq_table.lock, flags);
+#endif
+        } else {
+            skb->mark = 0;
         }
     }
 
     /* simulate we polled all cqes */
     cq->cons_index = cq_context.producer_counter;
+    cq->cons_index_dbg += rx_cnt;
     sx_cq_set_ci(cq);
 
     /* update rdq head and tail */
@@ -2152,7 +2188,14 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
     /* Write rdq doorbell */
     wmb();
     __raw_writel((__force u32)cpu_to_be32(rdq->head & 0xffff), rdq->db);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    /* TODO: kernel 5.10 does not have mmiowb() anymore. instead, this function is
+     *       called implicitly by spinlock unlock() functions. need to wrap every
+     *       place that called mmiowb() with spinlock.
+     */
+#else
     mmiowb();
+#endif
 
     rdq->mon_rx_count += rx_cnt;
 
@@ -2164,10 +2207,64 @@ int __handle_monitor_rdq_completion(struct sx_dev *dev, int dqn)
         rdq->mon_rx_start = rdq->mon_rx_count - rdq->wqe_cnt;
     }
 
+    /* valid cqes is cqes between cons_index and producer_index */
+    /* for more details about 'priv->pause_cqn' role, read the big comment in ctrl_cmd_set_monitor_rdq() */
+    if ((priv->pause_cqn == cqn) || (i != cq_context.producer_counter)) {
+        /* No packets was received so
+         * arm cq so next time we will be waked up from interrupt */
+        sx_bitmap_free(&priv->active_monitor_cq_bitmap, cqn);
+        sx_cq_arm(cq);
+
+        /* make sure that the next time tasklet runs, the CQ bit in 'active_bitmap' will be off.
+         * this will ensure to signal [complete()] the ioctl() command that waits for us.
+         * for more details of the flow, read the big comment in ctrl_cmd_set_monitor_rdq().
+         */
+        tasklet_schedule(&priv->intr_tasklet);
+        goto out;
+    }
+
 out:
     return rx_cnt;
 }
 
+static inline u64 __calculate_sleep_time(u64 ktime)
+{
+    int percent;
+    u64 sleep_time;
+
+    if (mon_cq_thread_cpu_util_percent == 0) {
+        percent = MON_CQ_HANDLER_THREAD_CPU_UTIL_PERCENT_DEFAULT;
+    } else if (mon_cq_thread_cpu_util_percent > 100) {
+        percent = 100;
+    } else {
+        percent = mon_cq_thread_cpu_util_percent;
+    }
+
+    /* Calculate the time to sleep, in nanoseconds */
+    if (((ktime * (100 - percent)) % percent) == 0) {
+        sleep_time = ktime * (100 - percent) / percent;
+    } else {
+        sleep_time = ktime * (100 - percent) / percent + 1;
+    }
+
+    /* Transform the time to sleep to microseconds */
+    if ((sleep_time % 1000) == 0) {
+        sleep_time = sleep_time / 1000;
+    } else {
+        sleep_time = sleep_time / 1000 + 1;
+    }
+
+    /* According to https://www.kernel.org/doc/Documentation/timers/timers-howto.txt,
+     * if the sleep time is less than 10us, we should use udelay instead of usleep.
+     * As udelay is doing busy-wait which is a waste of CPU cycles, we limit the minimum
+     * sleep time to 10us here.
+     */
+    if (sleep_time < 10) {
+        return 10;
+    } else {
+        return sleep_time;
+    }
+}
 
 static int __monitor_cq_handler_thread(void *arg)
 {
@@ -2176,27 +2273,40 @@ static int __monitor_cq_handler_thread(void *arg)
     int                          should_continue_polling;
     int                          ret;
     int                          i;
+    u64                          ktime_before;
+    u64                          ktime_after;
+    u64                          sleep_time;
 
     printk(KERN_INFO "starting new device's monitor CQ handler thread\n");
 
-    while (!kthread_should_stop()) {
-        ret = down_timeout(&cpu_traffic_prio->monitor_cq_thread_sem, HZ);
-        if (ret == -ETIME) {
+    cpu_traffic_prio->monitor_cq_thread_alive = 1;
+
+    /* signal that __monitor_cq_handler_thread has started */
+    up(&cpu_traffic_prio->monitor_cq_thread_started_sem);
+
+    while (cpu_traffic_prio->monitor_cq_thread_alive) {
+        if (down_interruptible(&cpu_traffic_prio->monitor_cq_thread_sem)) {
             continue;
+        }
+
+        if (!cpu_traffic_prio->monitor_cq_thread_alive) {
+            break;
         }
 
         should_continue_polling = 0;
         for (i = 0; i < sx_priv(dev)->monitor_rdqs_count; i++) {
+            ktime_before = ktime_to_ns(ktime_get());
             ret = __handle_monitor_rdq_completion(dev,
                                                   sx_priv(dev)->monitor_rdqs_arr[i]);
             if (ret > 0) {
                 should_continue_polling++;
+                ktime_after = ktime_to_ns(ktime_get());
+                sleep_time = __calculate_sleep_time(ktime_after - ktime_before);
+                usleep_range(sleep_time, sleep_time + 5);
             }
         }
 
         if (should_continue_polling) {
-            usleep_range(mon_cq_thread_delay_time_usec,
-                         mon_cq_thread_delay_time_usec + 5);
             up(&cpu_traffic_prio->monitor_cq_thread_sem); /* re-arm thread loop */
         }
     }
@@ -2211,14 +2321,21 @@ static int __low_priority_cq_handler_thread(void *arg)
     struct sx_dev               *dev = (struct sx_dev*)arg;
     struct cpu_traffic_priority *cpu_traffic_prio = &sx_priv(dev)->cq_table.cpu_traffic_prio;
     int                          should_continue_polling;
-    int                          ret;
 
     printk(KERN_INFO "starting new device's low-priority CQ handler thread\n");
 
-    while (!kthread_should_stop()) {
-        ret = down_timeout(&cpu_traffic_prio->low_prio_cq_thread_sem, HZ);
-        if (ret == -ETIME) {
+    cpu_traffic_prio->low_prio_cq_thread_alive = 1;
+
+    /* signal __low_priority_cq_handler_thread has started */
+    up(&cpu_traffic_prio->low_prio_cq_thread_started_sem);
+
+    while (cpu_traffic_prio->low_prio_cq_thread_alive) {
+        if (down_interruptible(&cpu_traffic_prio->low_prio_cq_thread_sem)) {
             continue;
+        }
+
+        if (!cpu_traffic_prio->low_prio_cq_thread_alive) {
+            break;
         }
 
         /* if high priority traffic has not completed handling, we'll wait ... */
@@ -2241,11 +2358,19 @@ static int __low_priority_cq_handler_thread(void *arg)
 }
 
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+static void __sampling_timer_fn(struct timer_list *t)
+#else
 static void __sampling_timer_fn(unsigned long data)
+#endif
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    struct cpu_traffic_priority *cpu_traffic_prio = from_timer(cpu_traffic_prio, t, sampling_timer);
+#else
     struct sx_dev               *dev = (struct sx_dev*)data;
     struct sx_priv              *priv = sx_priv(dev);
     struct cpu_traffic_priority *cpu_traffic_prio = &priv->cq_table.cpu_traffic_prio;
+#endif
 
     atomic_set(&cpu_traffic_prio->high_prio_cq_in_load, 0);
     mod_timer(&cpu_traffic_prio->sampling_timer, jiffies + HZ);
@@ -2273,13 +2398,19 @@ int __cpu_traffic_priority_init(struct sx_dev *dev, struct cpu_traffic_priority 
         goto out;
     }
 
+    sema_init(&cpu_traffic_prio->low_prio_cq_thread_started_sem, 0);
+    sema_init(&cpu_traffic_prio->monitor_cq_thread_started_sem, 0);
     atomic_set(&cpu_traffic_prio->high_prio_cq_in_load, 0);
     sema_init(&cpu_traffic_prio->low_prio_cq_thread_sem, 0);
     sema_init(&cpu_traffic_prio->monitor_cq_thread_sem, 0);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    timer_setup(&cpu_traffic_prio->sampling_timer, __sampling_timer_fn, 0);
+#else
     init_timer(&cpu_traffic_prio->sampling_timer);
 
     cpu_traffic_prio->sampling_timer.data = (unsigned long)dev;
     cpu_traffic_prio->sampling_timer.function = __sampling_timer_fn;
+#endif
     mod_timer(&cpu_traffic_prio->sampling_timer, jiffies + HZ);
 
     atomic_inc(&sn);
@@ -2291,9 +2422,18 @@ int __cpu_traffic_priority_init(struct sx_dev *dev, struct cpu_traffic_priority 
         goto out;
     }
 
-    err = sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    /* wait for __low_priority_cq_handler_thread to be started */
+    down(&cpu_traffic_prio->low_prio_cq_thread_started_sem);
+
+    err = sx_bitmap_init(&sx_priv(dev)->monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
     if (err) {
         printk(KERN_ERR PFX "Monitor RDQ bitmap init failed. Aborting...\n");
+        goto out;
+    }
+
+    err = sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    if (err) {
+        printk(KERN_ERR PFX "Active monitor RDQ bitmap init failed. Aborting...\n");
         goto out;
     }
 
@@ -2305,6 +2445,9 @@ int __cpu_traffic_priority_init(struct sx_dev *dev, struct cpu_traffic_priority 
         goto out;
     }
 
+    /* wait for __monitor_cq_handler_thread to be started */
+    down(&cpu_traffic_prio->monitor_cq_thread_started_sem);
+
 out:
 
     return err;
@@ -2313,17 +2456,26 @@ out:
 
 void __cpu_traffic_priority_deinit(struct sx_dev *dev, struct cpu_traffic_priority *cpu_traffic_prio)
 {
+    int err;
+
     /* clean all monitor cqs so on unload it will be handled in regular way and
      * not by __monitor_cq_handler_thread */
-    sx_bitmap_init(&sx_priv(dev)->active_monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    err = sx_bitmap_init(&sx_priv(dev)->monitor_cq_bitmap, dev->dev_cap.max_num_cqs);
+    if (err) {
+        printk(KERN_ERR PFX "Monitor RDQ bitmap init failed.\n");
+    }
 
     if (cpu_traffic_prio->monitor_cq_thread) {
+        cpu_traffic_prio->monitor_cq_thread_alive = 0;
+        up(&cpu_traffic_prio->monitor_cq_thread_sem);
         kthread_stop(cpu_traffic_prio->monitor_cq_thread);
         cpu_traffic_prio->monitor_cq_thread = NULL;
     }
 
     if (cpu_traffic_prio->low_prio_cq_thread) {
         del_timer_sync(&cpu_traffic_prio->sampling_timer);
+        cpu_traffic_prio->low_prio_cq_thread_alive = 0;
+        up(&cpu_traffic_prio->low_prio_cq_thread_sem);
         kthread_stop(cpu_traffic_prio->low_prio_cq_thread);
         cpu_traffic_prio->low_prio_cq_thread = NULL;
     }
@@ -2363,7 +2515,17 @@ int sx_core_init_cq_table(struct sx_dev *dev)
         return err;
     }
 
+    err = sx_bitmap_init(&cq_table->ts_hw_utc_bitmap, dev->dev_cap.max_num_cqs);
+    if (err) {
+        return err;
+    }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    cq_table->timestamps = kmalloc(sizeof(struct timespec64) * dev->dev_cap.max_num_cqs, GFP_KERNEL);
+#else
     cq_table->timestamps = kmalloc(sizeof(struct timespec) * dev->dev_cap.max_num_cqs, GFP_KERNEL);
+#endif
+
     if (!cq_table->timestamps) {
         err = -ENOMEM;
         goto out;
@@ -2393,76 +2555,69 @@ void sx_core_destroy_cq_table(struct sx_dev *dev)
     kfree(cq_table->cq);
     cq_table->cq = NULL;
     spin_unlock_irqrestore(&cq_table->lock, flags);
+
+    sx_drop_monitor_destroy();
 }
 
 void sx_core_dump_synd_tbl(struct sx_dev *dev)
 {
-    struct listener_entry           *listener;
-    struct listener_port_vlan_entry *port_vlan_listener;
-    struct list_head                *pos;
-    struct list_head                *port_vlan_pos;
-    unsigned long                    flags;
-    u16                              entry = 0;
+    struct listener_entry *listener;
+    struct list_head      *pos;
+    unsigned long          flags;
+    u16                    entry = 0;
 
     spin_lock_irqsave(&sx_glb.listeners_lock, flags);
     for (entry = 0; entry < NUM_HW_SYNDROMES + 1; entry++) {
         if (entry % 100 == 0) {
             udelay(1);
         }
-        if (!list_empty(&sx_glb.listeners_db[entry].list)) {
-            list_for_each(port_vlan_pos, &sx_glb.listeners_db[entry].list) {
-                port_vlan_listener = list_entry(port_vlan_pos, struct listener_port_vlan_entry, list);
-                list_for_each(pos, &(port_vlan_listener->listener.list)) {
-                    listener = list_entry(pos,
-                                          struct listener_entry, list);
-                    printk(KERN_DEBUG
-                           "=============================\n");
-                    printk(KERN_DEBUG
-                           "synd=%d, swid=%d, match_crit=%s, port=%d, lag=%d, vlan=%d, is_def:%d, "
-                           "handler:%p, rx_pkt:%llu \n",
-                           entry,
-                           listener->swid,
-                           port_vlan_match_str[port_vlan_listener->match_crit],
-                           port_vlan_listener->sysport,
-                           port_vlan_listener->lag_id,
-                           port_vlan_listener->vlan,
-                           listener->is_default,
-                           listener->handler,
-                           listener->rx_pkts);
+        if (!list_empty(&sx_glb.listeners_rf_db[entry].list)) {
+            list_for_each(pos, &sx_glb.listeners_rf_db[entry].list) {
+                listener = list_entry(pos,
+                                      struct listener_entry, list);
+                printk(KERN_DEBUG
+                       "=============================\n");
+                printk(KERN_DEBUG
+                       "synd=%d, swid=%d,is_def:%d, "
+                       "handler:%p, rx_pkt:%llu \n",
+                       entry,
+                       listener->swid,
+                       listener->is_default,
+                       listener->handler,
+                       listener->rx_pkts);
 
-                    switch (listener->listener_type) {
-                    case L2_TYPE_DONT_CARE:
-                        printk(KERN_DEBUG "list_type: "
-                               "DONT_CARE, crit [port:0x%x] \n",
-                               listener->critireas.dont_care.sysport);
-                        break;
+                switch (listener->listener_type) {
+                case L2_TYPE_DONT_CARE:
+                    printk(KERN_DEBUG "list_type: "
+                           "DONT_CARE, crit [port:0x%x] \n",
+                           listener->critireas.dont_care.sysport);
+                    break;
 
-                    case L2_TYPE_IB:
-                        printk(KERN_DEBUG "list_type: IB, crit"
-                               " [qpn:0x%x (%d)] \n",
-                               listener->critireas.ib.qpn,
-                               listener->critireas.ib.qpn);
-                        break;
+                case L2_TYPE_IB:
+                    printk(KERN_DEBUG "list_type: IB, crit"
+                           " [qpn:0x%x (%d)] \n",
+                           listener->critireas.ib.qpn,
+                           listener->critireas.ib.qpn);
+                    break;
 
-                    case L2_TYPE_ETH:
-                        printk(KERN_DEBUG "list_type: ETH, crit "
-                               "[ethtype:0x%x, dmac:%llx, "
-                               "emad_tid:0x%x, from_rp:%u, from_bridge:%u ] \n",
-                               listener->critireas.eth.ethtype,
-                               listener->critireas.eth.dmac,
-                               listener->critireas.eth.emad_tid,
-                               listener->critireas.eth.from_rp,
-                               listener->critireas.eth.from_bridge);
-                        break;
+                case L2_TYPE_ETH:
+                    printk(KERN_DEBUG "list_type: ETH, crit "
+                           "[ethtype:0x%x, dmac:%llx, "
+                           "emad_tid:0x%x, from_rp:%u, from_bridge:%u ] \n",
+                           listener->critireas.eth.ethtype,
+                           listener->critireas.eth.dmac,
+                           listener->critireas.eth.emad_tid,
+                           listener->critireas.eth.from_rp,
+                           listener->critireas.eth.from_bridge);
+                    break;
 
-                    case L2_TYPE_FC:
-                        printk(KERN_DEBUG "list_type: FC \n");
-                        break;
+                case L2_TYPE_FC:
+                    printk(KERN_DEBUG "list_type: FC \n");
+                    break;
 
-                    default:
-                        printk(KERN_DEBUG "list_type: UNKNOWN \n");
-                        break;
-                    }
+                default:
+                    printk(KERN_DEBUG "list_type: UNKNOWN \n");
+                    break;
                 }
             }
         }
@@ -2534,22 +2689,78 @@ void sx_get_cqe_all_versions(struct sx_cq *cq, uint32_t n, union sx_cqe *cqe_p)
 
 void sx_cq_flush_rdq(struct sx_dev *dev, int dqn)
 {
-    int                 iii;
-    int                 idx;
-    struct sx_priv     *priv = sx_priv(dev);
-    struct sx_dq_table *rdq_table = &priv->rdq_table;
-    struct sx_dq       *dq = rdq_table->dq[dqn];
+    struct sx_priv      *priv = sx_priv(dev);
+    struct sx_dq_table  *rdq_table = &priv->rdq_table;
+    struct sx_dq        *dq = rdq_table->dq[dqn];
+    struct sx_cq        *cq = dq->cq;
+    unsigned long        flags;
+    union sx_cqe         u_cqe;
+    struct sx_cqe_params cqe_params;
+    u16                  wqe_ctr;
 
-    idx = dq->tail & (dq->wqe_cnt - 1);
-    for (iii = 0; iii < dq->wqe_cnt; iii++) {
-        printk("%s:%d flushing rdq %d sge %d \n", __func__, __LINE__, dqn, idx);
-        wqe_sync_for_cpu(dq, idx);
-        sx_skb_free(dq->sge[idx].skb);
-        dq->sge[idx].skb = NULL;
+    while (1) {
+        spin_lock_irqsave(&cq->lock, flags);
+        cq->sx_next_cqe_cb(cq, &u_cqe);
+        if (!u_cqe.v0 && !u_cqe.v1 && !u_cqe.v2) {
+            spin_unlock_irqrestore(&cq->lock, flags);
+            break;
+        }
+
+        ++cq->cons_index;
+        ++cq->cons_index_dbg;
+        spin_unlock_irqrestore(&cq->lock, flags);
+
+        /*
+         * Make sure we read CQ entry contents after we've checked the
+         * ownership bit.
+         */
+        rmb();
+
+        cq->sx_fill_poll_one_params_from_cqe_cb(&u_cqe, &cqe_params);
+
+        wqe_ctr = cqe_params.wqe_counter & (dq->wqe_cnt - 1);
+        sx_cq_set_ci(cq);
+
+        spin_lock_irqsave(&dq->lock, flags);
         dq->tail++;
-        idx = dq->tail & (dq->wqe_cnt - 1);
-        post_skb(dq);
+        dq->head++;
+
+        /*
+         * Make sure that descriptors are written before
+         * doorbell.
+         */
+        wmb();
+        __raw_writel((__force u32)cpu_to_be32(dq->head & 0xffff), dq->db);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+        /* TODO: kernel 5.10 does not have mmiowb() anymore. instead, this function is
+         *       called implicitly by spinlock unlock() functions. need to wrap every
+         *       place that called mmiowb() with spinlock.
+         */
+#else
+        mmiowb();
+#endif
+        spin_unlock_irqrestore(&dq->lock, flags);
     }
+}
+
+
+/* use this function to make sure that a CQ and its associated DQ is idle,
+ * which means that no tasklet, not low-priority thread or monitoring thread
+ * runs the CQ/DQ. Currently we use this function is two cases:
+ * 1. when changing a RDQ role from regular to monitoring or vice versa. in
+ *    this case we must make sure that before changing role the CQ is idle so
+ *    there will not be a point in time when two threads handling the same RDQ.
+ * 2. when destroying a SDQ/RDQ. When doing so, we must wait until no thread is
+ *    working on the DQ while it is being destroyed.
+ */
+u8 sx_is_cq_idle(struct sx_dev *dev, int cqn)
+{
+    struct sx_priv              *priv = sx_priv(dev);
+    struct cpu_traffic_priority *cpu_tp = &priv->cq_table.cpu_traffic_prio;
+
+    return (!sx_bitmap_test(&cpu_tp->active_high_prio_cq_bitmap, cqn) &&
+            !sx_bitmap_test(&cpu_tp->active_low_prio_cq_bitmap, cqn) &&
+            !sx_bitmap_test(&priv->active_monitor_cq_bitmap, cqn));
 }
 
 /************************************************

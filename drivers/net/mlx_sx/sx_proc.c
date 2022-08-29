@@ -66,6 +66,7 @@
         return (ret_val);                                                   \
     }
 
+void __sx_proc_dump_fw_icm(struct sx_dev *dev);
 void __sx_proc_dump_swids(struct sx_dev *dev);
 void __sx_proc_dump_sdq(struct sx_dev *dev);
 void __sx_proc_dump_rdq(struct sx_dev *dev);
@@ -84,6 +85,7 @@ void __debug_dump_netdev(struct sx_dev *dev);
 void __debug_netdev_traps(struct sx_dev *dev, u32 trap_id, u32 is_add);
 void __set_net_dev_oper_state(char *dev_name, char *oper_state);
 void __dump_net_dev_oper_state(void);
+void clear_max_diff_counters(const char *dir);
 static ssize_t sx_proc_write(struct file *file, const char __user *buffer,
                              size_t count, loff_t *pos);
 extern struct sx_globals  sx_glb;
@@ -108,7 +110,7 @@ extern unsigned int       credit_thread_vals[100];
 extern unsigned long long arr_count;
 extern atomic_t           cq_backup_polling_enabled;
 extern int                debug_cq_backup_poll_cqn;
-static const char        *ku_pkt_type_str[] = {
+const char               *ku_pkt_type_str[] = {
     "SX_PKT_TYPE_ETH_CTL_UC", /**< Eth control unicast */
     "SX_PKT_TYPE_ETH_CTL_MC", /**< Eth control multicast */
     "SX_PKT_TYPE_ETH_DATA", /**< Eth data */
@@ -249,8 +251,11 @@ static void sx_proc_handle_access_reg(struct sx_dev *dev, char *p, u32 dev_id, u
             goto print_err;
         }
 
-        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %s\n",
-                  reg_data.mgir_reg.fw_info.psid);
+        PROC_DUMP("Finished Executing Query ACCESS_REG_MGIR Command, PSID = %d%d%d%d\n",
+                  reg_data.mgir_reg.fw_info.psid[0],
+                  reg_data.mgir_reg.fw_info.psid[1],
+                  reg_data.mgir_reg.fw_info.psid[2],
+                  reg_data.mgir_reg.fw_info.psid[3]);
         break;
     }
 
@@ -841,16 +846,16 @@ void __query_fw(struct sx_dev *my_dev, char *running)
               fw.fw_minutes, fw.fw_day, fw.fw_month, fw.fw_year);
 
     PROC_DUMP("Executing QUERY_FW_2 Command\n");
-    sx_QUERY_FW_2(my_dev, dev_id);
+    sx_QUERY_FW_2(my_dev, dev_id, false);
     PROC_DUMP("Finished Executing QUERY_FW_2 Command:\n");
     PROC_DUMP("local_out_mb_offset = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_offset);
+              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_offset[HCR1]);
     PROC_DUMP("local_out_mb_size = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_size);
+              sx_glb.sx_dpt.dpt_info[dev_id].out_mb_size[HCR1]);
     PROC_DUMP("local_in_mb_offset = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_offset);
+              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_offset[HCR1]);
     PROC_DUMP("local_in_mb_size = 0x%x\n",
-              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_size);
+              sx_glb.sx_dpt.dpt_info[dev_id].in_mb_size[HCR1]);
 }
 
 void __query_cq(struct sx_dev *my_dev, char *running)
@@ -873,12 +878,22 @@ void __query_cq(struct sx_dev *my_dev, char *running)
 
 void __query_board_info(struct sx_dev *my_dev, char *running)
 {
-    struct sx_board board;
+    int                        i;
+    struct ku_query_board_info board;
 
     memset(&board, 0, sizeof(board));
     PROC_DUMP("Executing QUERY_BOARDINFO Command\n");
     sx_QUERY_BOARDINFO(my_dev, &board);
     PROC_DUMP("Finished Executing QUERY_BOARDINFO Command:\n");
+    PROC_DUMP("xm_exists = %d\n", board.xm_exists);
+    PROC_DUMP("xm_num_local_ports = %d\n", board.xm_num_local_ports);
+
+    if (board.xm_num_local_ports <= SX_XM_MAX_LOCAL_PORTS_LEN) {
+        for (i = 0; i < board.xm_num_local_ports; i++) {
+            PROC_DUMP("xm_local_ports[%d] = 0x%x\n", i, board.xm_local_ports[i]);
+        }
+    }
+
     PROC_DUMP("vsd_vendor_id = 0x%x\n", board.vsd_vendor_id);
     PROC_DUMP("board_id = %s\n", board.board_id);
     PROC_DUMP("inta_pin = 0x%x\n", board.inta_pin);
@@ -1112,6 +1127,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("ib_router_ecmp_lid_range = %u\n", profile->ib_router_ecmp_lid_range);
         PROC_DUMP("split_ready = %u\n", profile->split_ready);
         PROC_DUMP("cqe_version = %u\n", params->cqe_version);
+        PROC_DUMP("umlabel = %u\n", profile->umlabel);
 
         vfree(profile);
         vfree(params);
@@ -1288,6 +1304,13 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
             printk(KERN_INFO " 0x%02x", (u8)val);
         }
         printk("\n");
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "dump_fw");
+    if (p != NULL) {
+        PROC_DUMP("Dump fw: \n");
+        __sx_proc_dump_fw_icm(my_dev);
         cmd++;
     }
 
@@ -1516,6 +1539,29 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         cmd++;
     }
 
+    p = strstr(cmd_str, "ptp_max_diff_clear");
+    if (p != NULL) {
+        char *op = NULL;
+
+        running = sx_proc_str_get_str(running, &op);
+        if (op) {
+            clear_max_diff_counters(op);
+        }
+        cmd++;
+    }
+
+    p = strstr(cmd_str, "sdq_max_diff_clear");
+    if (p != NULL) {
+        unsigned int sdqn = (unsigned int)-1;
+        running = sx_proc_str_get_u32(running, &sdqn);
+        if ((sdqn < NUMBER_OF_SDQS) && sx_priv(my_dev)->sdq_table.dq && sx_priv(my_dev)->sdq_table.dq[sdqn]) {
+            sx_priv(my_dev)->sdq_table.dq[sdqn]->max_comp_time = 0;
+            sx_priv(my_dev)->sdq_table.dq[sdqn]->max_comp_ts = 0;
+        }
+
+        cmd++;
+    }
+
 #ifdef CONFIG_SX_DEBUG
     p = strstr(cmd_str, "sx_debug_level");
     if (p != NULL) {
@@ -1575,6 +1621,7 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("  pcidrv_restart - restart pci driver\n");
         PROC_DUMP("  dump_buf [size] [address] - dumps a buffer\n");
         PROC_DUMP("  dump_swid - dumps active swids\n");
+        PROC_DUMP("  dump_fw_icm - dumps ICM\n");
         PROC_DUMP("  dump_sdq - dumps opened sdqs\n");
         PROC_DUMP("  dump_rdq - dumps opened rdqs\n");
         PROC_DUMP("  dump_eq - dumps opened eqs\n");
@@ -1596,6 +1643,8 @@ static ssize_t sx_proc_write(struct file *file, const char __user *buffer, size_
         PROC_DUMP("  set_mkey [dev_id] [m_key_h] [m_key_l] - set system mkey\n");
         PROC_DUMP("  get_mkey [dev_id] - get system mkey\n");
         PROC_DUMP("  dump_ptp - dump PTP internal DB's\n");
+        PROC_DUMP("  ptp_max_diff_clear <RX | TX | RX_TX>\n");
+        PROC_DUMP("  sdq_max_diff_clear <sdq>\n");
 #ifdef CONFIG_SX_DEBUG
         PROC_DUMP("  sx_debug_level [disable(0)/enable(1)/query(3)] - Enable sx_debug_level\n");
         PROC_DUMP("  sx_debug_cq [cqn] - the CQ number to print CQ debug for\n");
@@ -1606,7 +1655,16 @@ out:
     return count;
 }
 
-static const struct file_operations sx_proc_fops = {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static const struct proc_ops sx_proc_ops = {
+    .proc_open = sx_proc_open,
+    .proc_read = seq_read,
+    .proc_lseek = seq_lseek,
+    .proc_release = single_release,
+    .proc_write = sx_proc_write,
+};
+#else
+static const struct file_operations sx_proc_ops = {
     .owner = THIS_MODULE,
     .open = sx_proc_open,
     .read = seq_read,
@@ -1614,6 +1672,7 @@ static const struct file_operations sx_proc_fops = {
     .release = single_release,
     .write = sx_proc_write,
 };
+#endif
 
 int sx_core_init_proc_fs(void)
 {
@@ -1632,7 +1691,7 @@ int sx_core_init_proc_fs(void)
     }
 
     proc_entry = proc_create(proc_file_name,
-                             S_IFREG | S_IRUGO | S_IWUGO, dir_proc_entry, &sx_proc_fops);
+                             S_IFREG | S_IRUGO | S_IWUGO, dir_proc_entry, &sx_proc_ops);
     if (proc_entry == NULL) {
         printk(KERN_WARNING "create proc %s failed\n",
                proc_file_name);
@@ -1734,6 +1793,59 @@ void __sx_proc_dump_swids(struct sx_dev *dev)
     }
 }
 
+void __sx_proc_dump_fw_icm(struct sx_dev *dev)
+{
+    struct sx_priv    *priv = sx_priv(dev);
+    struct sx_icm     *icm;
+    struct sx_icm_iter iter;
+    int                iii = 0;
+    int                jjj = 0;
+    int                nent = 0;
+    int                lg;
+    __be64             pages;
+    int                ts = 0, tc = 0;
+
+    if ((icm = priv->fw.fw_icm) == NULL) {
+        printk(KERN_INFO "dev_priv->fw->fw_icm is null \n");
+        return;
+    }
+
+    printk(KERN_INFO "FW_ICM");
+
+    for (sx_icm_first(icm, &iter);
+         !sx_icm_last(&iter);
+         sx_icm_next(&iter)) {
+        printk(KERN_INFO "[%d] icm_addr:%#llxp icm_size:%lu",
+               iii,
+               (unsigned long long)sx_icm_addr(&iter),
+               sx_icm_size(&iter)
+               );
+
+        lg = ffs(sx_icm_addr(&iter) | sx_icm_size(&iter)) - 1;
+        if (lg < SX_ICM_PAGE_SHIFT) {
+            sx_warn(dev, "Got FW area not aligned to "
+                    "%d (%llx/%lx).\n", SX_ICM_PAGE_SIZE,
+                    (unsigned long long)sx_icm_addr(&iter),
+                    sx_icm_size(&iter));
+            return;
+        }
+
+        for (jjj = 0; jjj < (sx_icm_size(&iter) >> lg); ++jjj) {
+            pages =
+                cpu_to_be64((sx_icm_addr(&iter) + (jjj << lg)) |
+                            (lg - SX_ICM_PAGE_SHIFT));
+            ts += 1 << (lg - 10);
+            ++tc;
+            printk(KERN_INFO "[%d/%d] nent:%d page:%#llx", iii, jjj, nent, pages);
+            if (++nent == SX_MAILBOX_SIZE / 16) {
+                nent = 0;
+            }
+        }
+
+        iii++;
+    }
+}
+
 void __sx_proc_dump_sdq(struct sx_dev *dev)
 {
     struct sx_priv     *priv = sx_priv(dev);
@@ -1816,7 +1928,7 @@ void __sx_proc_dump_rdq(struct sx_dev *dev)
                    rdq_table->dq[i]->cq->cons_index,
                    rdq_table->dq[i]->cq->nent,
                    atomic_read(&rdq_table->dq[i]->cq->refcount),
-                   (sx_bitmap_test(&sx_priv(dev)->cq_table.ts_bitmap, cqn) ? 1 : 0),
+                   IS_CQ_WORKING_WITH_TIMESTAMP(dev, cqn),
                    (int)rdq_table->dq[i]->is_monitor);
         }
     }
@@ -1966,6 +2078,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
     struct profile_driver_params addition_params;
 
     addition_params.cqe_version = 0;
+    addition_params.cqe_time_stamp_type = 0;
 
     sx_SET_PROFILE(dev, &single_part_eth_device_profile, &addition_params);
 }
@@ -1973,7 +2086,7 @@ void __sx_proc_set_dev_profile(struct sx_dev *dev)
 
 void __dump_stats(struct sx_dev* sx_dev)
 {
-    int swid, pkt_type, synd;
+    int swid, pkt_type, synd, rdq;
 
     for (swid = 0; swid < NUMBER_OF_SWIDS + 1; swid++) {
         printk("=========================\n");
@@ -2006,11 +2119,32 @@ void __dump_stats(struct sx_dev* sx_dev)
                        sx_dev->stats.rx_by_synd_bytes[swid][synd]);
             }
 
-            if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
-                printk("events on synd [%d]: %llu\n", synd,
-                       sx_dev->stats.rx_eventlist_by_synd[synd]);
+            /* this counters aren't per swid so print them for swid 0 only */
+            if (swid == 0) {
+                if (0 != sx_dev->stats.rx_eventlist_by_synd[synd]) {
+                    printk("events on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.rx_eventlist_by_synd[synd]);
+                }
+
+                if (0 != sx_dev->stats.tx_loopback_ok_by_synd[synd]) {
+                    printk("tx loopback_ok on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.tx_loopback_ok_by_synd[synd]);
+                }
+
+                if (0 != sx_dev->stats.tx_loopback_dropped_by_synd[synd]) {
+                    printk("tx loopback_dropped on synd [%d]: %llu\n", synd,
+                           sx_dev->stats.tx_loopback_dropped_by_synd[synd]);
+                }
             }
         }     /* for (synd=0; synd<PKT_TYPE_NUM; synd++) { */
+
+        for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) {
+            if (0 != sx_dev->stats.rx_by_rdq[swid][rdq]) {
+                printk("rx pkt on rdq [%d]: %llu (%llu bytes)\n", rdq,
+                       sx_dev->stats.rx_by_rdq[swid][rdq],
+                       sx_dev->stats.rx_by_rdq_bytes[swid][rdq]);
+            }
+        }    /* for (rdq = 0; rdq < NUMBER_OF_RDQS; rdq++) { */
     }
 
     printk("=========================\n");
@@ -2263,15 +2397,6 @@ void __dump_kdbs(void)
     }
 
     printk("============================\n");
-    printk("ETH SYSTEM_PORT_RP :\n");
-    for (i = 0; i < phy_port_max; i++) { /* system port */
-        if (priv->local_is_rp[i] != 0) {
-            printk("(local %d), ", i);
-        }
-    }
-    printk("\n");
-
-    printk("============================\n");
     printk("ETH LAG_RP :\n");
     for (i = 0; i < lag_max; i++) { /* lid */
         if (priv->lag_is_rp[i] != 0) {
@@ -2304,6 +2429,22 @@ void __dump_kdbs(void)
             i++;
             printk("%-7u| %-7u| %-7u\n",
                    i, rif_id, priv->rif_id_to_hwfid[rif_id]);
+        }
+    }
+    printk("\n");
+
+    printk("============================\n");
+    printk("RIF data dump :\n");
+    printk("%-7s| %-7s| %-15s| %-7s|\n", "RIF", "IS_LAG", "LAG/PORT", "VLAN");
+    printk("------------------------------------------\n");
+    i = 0;
+    for (rif_id = 0; rif_id < MAX_RIFS_NUM; rif_id++) {
+        if (priv->rif_data[rif_id].is_valid) {
+            printk("%-7u| %-7u| %-15u| %-7u|\n",
+                   rif_id, priv->rif_data[rif_id].is_lag,
+                   priv->rif_data[rif_id].is_lag ?
+                   priv->rif_data[rif_id].lag_id : priv->rif_data[rif_id].local_port,
+                   priv->rif_data[rif_id].vlan_id);
         }
     }
     printk("\n");
@@ -2500,6 +2641,9 @@ void __dump_kdbs(void)
             printk("%u\t| DOWN\t|\n", i);
         }
     }
+
+    printk("============================\n");
+    printk("warm_boot_mode: %d\n", priv->warm_boot_mode);
 }
 
 
