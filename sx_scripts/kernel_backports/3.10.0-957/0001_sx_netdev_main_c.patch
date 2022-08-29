@@ -1,0 +1,13 @@
+diff --git a/drivers/net/sx_netdev/sx_netdev_main.c b/drivers/net/sx_netdev/sx_netdev_main.c
+index 0f76f4c..089fd00 100644
+--- a/drivers/net/sx_netdev/sx_netdev_main.c
++++ b/drivers/net/sx_netdev/sx_netdev_main.c
+@@ -1435,7 +1435,7 @@ static const struct net_device_ops sx_netdev_ops = {
+     .ndo_set_mac_address = sx_netdev_set_mac,
+     .ndo_set_rx_mode = sx_netdev_set_multicast,
+     .ndo_do_ioctl = sx_netdev_do_ioctl,
+-    .ndo_change_mtu = sx_netdev_change_mtu,
++    .extended.ndo_change_mtu = sx_netdev_change_mtu,
+     .ndo_get_stats = sx_netdev_get_stats,
+     .ndo_vlan_rx_add_vid = sx_netdev_vlan_rx_add_vid,
+     .ndo_vlan_rx_kill_vid = sx_netdev_vlan_rx_kill_vid,

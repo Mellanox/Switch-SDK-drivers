@@ -37,11 +37,11 @@
 #include "mlxfw_mfa2_tlv.h"
 
 enum mlxfw_mfa2_tlv_type {
-    MLXFW_MFA2_TLV_MULTI_PART = 0x01,
-    MLXFW_MFA2_TLV_PACKAGE_DESCRIPTOR = 0x02,
+    MLXFW_MFA2_TLV_MULTI_PART           = 0x01,
+    MLXFW_MFA2_TLV_PACKAGE_DESCRIPTOR   = 0x02,
     MLXFW_MFA2_TLV_COMPONENT_DESCRIPTOR = 0x04,
-    MLXFW_MFA2_TLV_COMPONENT_PTR = 0x22,
-    MLXFW_MFA2_TLV_PSID = 0x2A,
+    MLXFW_MFA2_TLV_COMPONENT_PTR        = 0x22,
+    MLXFW_MFA2_TLV_PSID                 = 0x2A,
 };
 enum mlxfw_mfa2_compression_type {
     MLXFW_MFA2_COMPRESSION_TYPE_NONE,

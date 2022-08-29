@@ -37,7 +37,10 @@
 
 #include "alloc.h"
 #include "sx_dpt.h"
+#include "cq.h"
+#include "ber_monitor.h"
 #include "ioctl_internal.h"
+#include "drop_monitor.h"
 
 /**
  * magic number for struct ku_sx_core_db.
@@ -46,7 +49,7 @@
  * struct is successfully copied between user space and kernel space.
  */
 #define SX_CORE_DB_MAGIC_NUM 0xabcdabcd
-
+extern u8 __warm_boot_mode;
 static int sx_core_ioctl_set_dpt_info(struct sx_dev *dev, struct ku_sx_core_db *sx_core_db)
 {
     int                    err = 0;
@@ -114,7 +117,6 @@ out:
     return err;
 }
 
-
 static int sx_core_ioctl_set_trap_group_info(struct sx_dev *dev, struct ku_sx_core_db *sx_core_db)
 {
     int                       i;
@@ -150,19 +152,19 @@ static int sx_core_ioctl_set_netdev_trap_info(struct sx_dev *dev, struct ku_sx_c
             case USER_CHANNEL_L3_NETDEV:
                 err =
                     sx_core_add_synd_l3(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                        &(sx_core_db->port_vlan_params[uc_type][i]));
+                                        &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
 
             case USER_CHANNEL_LOG_PORT_NETDEV:
                 err =
                     sx_core_add_synd_l2(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                        &(sx_core_db->port_vlan_params[uc_type][i]));
+                                        &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
 
             case USER_CHANNEL_PHY_PORT_NETDEV:
                 err =
                     sx_core_add_synd_phy(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                         &(sx_core_db->port_vlan_params[uc_type][i]));
+                                         &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
             }
 
@@ -186,6 +188,14 @@ static int sx_core_ioctl_set_rdq_properties(struct sx_dev *dev, struct ku_sx_cor
             sx_bitmap_set(&sx_priv(dev)->cq_table.ts_bitmap, i);
         } else {
             sx_bitmap_free(&sx_priv(dev)->cq_table.ts_bitmap, i);
+        }
+    }
+
+    for (i = 0; i < sx_core_db->ts_hw_utc_bitmap.max; i++) {
+        if (sx_core_db->ts_hw_utc_bitmap.table[i]) {
+            sx_bitmap_set(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, i);
+        } else {
+            sx_bitmap_free(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, i);
         }
     }
 
@@ -382,7 +392,7 @@ static int sx_core_ioctl_get_rdq_properties(struct sx_dev *dev, struct ku_sx_cor
         goto out;
     }
     for (i = 0; i < sx_priv(dev)->cq_table.ts_bitmap.max; i++) {
-        if (sx_bitmap_test(&(sx_priv(dev)->cq_table.ts_bitmap), i)) {
+        if (IS_CQ_WORKING_WITH_TIMESTAMP(dev, i)) {
             err = put_user((uint8_t)1, &(sx_core_db->ts_bitmap.table[i]));
         } else {
             err = put_user((uint8_t)0, &(sx_core_db->ts_bitmap.table[i]));
@@ -502,13 +512,10 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     SX_CORE_IOCTL_MEMCPY(lag_rp_rif);
     SX_CORE_IOCTL_MEMCPY(lag_rp_rif_valid);
     SX_CORE_IOCTL_MEMCPY(lag_member_to_local_db);
-    SX_CORE_IOCTL_MEMCPY(local_is_rp);
     SX_CORE_IOCTL_MEMCPY(local_rp_vid);
     SX_CORE_IOCTL_MEMCPY(port_rp_rif);
     SX_CORE_IOCTL_MEMCPY(port_rp_rif_valid);
     SX_CORE_IOCTL_MEMCPY(lag_oper_state);
-    SX_CORE_IOCTL_MEMCPY(port_ber_monitor_state);
-    SX_CORE_IOCTL_MEMCPY(port_ber_monitor_bitmask);
     SX_CORE_IOCTL_MEMCPY(tele_thrs_state);
     SX_CORE_IOCTL_MEMCPY(tele_thrs_tc_vec);
     SX_CORE_IOCTL_MEMCPY(truncate_size_db);
@@ -516,7 +523,11 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     SX_CORE_IOCTL_MEMCPY(port_vid_to_fid);
     SX_CORE_IOCTL_MEMCPY(fid_to_hwfid);
     SX_CORE_IOCTL_MEMCPY(rif_id_to_hwfid);
+    err = sx_core_ber_monitor_deserialize(sx_core_db);
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    if (err) { /* ber_monitor deserialization return code */
+        goto out;
+    }
 
     err = sx_core_ioctl_set_rdq_properties(dev, sx_core_db);
     if (err) {
@@ -595,13 +606,10 @@ long ctrl_cmd_save_sx_core_db(struct file *file, unsigned int cmd, unsigned long
     SX_CORE_IOCTL_COPY_TO_USER(lag_rp_rif);
     SX_CORE_IOCTL_COPY_TO_USER(lag_rp_rif_valid);
     SX_CORE_IOCTL_COPY_TO_USER(lag_member_to_local_db);
-    SX_CORE_IOCTL_COPY_TO_USER(local_is_rp);
     SX_CORE_IOCTL_COPY_TO_USER(local_rp_vid);
     SX_CORE_IOCTL_COPY_TO_USER(port_rp_rif);
     SX_CORE_IOCTL_COPY_TO_USER(port_rp_rif_valid);
     SX_CORE_IOCTL_COPY_TO_USER(lag_oper_state);
-    SX_CORE_IOCTL_COPY_TO_USER(port_ber_monitor_state);
-    SX_CORE_IOCTL_COPY_TO_USER(port_ber_monitor_bitmask);
     SX_CORE_IOCTL_COPY_TO_USER(tele_thrs_state);
     SX_CORE_IOCTL_COPY_TO_USER(tele_thrs_tc_vec);
     SX_CORE_IOCTL_COPY_TO_USER(truncate_size_db);
@@ -609,8 +617,13 @@ long ctrl_cmd_save_sx_core_db(struct file *file, unsigned int cmd, unsigned long
     SX_CORE_IOCTL_COPY_TO_USER(port_vid_to_fid);
     SX_CORE_IOCTL_COPY_TO_USER(fid_to_hwfid);
     SX_CORE_IOCTL_COPY_TO_USER(rif_id_to_hwfid);
+    err = sx_core_ber_monitor_serialize(sx_core_db);
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+
     db_locked = false;
+    if (err) { /* ber_monitor serialization return code */
+        goto out;
+    }
 
     err = sx_core_ioctl_get_rdq_properties(dev, sx_core_db);
     if (err) {
@@ -923,6 +936,122 @@ out:
     return err;
 }
 
+static long __rp_mode_set_validate_lag(struct sx_dev               *dev,
+                                       struct ku_port_rp_mode_data *port_rp_mode_data_p,
+                                       uint16_t                     lag_max)
+{
+    long err = 0;
+
+    if (port_rp_mode_data_p->lag_id >= lag_max) {
+        printk(KERN_ERR PFX "Received LAG ID 0x%x is invalid\n", port_rp_mode_data_p->lag_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    /* if RIF exists than validate that only VLAN was changed */
+    if (sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].is_valid) {
+        /* validate that existed RIF configured with LAG*/
+        if (!sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].is_lag) {
+            printk(KERN_ERR PFX "RIF edit: Only VLAN edit allowed. Try to change regular port %d to LAG ID %d .\n",
+                   port_rp_mode_data_p->sysport, sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].lag_id);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* validate that lag_id provided with params is the same as RIF lag_id */
+        if (sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].lag_id != port_rp_mode_data_p->lag_id) {
+            printk(KERN_ERR PFX "RIF %d edit: Only VLAN edit is allowed (curr LAG ID %d != new LAG ID %d).\n",
+                   port_rp_mode_data_p->rif_id,
+                   sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].lag_id,
+                   port_rp_mode_data_p->lag_id);
+            err = -EINVAL;
+            goto out;
+        }
+    }
+
+out:
+    return err;
+}
+
+static long __rp_mode_set_validate_port(struct sx_dev               *dev,
+                                        uint16_t                     local_port,
+                                        struct ku_port_rp_mode_data *port_rp_mode_data_p,
+                                        uint16_t                     phy_port_max)
+{
+    long     err = 0;
+    uint16_t rif_id = port_rp_mode_data_p->rif_id;
+
+    if (local_port > phy_port_max) {
+        printk(KERN_ERR PFX "Received Local %d is invalid. (MAX %d).\n", local_port, phy_port_max);
+        err = -EINVAL;
+        goto out;
+    }
+
+
+    /* if RIF exists than validate that only VLAN was changed */
+    if (sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].is_valid) {
+        /* validate that existed RIF configured with port and not LAG*/
+        if (sx_priv(dev)->rif_data[rif_id].is_lag) {
+            printk(KERN_ERR PFX "RIF %d edit: Only VLAN edit allowed. Try to change LAG %d to regular port %d.\n",
+                   rif_id, sx_priv(dev)->rif_data[rif_id].lag_id, local_port);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /*
+         * If provided rif already exist, validate that current port and provided port are the same.
+         * (because only VLAN edit allowed)
+         */
+        if (sx_priv(dev)->rif_data[rif_id].is_valid &&
+            (sx_priv(dev)->rif_data[rif_id].local_port != local_port)) {
+            printk(KERN_ERR PFX "Rif %d edit: Only VLAN edit is allowed (curr rif local %d != new local port %d).\n",
+                   rif_id, sx_priv(dev)->rif_data[rif_id].local_port, local_port);
+            err = -EINVAL;
+            goto out;
+        }
+    }
+
+out:
+    return err;
+}
+
+static void __rp_mode_update_rif_data(struct sx_dev               *dev,
+                                      uint8_t                      is_lag,
+                                      uint16_t                     lag_id_or_local_port,
+                                      struct ku_port_rp_mode_data *port_rp_mode_data_p)
+{
+    uint16_t rif_id = port_rp_mode_data_p->rif_id;
+    uint16_t curr_vlan_id = sx_priv(dev)->rif_data[rif_id].vlan_id;
+    uint16_t new_vlan_id = port_rp_mode_data_p->vlan_id;
+
+
+    /* Check if this is EDIT operation :
+     *    provided rif already exist and
+     *    operation is create (valid is 1) and
+     *    rif_vid != vid
+     * Then (port,prev_vlan_id) setting should be cleared
+     */
+    if (sx_priv(dev)->rif_data[rif_id].is_valid &&
+        port_rp_mode_data_p->is_valid &&
+        (curr_vlan_id != new_vlan_id)) {
+        if (is_lag) {
+            sx_priv(dev)->lag_rp_rif_valid[lag_id_or_local_port][curr_vlan_id] = 0;
+        } else {
+            sx_priv(dev)->port_rp_rif_valid[lag_id_or_local_port][curr_vlan_id] = 0;
+        }
+    }
+
+    /* set rif data configuration */
+    sx_priv(dev)->rif_data[rif_id].is_valid = port_rp_mode_data_p->is_valid;
+    sx_priv(dev)->rif_data[rif_id].is_lag = is_lag;
+    sx_priv(dev)->rif_data[rif_id].vlan_id = new_vlan_id;
+
+    if (is_lag) {
+        sx_priv(dev)->rif_data[rif_id].lag_id = lag_id_or_local_port;
+    } else {
+        sx_priv(dev)->rif_data[rif_id].local_port = lag_id_or_local_port;
+    }
+}
 
 long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -957,9 +1086,23 @@ long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned lon
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
     if (port_rp_mode_data.is_lag) {
-        if (port_rp_mode_data.lag_id >= lag_max) {
-            printk(KERN_ERR PFX "Received LAG ID 0x%x is invalid\n", port_rp_mode_data.lag_id);
-            err = -EINVAL;
+        err = __rp_mode_set_validate_lag(dev, &port_rp_mode_data, lag_max);
+        if (err) {
+            goto out_unlock;
+        }
+
+        /* Invalidate rif data if exist , Update rif data with new info */
+        __rp_mode_update_rif_data(dev, 1, port_rp_mode_data.lag_id, &port_rp_mode_data);
+
+        /*
+         * Handle delete operation (port_rp_mode_data.is_valid == 0) only for RIF that is currently configured
+         * This intended to prevent an issue when RIF delete is deferred and it
+         * come after new RIF is configured
+         */
+        if (sx_priv(dev)->lag_rp_rif_valid[port_rp_mode_data.lag_id][port_rp_mode_data.vlan_id] &&
+            (port_rp_mode_data.is_valid == 0) &&
+            (sx_priv(dev)->lag_rp_rif[port_rp_mode_data.lag_id][port_rp_mode_data.vlan_id]
+             != port_rp_mode_data.rif_id)) {
             goto out_unlock;
         }
 
@@ -987,13 +1130,26 @@ long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned lon
     } else {
         local_port = sx_priv(dev)->system_to_local_db[port_rp_mode_data.sysport];
 
-        if (local_port > phy_port_max) {
-            printk(KERN_ERR PFX "Received Local %d is invalid. (MAX %d).\n", local_port, phy_port_max);
-            err = -EINVAL;
+        err = __rp_mode_set_validate_port(dev, local_port, &port_rp_mode_data, phy_port_max);
+        if (err) {
             goto out_unlock;
         }
 
-        sx_priv(dev)->local_is_rp[local_port] = port_rp_mode_data.is_rp;
+        /* Invalidate rif data if exist , Update rif data with new info */
+        __rp_mode_update_rif_data(dev, 0, local_port, &port_rp_mode_data);
+
+        /*
+         * Handle delete operation only for RIF that is currently configured
+         * This intended to prevent an issue when RIF delete is deferred and it
+         * come after new RIF is configured
+         */
+        if (sx_priv(dev)->port_rp_rif_valid[local_port][port_rp_mode_data.vlan_id] &&
+            (port_rp_mode_data.is_valid == 0) &&
+            (sx_priv(dev)->port_rp_rif[local_port][port_rp_mode_data.vlan_id] !=
+             port_rp_mode_data.rif_id)) {
+            goto out_unlock;
+        }
+
         sx_priv(dev)->local_rp_vid[local_port] = port_rp_mode_data.vlan_id;
         sx_priv(dev)->port_rp_rif[local_port][port_rp_mode_data.vlan_id] = port_rp_mode_data.rif_id;
 
@@ -1140,28 +1296,20 @@ long ctrl_cmd_port_ber_monitor_state_set(struct file *file, unsigned int cmd, un
         goto out;
     }
 
-    if (ber_monitor_state_data.local_port > MAX_PHYPORT_NUM) {
-        printk(KERN_ERR PFX "Received local_port %d is invalid (max. %d) \n",
-               ber_monitor_state_data.local_port,
-               MAX_PHYPORT_NUM);
-        err = -EINVAL;
-        goto out;
-    }
-
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-    sx_priv(dev)->port_ber_monitor_state[ber_monitor_state_data.local_port] = ber_monitor_state_data.ber_monitor_state;
+    err = sx_core_ber_monitor_set_state(ber_monitor_state_data.dev_id,
+                                        ber_monitor_state_data.local_port,
+                                        ber_monitor_state_data.ber_monitor_state);
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
 out:
     return err;
 }
 
-
 long ctrl_cmd_port_ber_monitor_bitmask_set(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_ber_monitor_bitmask_data ber_monitor_bitmask_data;
     struct sx_dev                     *dev;
-    unsigned long                      flags;
     int                                err;
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
@@ -1171,21 +1319,9 @@ long ctrl_cmd_port_ber_monitor_bitmask_set(struct file *file, unsigned int cmd, 
         goto out;
     }
 
-    if (ber_monitor_bitmask_data.local_port > MAX_PHYPORT_NUM) {
-        printk(KERN_ERR PFX "Received local_port %d is invalid (max. %d) \n",
-               ber_monitor_bitmask_data.local_port,
-               MAX_PHYPORT_NUM);
-        err = -EINVAL;
-        goto out;
-    }
-
-    spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-    sx_priv(dev)->port_ber_monitor_bitmask[ber_monitor_bitmask_data.local_port] = ber_monitor_bitmask_data.bitmask;
-    /* If BER monitor is disable: clear the operational state */
-    if (ber_monitor_bitmask_data.bitmask == 0) {
-        sx_priv(dev)->port_ber_monitor_state[ber_monitor_bitmask_data.local_port] = 0;
-    }
-    spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    err = sx_core_ber_monitor_set_bitmask(ber_monitor_bitmask_data.dev_id,
+                                          ber_monitor_bitmask_data.local_port,
+                                          ber_monitor_bitmask_data.bitmask);
 
 out:
     return err;
@@ -1198,8 +1334,6 @@ long ctrl_cmd_tele_threshold_set(struct file *file, unsigned int cmd, unsigned l
     struct sx_dev                *dev;
     unsigned long                 flags;
     int                           err;
-
-    printk(KERN_DEBUG PFX "ioctl CTRL_CMD_TELE_THRESHOLD_SET called\n");
 
     SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
@@ -1216,13 +1350,20 @@ long ctrl_cmd_tele_threshold_set(struct file *file, unsigned int cmd, unsigned l
         goto out;
     }
 
+    if (tele_thrs_data.dir_ing > TELE_DIR_ING_MAX_E) {
+        printk(KERN_ERR PFX "Received dir_ing %d is invalid (max. %d) \n",
+               tele_thrs_data.dir_ing, TELE_DIR_ING_MAX_E);
+        err = -EINVAL;
+        goto out;
+    }
+
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
     if (tele_thrs_data.tc_vec == 0) {
-        sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port] = 0;
+        sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port][tele_thrs_data.dir_ing] = 0;
         /* We clear tc vector DB only if all TCs were removed */
-        sx_priv(dev)->tele_thrs_tc_vec[tele_thrs_data.local_port] = 0;
+        sx_priv(dev)->tele_thrs_tc_vec[tele_thrs_data.local_port][tele_thrs_data.dir_ing] = 0;
     } else {
-        SX_TELE_THRS_VALID_SET(sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port]);
+        SX_TELE_THRS_VALID_SET(sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port][tele_thrs_data.dir_ing]);
     }
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
@@ -1375,4 +1516,74 @@ long ctrl_cmd_set_default_vid(struct file *file, unsigned int cmd, unsigned long
 
 out:
     return err;
+}
+
+long ctrl_cmd_set_warm_boot_mode(struct file *file, unsigned int cmd, unsigned long data)
+{
+    uint32_t       warm_boot_mode;
+    struct sx_dev *dev;
+    unsigned long  flags;
+    int            err;
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    err = copy_from_user(&warm_boot_mode, (void*)data, sizeof(warm_boot_mode));
+    if (err) {
+        goto out;
+    }
+
+    /* in case of warm boot generate udev_add event */
+    if (warm_boot_mode) {
+        /* udev event for system management purpose */
+        kobject_uevent(&dev->pdev->dev.kobj, KOBJ_ADD);
+        __warm_boot_mode = 1;
+
+        /* sx_priv(dev)->warm_boot_mode is for debug purpose only
+         * the logic based on __warm_boot_mode variable */
+        spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
+        sx_priv(dev)->warm_boot_mode = warm_boot_mode;
+        spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    }
+
+out:
+    return err;
+}
+
+long ctrl_cmd_psample_port_sample_rate_update(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_psample_port_sample_rate sample_rate;
+    union sx_event_data               *event_data;
+    struct sx_dev                     *dev;
+    int                                err;
+
+#if !IS_ENABLED(CONFIG_PSAMPLE)
+    return 0;
+#endif /* !IS_ENABLED(CONFIG_PSAMPLE) */
+       /* coverity[unreachable] */
+
+    err = copy_from_user(&sample_rate, (void*)data, sizeof(sample_rate));
+    if (err) {
+        goto out;
+    }
+
+    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        err = -ENOMEM;
+        goto out;
+    }
+
+    event_data->psample_port_sample_rate.local_port = sample_rate.local_port;
+    event_data->psample_port_sample_rate.sample_rate = sample_rate.rate;
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_UPDATE_SAMPLE_RATE, event_data);
+    kfree(event_data);
+
+out:
+    return err;
+}
+
+long ctrl_cmd_buffer_drop_params(struct file *file, unsigned int cmd, unsigned long data)
+{
+    return sx_drop_monitor_set_buffer_drop_params(data);
 }

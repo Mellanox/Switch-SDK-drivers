@@ -37,15 +37,15 @@
 #define MCIA_REG_ID 0x9014
 
 enum {
-    MCIA_INVALID_PORT = 0x17,
-    MCIA_PORT_NOT_SUPP = 0x27,
-    MCIA_NOT_CONNECTED = 0x37,
-    MCIA_NO_EEPROM = 0x47,
-    MCIA_INVALID_PAGE = 0x57,
-    MCIA_INVALID_DEVICE_ADDR = 0x67,
+    MCIA_INVALID_PORT         = 0x17,
+    MCIA_PORT_NOT_SUPP        = 0x27,
+    MCIA_NOT_CONNECTED        = 0x37,
+    MCIA_NO_EEPROM            = 0x47,
+    MCIA_INVALID_PAGE         = 0x57,
+    MCIA_INVALID_DEVICE_ADDR  = 0x67,
     MCIA_INVALID_I2C_DEV_ADDR = 0x77,
-    MCIA_CABLE_NOT_SUPP = 0x87,
-    MCIA_I2C_ERROR = 0x97
+    MCIA_CABLE_NOT_SUPP       = 0x87,
+    MCIA_I2C_ERROR            = 0x97
 };
 
 static const char * mcia_err_str(u8 status)

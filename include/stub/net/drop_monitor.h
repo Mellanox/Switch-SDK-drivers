@@ -1,0 +1,1 @@
+#define SX_DROP_MONITOR_DISABLED
