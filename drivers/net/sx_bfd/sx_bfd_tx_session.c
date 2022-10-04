@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/string.h>
@@ -75,7 +56,8 @@ static void tx_timeout_handler(uint32_t session_id)
     session = sx_bfd_tx_sess_get(session_id);
 
     if (session == NULL) {
-        printk(KERN_ERR "TX timeout, but no session found.\n");
+        printk(KERN_ERR "TX timeout, but session id %d doesn't exists.\n",
+               session_id);
         /* Noting to do, session is probably deleted */
         return;
     }
@@ -195,7 +177,8 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
     /* Create delayed work for handling timeout event */
     err = sx_bfd_create_delayed_work(&session->dwork, tx_timeout_handler, request_hdr.session_id);
     if (err < 0) {
-        printk(KERN_ERR "Failed to create TX delayed work.\n");
+        printk(KERN_ERR "Failed to create TX delayed work for session:%d (err:%d).\n",
+               request_hdr.session_id, err);
         goto bail;
     }
 
@@ -206,9 +189,12 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
                                   request_hdr.ttl,
                                   request_hdr.dscp,
                                   &session->sock,
-                                  ((struct sockaddr *)&request_hdr.peer_addr)->sa_family);
+                                  ((struct sockaddr *)&request_hdr.peer_addr)->sa_family,
+                                  request_hdr.use_vrf_device,
+                                  request_hdr.linux_vrf_name);
     if (err < 0) {
-        printk(KERN_ERR "Failed to create TX socket.\n");
+        printk(KERN_ERR "Failed to create TX socket for session %d (err:%d).\n",
+               request_hdr.session_id, err);
         goto bail;
     }
 
@@ -229,7 +215,8 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
     /* Allocate place for entry DS which will be added to hash. */
     entry = kmalloc(sizeof(struct sx_bfd_tx_session_entry), GFP_KERNEL);
     if (!entry) {
-        printk(KERN_ERR "Create TX entry failed.\n");
+        printk(KERN_ERR "TX entry allocation failed for session %d.\n",
+               request_hdr.session_id);
         err = -ENOMEM;
         goto bail;
     }
@@ -240,7 +227,8 @@ int sx_bfd_tx_sess_add(char *data, void* stats)
 
     if (sx_bfd_tx_sess_lkp_entry(request_hdr.session_id)) {
         spin_unlock_bh(&tx_sess_lock);
-        printk(KERN_WARNING "TX Session already exists.\n");
+        printk(KERN_WARNING "TX Session %d already exists.\n",
+               request_hdr.session_id);
         err = -EINVAL;
         goto bail;
     }
@@ -300,7 +288,8 @@ static int tx_sess_del(uint32_t session_id, void *stats)
     /* If no entry - exit from the function with err */
     if (!entry) {
         spin_unlock_bh(&tx_sess_lock);
-        printk(KERN_ERR "TX session doesn't exist.\n");
+        printk(KERN_ERR "TX session %d doesn't exist.\n",
+               session_id);
         return -ENOENT;
     }
 
@@ -422,7 +411,8 @@ int sx_bfd_get_tx_sess_stats(char * data, uint8_t clear_stats)
 
     session = sx_bfd_tx_sess_get(request_hdr.session_id);
     if (session == NULL) {
-        printk(KERN_ERR "TX timeout, but no session found.\n");
+        printk(KERN_ERR "TX timeout, but session id %d wasn't found.\n",
+               request_hdr.session_id);
         /* Noting to do, session is probably deleted */
         return -ENOENT;
     }
