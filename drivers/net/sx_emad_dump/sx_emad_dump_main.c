@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/version.h>
@@ -37,6 +18,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/netlink.h>
 #include <net/netlink.h>
+#include <linux/mlx_sx/device.h>
 
 #include <linux/mlx_sx/kernel_user.h>
 #include <linux/mlx_sx/skb_hook.h>
@@ -75,10 +57,6 @@ static struct workqueue_struct *__work_queue = NULL;
 /************************************************
  *  Type definitions
  ***********************************************/
-struct sx_emad_dump_nl_msghdr {
-    u32 devindex;
-    u32 reserved;
-};
 enum sx_emad_dump_nl_direction {
     SX_EMAD_DUMP_NL_DIRECTION_TX, /* SW --> HW */
     SX_EMAD_DUMP_NL_DIRECTION_RX  /* HW --> SW */
@@ -129,7 +107,11 @@ static void __emad_dump_setup(struct net_device *dev)
 {
     dev->type = ARPHRD_NETLINK;
     dev->netdev_ops = &__emad_dump_ops;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+    dev->priv_destructor = free_netdev;
+#else
     dev->destructor = free_netdev;
+#endif
     dev->features = NETIF_F_SG | NETIF_F_FRAGLIST;
     dev->flags = IFF_NOARP;
     dev->mtu = 8 * 1024;
@@ -192,7 +174,7 @@ static void __work_handler(struct work_struct *work)
         printk(KERN_ERR "__work_handler failed (err=%d)\n", err);
     }
 
-    kfree_skb(skb_to_dump->skb);
+    consume_skb(skb_to_dump->skb);  /* free unused skb, use consume_skb */
     kfree(skb_to_dump);
 }
 
@@ -250,7 +232,7 @@ int __init sx_emad_dump_init(void)
     memset(&cfg, 0, sizeof(cfg));
     cfg.groups = SX_NL_GRP_MAX;
 
-    __work_queue = create_singlethread_workqueue("emad_dump_queue");
+    __work_queue = sx_health_check_create_monitored_workqueue("emad_dump_queue");
     if (!__work_queue) {
         printk(KERN_ERR "failed to create work queue for emad_dump\n");
         return -ENOMEM;
@@ -263,7 +245,12 @@ int __init sx_emad_dump_init(void)
         goto nl_create_failed;
     }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
+    __nl_dev = alloc_netdev(0, "emad_dump", NET_NAME_UNKNOWN, __emad_dump_setup);
+#else
     __nl_dev = alloc_netdev(0, "emad_dump", __emad_dump_setup);
+#endif
+
     if (!__nl_dev) {
         printk(KERN_ERR "failed to create netlink monitor device\n");
         err = -ENOMEM;
@@ -320,7 +307,7 @@ alloc_netdev_failed:
     netlink_kernel_release(__sx_emad_dump_nl_sk);
 
 nl_create_failed:
-    destroy_workqueue(__work_queue);
+    sx_health_check_destroy_monitored_workqueue(__work_queue);
 
     return err;
 }
@@ -342,7 +329,7 @@ void sx_emad_dump_exit(void)
 
     unregister_netdev(__nl_dev);
     netlink_kernel_release(__sx_emad_dump_nl_sk);
-    destroy_workqueue(__work_queue);
+    sx_health_check_destroy_monitored_workqueue(__work_queue);
 }
 
 #else /* NETLINK_TAP_SUPPORTED */
