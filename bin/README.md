@@ -58,6 +58,7 @@ wjh-libs_1.mlnx.<SDK_VER>_amd64.deb
 wjh-libs-dbgsym_1.mlnx.<SDK_VER>_amd64.deb
 wjh-libs-dev_1.mlnx.<SDK_VER>_amd64.deb
 wjh-libs-dev-static_1.mlnx.<SDK_VER>_amd64.deb
+sx-hash-calc_1.mlnx.<SDK_VER>_amd64.deb
 ```
 
 #### FW
