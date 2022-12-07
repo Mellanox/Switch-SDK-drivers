@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef __SX_MAP_H__
@@ -39,11 +20,9 @@
 typedef int (*sx_core_map_compare_cb_t)(const void *key1, const void *key2);
 
 struct sx_core_map {
-    rwlock_t                 lock;
     struct rb_root           map;
     sx_core_map_compare_cb_t compare_cb;
     size_t                   key_size;
-    uint8_t                  use_lock;
 };
 struct sx_core_map_info {
     struct rb_node rb_node;
@@ -55,11 +34,14 @@ typedef int (*sx_core_map_traverse_cb_t)(const void *key, struct sx_core_map_inf
 
 int sx_core_map_init(struct sx_core_map      *map,
                      sx_core_map_compare_cb_t compare_cb,
-                     size_t                   key_size,
-                     uint8_t                  use_lock);
+                     size_t                   key_size);
 
+int sx_core_map_is_empty(struct sx_core_map* map, bool *is_empty);
+int sx_core_map_get_first(struct sx_core_map *map, struct sx_core_map_info **info);
+int sx_core_map_get_next(struct sx_core_map *map, struct sx_core_map_info *curr, struct sx_core_map_info **info);
 int sx_core_map_insert(struct sx_core_map *map, const void *key, struct sx_core_map_info *info, gfp_t flags);
 int sx_core_map_remove(struct sx_core_map *map, const void *key, struct sx_core_map_info **info);
+int sx_core_map_remove_all(struct sx_core_map *map, sx_core_map_traverse_cb_t destructor_cb, void *context);
 int sx_core_map_lookup(struct sx_core_map *map, const void *key, struct sx_core_map_info **info);
 int sx_core_map_traverse(struct sx_core_map *map, sx_core_map_traverse_cb_t traverse_cb, void *context);
 
