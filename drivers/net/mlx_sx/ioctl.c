@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <uapi/linux/errno.h>
@@ -65,7 +46,6 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_RAISE_EVENT)] = ctrl_cmd_raise_event,
     [IOCTL_CMD_INDEX(CTRL_CMD_ENABLE_SWID)] = ctrl_cmd_enable_swid,
     [IOCTL_CMD_INDEX(CTRL_CMD_DISABLE_SWID)] = ctrl_cmd_disable_swid,
-    [IOCTL_CMD_INDEX(CTRL_CMD_GET_SYNDROME_STATUS)] = ctrl_cmd_get_syndrome_status,
     [IOCTL_CMD_INDEX(CTRL_CMD_QUERY_FW)] = ctrl_cmd_query_fw,
     [IOCTL_CMD_INDEX(CTRL_CMD_MAD_DEMUX)] = ctrl_cmd_mad_demux,
     [IOCTL_CMD_INDEX(CTRL_CMD_QUERY_RSRC)] = ctrl_cmd_query_rsrc,
@@ -83,9 +63,6 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_PCI_PROFILE)] = ctrl_cmd_get_pci_profile,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_SWID_2_RDQ)] = ctrl_cmd_get_swid_2_rdq,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_DEFAULT_VID)] = ctrl_cmd_set_default_vid,
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
-#endif
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_VID_MEMBERSHIP)] = ctrl_cmd_set_vid_membership,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PRIO_TAGGING)] = ctrl_cmd_set_prio_tagging,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PRIO_TO_TC)] = ctrl_cmd_set_prio_to_tc,
@@ -96,6 +73,7 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_TRUNCATE_PARAMS)] = ctrl_cmd_set_truncate_params,
     [IOCTL_CMD_INDEX(CTRL_CMD_CR_SPACE_READ)] = ctrl_cmd_cr_space_read,
     [IOCTL_CMD_INDEX(CTRL_CMD_CR_SPACE_WRITE)] = ctrl_cmd_cr_space_write,
+    [IOCTL_CMD_INDEX(CTRL_CMD_CR_DUMP)] = ctrl_cmd_cr_dump,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_LOCAL_PORT_TO_SWID)] = ctrl_cmd_set_local_port_to_swid,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_IB_TO_LOCAL_PORT)] = ctrl_cmd_set_ib_to_local_port,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SYSTEM_TO_LOCAL_PORT)] = ctrl_cmd_set_system_to_local_port,
@@ -117,6 +95,8 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_COUNTERS)] = ctrl_cmd_get_counters,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PTP_MODE)] = ctrl_cmd_set_ptp_mode,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_MONITOR_RDQ)] = ctrl_cmd_set_monitor_rdq,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG)] = ctrl_cmd_set_rdq_filter_ebpf_prog,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_RDQ_AGG_EBPF_PROG)] = ctrl_cmd_set_rdq_agg_ebpf_prog,
     [IOCTL_CMD_INDEX(CTRL_CMD_READ_MULTI)] = ctrl_cmd_read_multi,
     [IOCTL_CMD_INDEX(CTRL_CMD_GET_RDQ_STAT)] = ctrl_cmd_get_rdq_stat,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SKB_OFFLOAD_FWD_MARK_EN)] = ctrl_cmd_set_skb_offload_fwd_mark_en,
@@ -127,6 +107,34 @@ static const ioctl_handler_cb_t
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_PCI_PROFILE_DRIVER_ONLY)] = ctrl_cmd_set_pci_profile_driver_only,
     [IOCTL_CMD_INDEX(CTRL_CMD_FLUSH_EVLIST)] = ctrl_cmd_flush_evlist,
     [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_NODE_DESC)] = ctrl_cmd_set_sw_ib_node_desc,
+    [IOCTL_CMD_INDEX(CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE)] = ctrl_cmd_psample_port_sample_rate_update,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_SW_IB_SWID_UP_DOWN)] = ctrl_cmd_set_sw_ib_up_down,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_WARM_BOOT_MODE)] = ctrl_cmd_set_warm_boot_mode,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_FD_ATTRIBUTES)] = ctrl_cmd_set_fd_attributes,
+    [IOCTL_CMD_INDEX(CTRL_CMD_GET_FD_ATTRIBUTES)] = ctrl_cmd_get_fd_attributes,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_ADD)] = ctrl_cmd_bulk_cntr_tr_add,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_DEL)] = ctrl_cmd_bulk_cntr_tr_del,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_CANCEL)] = ctrl_cmd_bulk_cntr_tr_cancel,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_ACK)] = ctrl_cmd_bulk_cntr_tr_ack,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_TR_IN_PROGRESS)] = ctrl_cmd_bulk_cntr_tr_in_progress,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BULK_CNTR_PER_PRIO_CACHE_SET)] = ctrl_cmd_bulk_cntr_per_prio_cache_set,
+    [IOCTL_CMD_INDEX(CTRL_CMD_BUFFER_DROP_PARAMS)] = ctrl_cmd_buffer_drop_params,
+    [IOCTL_CMD_INDEX(CTRL_CMD_CLIENT_PID_GET)] = ctrl_cmd_client_pid_get,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SDK_HEALTH_SET)] = ctrl_cmd_sdk_health_set,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SDK_HEALTH_GET)] = ctrl_cmd_sdk_health_get,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SEND_ISSU_NOTIFICATION)] = ctrl_cmd_send_issu_notification,
+    [IOCTL_CMD_INDEX(CTRL_CMD_FW_MEMORY_TO_CPU_MAP)] = ctrl_cmd_memory_to_cpu_map,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_KVH_CACHE_PARAMS)] = ctrl_cmd_set_kvh_cache_params,
+    [IOCTL_CMD_INDEX(CTRL_CMD_GET_KVH_CACHE_PARAMS)] = ctrl_cmd_get_kvh_cache_params,
+    [IOCTL_CMD_INDEX(CTRL_CMD_ACCUFLOW_COUNTERS_SET)] = ctrl_cmd_accuflow_set,
+    [IOCTL_CMD_INDEX(CTRL_CMD_SEND_FATAL_FAILURE_DETECT_INFO_SET)] = ctrl_cmd_send_fatal_failure_detect_info_set,
+    [IOCTL_CMD_INDEX(CTRL_CMD_MODULE_SUPPORT_ENABLE)] = ctrl_cmd_module_support_enable,
+    [IOCTL_CMD_INDEX(CTRL_CMD_PORT_MODULE_UPDATE)] = ctrl_cmd_port_module_update,
+    [IOCTL_CMD_INDEX(CTRL_CMD_PORT_MODULE_MAP_SET)] = ctrl_cmd_port_module_map_set,
+#ifdef SW_PUDE_EMULATION
+    /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
+    [IOCTL_CMD_INDEX(CTRL_CMD_SET_PORT_ADMIN_STATUS)] = ctrl_cmd_set_port_admin_status,
+#endif /* SW_PUDE_EMULATION */
 };
 
 
@@ -147,12 +155,12 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
 {
     ioctl_handler_cb_t handler = NULL;
     long               err = -ENOTTY;
-    u8                 access_reg_cmd = 0;
+    u8                 handler_uses_pci_restart_lock = 0;
 
+    /* coverity[unsigned_compare] */
     if ((cmd >= CTRL_CMD_MIN_VAL) && (cmd <= CTRL_CMD_MAX_VAL)) {
         handler = __ioctl_handler_table[IOCTL_CMD_INDEX(cmd)];
     } else if ((cmd >= CTRL_CMD_ACCESS_REG_MIN) && (cmd <= CTRL_CMD_ACCESS_REG_MAX)) {
-        access_reg_cmd = 1;
         handler = ioctl_reg_handler_table[IOCTL_REG_INDEX(cmd)];
 
         /* maybe the handler is implemented in auto-reg */
@@ -167,12 +175,18 @@ long sx_core_ioctl(struct file *filp, unsigned int cmd, unsigned long data)
         goto out;
     }
 
-    if (access_reg_cmd) {
+    if ((cmd == CTRL_CMD_PCI_DEVICE_RESTART) ||
+        (cmd == CTRL_CMD_PCI_REGISTER_DRIVER) ||
+        (cmd == CTRL_CMD_SET_SGMII_SYSTEM_CFG)) {
+        handler_uses_pci_restart_lock = 1;
+    }
+
+    if (handler_uses_pci_restart_lock) {
+        err = handler(filp, cmd, data);
+    } else {
         down_read(&sx_glb.pci_restart_lock);
         err = handler(filp, cmd, data);
         up_read(&sx_glb.pci_restart_lock);
-    } else {
-        err = handler(filp, cmd, data);
     }
 
 out:

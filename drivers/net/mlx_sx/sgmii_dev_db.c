@@ -1,46 +1,28 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
+
+#include <linux/proc_fs.h>
 
 #include "sx.h"
 #include "sgmii_internal.h"
 #include "sx_dpt.h"
-#include "map.h"
+#include <linux/mlx_sx/map.h>
 #include "sx_dbg_dump_proc.h"
 
 #define MAC_ADDR_FMT "%02x:%02x:%02x:%02x:%02x:%02x"
 #define MAC_ADDR(mac) (mac)[0], (mac)[1], (mac)[2], (mac)[3], (mac)[4], (mac)[5]
 
 #define INVALID_DEV_ID (-1)
-#define DEV_ID_IS_VALID(dev_id) ((dev_id) >= 0 && (dev_id) < MAX_NUM_OF_REMOTE_SWITCHES)
 
 #define MAX_OOB_CPU_INGRESS_TCLASS (24)
 
@@ -202,6 +184,34 @@ void __sgmii_dev_counters_init(int dev_id, struct sgmii_dev_counters *dev_counte
                          "CR-Space send failed",
                          COUNTER_SEV_ERROR);
     sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_default_device_not_configured,
+                         "CR-Space default device is not configured",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_dev_mismatch,
+                         "CR-Space transaction RX and TX devices mismatch",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_invalid_oob_checks,
+                         "CR-Space invalid OOB checks",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_invalid_trap_id,
+                         "CR-Space invalid trap ID",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_misc_failed,
+                         "CR-Space misc failure",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_unsolicited,
+                         "CR-Space unsolicited message",
+                         COUNTER_SEV_NOTICE);
+    sx_core_counter_init(&dev_counters->category,
+                         &dev_counters->cr_space_snipped_data,
+                         "CR-Space snipped packet",
+                         COUNTER_SEV_ERROR);
+    sx_core_counter_init(&dev_counters->category,
                          &dev_counters->misc_tx,
                          "MISC packet application transmissions",
                          COUNTER_SEV_INFO);
@@ -281,34 +291,6 @@ void __sgmii_dev_counters_init(int dev_id, struct sgmii_dev_counters *dev_counte
                          &dev_counters->rx_cqev2_ok,
                          "RX (CQEv2) succeeded",
                          COUNTER_SEV_INFO);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_default_device_not_configured,
-                         "CR-Space default device is not configured",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_dev_mismatch,
-                         "CR-Space transaction RX and TX devices mismatch",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_invalid_oob_checks,
-                         "CR-Space invalid OOB checks",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_invalid_trap_id,
-                         "CR-Space invalid trap ID",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_misc_failed,
-                         "CR-Space misc failure",
-                         COUNTER_SEV_ERROR);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_unsolicited,
-                         "CR-Space unsolicited message",
-                         COUNTER_SEV_NOTICE);
-    sx_core_counter_init(&dev_counters->category,
-                         &dev_counters->cr_space_snipped_data,
-                         "CR-Space snipped packet",
-                         COUNTER_SEV_ERROR);
 }
 
 
@@ -424,41 +406,44 @@ static int __sgmii_dev_get_by_id_LOCKED(int dev_id, struct sgmii_dev **sgmii_dev
 
 
 /* must be called outside of sgmii_dev_db lock ! */
-static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
+static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev, bool hopf_on_remote_mgmt)
 {
     struct ku_hopf_reg reg_hopf;
     ku_mgmt_board_t    mgmt_brd;
     uint8_t            cqe_ver;
-    int                i, err = 0, ret = 0;
+    int                i, err = 0;
 
     mgmt_brd = sgmii_get_management_board();
     cqe_ver = sgmii_get_cqe_ver();
 
     memset(&reg_hopf, 0, sizeof(reg_hopf));
-    reg_hopf.cqe_ver = cqe_ver;
-    err = sgmii_get_netdev_mac(reg_hopf.mac);
-    if (err) {
-        printk(KERN_ERR "failed to get SGMII netdev MAC address\n");
-        return err;
+    if (hopf_on_remote_mgmt) {
+        reg_hopf.i_f = (mgmt_brd == KU_MGMT_BOARD_1) ? 1 : 0;
+    } else {
+        reg_hopf.i_f = (mgmt_brd == KU_MGMT_BOARD_1) ? 0 : 1;
     }
 
-    reg_hopf.pcp = 0;
-    reg_hopf.vid = sgmii_dev->dpt_info.vid;
-    reg_hopf.i_f = (mgmt_brd == KU_MGMT_BOARD_1) ? 0 : 1;
-
     reg_hopf.sr = 1; /* send */
-    reg_hopf.rcv_cpu_tclass = 0; /* reserved for SEND flows */
     for (i = 0; i < NUMBER_OF_ETCLASSES; i++) {
         reg_hopf.flow_number = i;
 
         err = sgmii_emad_access_hopf(sgmii_dev->dev_id, &reg_hopf);
         if (err) {
             printk(KERN_ERR "failed to init HOPF (SDQ %d) for dev id %d [err=%d]\n", i, sgmii_dev->dev_id, err);
-            ret = err;
+            goto out;
         }
     }
 
     reg_hopf.sr = 0; /* receive */
+    reg_hopf.cqe_ver = cqe_ver;
+    reg_hopf.vlan_ex = 1;
+    reg_hopf.vid = sgmii_dev->dpt_info.vid;
+    err = sgmii_get_netdev_mac(reg_hopf.mac);
+    if (err) {
+        printk(KERN_ERR "failed to get SGMII netdev MAC address\n");
+        goto out;
+    }
+
     for (i = 0; i < MAX_OOB_CPU_INGRESS_TCLASS; i++) {
         reg_hopf.flow_number = i;
         reg_hopf.rcv_cpu_tclass = i;
@@ -466,11 +451,12 @@ static int __sgmii_dev_init_hopf(struct sgmii_dev *sgmii_dev)
         err = sgmii_emad_access_hopf(sgmii_dev->dev_id, &reg_hopf);
         if (err) {
             printk(KERN_ERR "failed to init HOPF (RDQ %d) for dev id %d [err=%d]\n", i, sgmii_dev->dev_id, err);
-            ret = err;
+            goto out;
         }
     }
 
-    return ret;
+out:
+    return err;
 }
 
 
@@ -480,6 +466,7 @@ int sgmii_dev_init(int dev_id, uint8_t init_hopf)
     struct sgmii_dev  *sgmii_dev;
     struct ku_ppad_reg reg_ppad;
     int                err = 0;
+    uint16_t           local_port;
 
     if (!is_sgmii_supported()) {
         printk(KERN_ERR "SGMII is disabled\n");
@@ -495,7 +482,10 @@ int sgmii_dev_init(int dev_id, uint8_t init_hopf)
     }
 
     memset(&reg_ppad, 0, sizeof(reg_ppad));
-    reg_ppad.local_port = (mgmt_brd == KU_MGMT_BOARD_1) ? 1 : 2;
+    local_port = (mgmt_brd == KU_MGMT_BOARD_1) ? 1 : 2;
+    SX_PORT_EXTRACT_LSB_MSB_FROM_PHY_ID(reg_ppad.local_port,
+                                        reg_ppad.lp_msb,
+                                        local_port);
     memcpy(reg_ppad.mac, sgmii_dev->dpt_info.dmac, 6);
     err = sgmii_emad_access_ppad(dev_id, &reg_ppad);
     if (err) {
@@ -504,7 +494,7 @@ int sgmii_dev_init(int dev_id, uint8_t init_hopf)
     }
 
     if (init_hopf) {
-        err = __sgmii_dev_init_hopf(sgmii_dev);
+        err = __sgmii_dev_init_hopf(sgmii_dev, false);
         if (err) {
             goto out;
         }
@@ -516,7 +506,7 @@ out:
 }
 
 
-int sgmii_default_dev_set(int dev_id)
+int sgmii_default_dev_set(int dev_id, bool hopf_on_remote_mgmt)
 {
     struct sgmii_dev *new_default;
     int               err = 0;
@@ -534,8 +524,8 @@ int sgmii_default_dev_set(int dev_id)
         goto out;
     }
 
-    err = __sgmii_dev_init_hopf(new_default);
-    if (!err) {
+    err = __sgmii_dev_init_hopf(new_default, hopf_on_remote_mgmt);
+    if (!err && !hopf_on_remote_mgmt) {
         write_lock_bh(&__sgmii_dev_lock);
         __sgmii_default_dev_id = dev_id;
         write_unlock_bh(&__sgmii_dev_lock);
@@ -588,11 +578,23 @@ static int __sgmii_dev_proc_show(struct seq_file *m, void *v)
         break;
 
     case SXD_MGIR_HW_DEV_ID_QUANTUM:
-        dev_type_name = "Switch-IB-3";
+        dev_type_name = "Quantum";
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_QUANTUM2:
+        dev_type_name = "Quantum2";
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_QUANTUM3:
+        dev_type_name = "Quantum3";
         break;
 
     case SXD_MGIR_HW_DEV_ID_SPECTRUM3:
         dev_type_name = "Switch-Spectrum-3";
+        break;
+
+    case SXD_MGIR_HW_DEV_ID_SPECTRUM4:
+        dev_type_name = "Switch-Spectrum-4";
         break;
 
     default:
@@ -631,6 +633,14 @@ static void __sgmii_dev_id_to_proc_file_name(int dev_id, char *proc_file_name)
 
 static void __sgmii_dev_create_proc_file(struct sgmii_dev *sgmii_dev)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    static const struct proc_ops __sgmii_dev_proc_handler = {
+        .proc_open = __sgmii_dev_proc_open,
+        .proc_read = seq_read,
+        .proc_lseek = seq_lseek,
+        .proc_release = single_release
+    };
+#else
     static const struct file_operations __sgmii_dev_proc_handler = {
         .owner = THIS_MODULE,
         .open = __sgmii_dev_proc_open,
@@ -638,7 +648,8 @@ static void __sgmii_dev_create_proc_file(struct sgmii_dev *sgmii_dev)
         .llseek = seq_lseek,
         .release = single_release
     };
-    char                                proc_file_name[MAX_PROC_FILENAME_LEN];
+#endif
+    char proc_file_name[MAX_PROC_FILENAME_LEN];
 
     __sgmii_dev_id_to_proc_file_name(sgmii_dev->dev_id, proc_file_name);
     sgmii_dev->proc_file = proc_create_data(proc_file_name,
@@ -873,7 +884,7 @@ int sgmii_default_dev_id_get(int *dev_id)
 }
 
 
-static int __sgmii_dev_db_handler(struct seq_file *m, void *v)
+static int __sgmii_dev_db_handler(struct seq_file *m, void *v, void *context)
 {
     struct sgmii_dev *sgmii_dev;
     const uint8_t    *dmac;
@@ -969,18 +980,18 @@ int sgmii_dev_db_init(void)
         return -ENOMEM;
     }
 
-    ret = sx_core_map_init(&__sgmii_dev_map, __sgmii_info_compare, 6, 0);
+    ret = sx_core_map_init(&__sgmii_dev_map, __sgmii_info_compare, 6);
     if (ret) {
         printk(KERN_ERR "failed to create sgmii device map (err=%d)\n", ret);
         return ret;
     }
 
-    return sx_dbg_dump_proc_fs_register("sgmii_dev_db", __sgmii_dev_db_handler, NULL);
+    return sx_dbg_dump_read_handler_register("sgmii_dev_db", __sgmii_dev_db_handler, NULL, NULL);
 }
 
 
 void sgmii_dev_db_deinit(void)
 {
-    sx_dbg_dump_proc_fs_unregister("sgmii_dev_db");
+    sx_dbg_dump_read_handler_unregister("sgmii_dev_db");
     remove_proc_entry(FW_TOOL_PROC_DIR_NAME, NULL);
 }

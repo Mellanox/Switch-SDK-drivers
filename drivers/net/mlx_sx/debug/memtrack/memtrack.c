@@ -1,39 +1,23 @@
 /*
- * Copyright (c) 2010-2016,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #define C_MEMTRACK_C
 
 #ifdef kmalloc
     #undef kmalloc
+#endif
+#ifdef kstrdup
+    #undef kstrdup
 #endif
 #ifdef kmemdup
     #undef kmemdup
@@ -117,7 +101,7 @@
 #include <linux/moduleparam.h>
 
 
-MODULE_AUTHOR("Mellanox Technologies LTD.");
+MODULE_AUTHOR("NVIDIA");
 MODULE_DESCRIPTION("Memory allocations tracking");
 MODULE_LICENSE("GPL");
 
@@ -173,6 +157,7 @@ struct tracked_obj_desc_t {
 static struct tracked_obj_desc_t *tracked_objs_arr[MEMTRACK_NUM_OF_MEMTYPES];
 static const char                *rsc_names[MEMTRACK_NUM_OF_MEMTYPES] = {
     "kmalloc",
+    "kstrdup",
     "vmalloc",
     "kmem_cache_alloc",
     "io_remap",
@@ -187,7 +172,7 @@ static const char                *rsc_free_names[MEMTRACK_NUM_OF_MEMTYPES] = {
     "vfree",
     "kmem_cache_free",
     "io_unmap",
-    "destory_workqueue",
+    "destroy_workqueue",
     "free_pages",
     "ib_dma_unmap_single",
     "ib_dma_unmap_page",
@@ -197,6 +182,7 @@ static inline const char * memtype_alloc_str(enum memtrack_memtype_t memtype)
 {
     switch (memtype) {
     case MEMTRACK_KMALLOC:
+    case MEMTRACK_KSTRDUP:
     case MEMTRACK_VMALLOC:
     case MEMTRACK_KMEM_OBJ:
     case MEMTRACK_IOREMAP:
@@ -216,6 +202,7 @@ static inline const char * memtype_free_str(enum memtrack_memtype_t memtype)
 {
     switch (memtype) {
     case MEMTRACK_KMALLOC:
+    case MEMTRACK_KSTRDUP:
     case MEMTRACK_VMALLOC:
     case MEMTRACK_KMEM_OBJ:
     case MEMTRACK_IOREMAP:
@@ -820,9 +807,16 @@ static ssize_t memtrack_read(struct file *filp, char __user *buf, size_t size, l
     }
 }
 
-static const struct file_operations memtrack_proc_fops = {
-    .read = memtrack_read,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static const struct proc_ops memtrack_proc_fops = {
+    .proc_read = memtrack_read
 };
+#else
+static const struct file_operations memtrack_proc_fops = {
+    .read = memtrack_read
+};
+#endif
+
 static const char                  *memtrack_proc_entry_name = "mt_memtrack";
 static int create_procfs_tree(void)
 {
@@ -956,13 +950,7 @@ undo_cache_create:
         }
     }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-    if (kmem_cache_destroy(meminfo_cache) != 0) {
-        printk(KERN_ERR "Failed on kmem_cache_destroy!\n");
-    }
-#else
     kmem_cache_destroy(meminfo_cache);
-#endif
     return -1;
 }
 
@@ -1001,12 +989,6 @@ void cleanup_module(void)
         }
     }                       /* for memtype */
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-    if (kmem_cache_destroy(meminfo_cache) != 0) {
-        printk(KERN_ERR "memtrack::cleanup_module: Failed on kmem_cache_destroy!\n");
-    }
-#else
     kmem_cache_destroy(meminfo_cache);
-#endif
     printk(KERN_INFO "memtrack::cleanup_module done.\n");
 }
