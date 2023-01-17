@@ -11,8 +11,9 @@
 # detailed in the file "LICENSE.txt".
 #
 #
- 
-obj-$(CONFIG_SX_EMAD_DUMP)	+=	sx_emad_dump.o
+EXTRA_CFLAGS += $(SXD_KERNEL_EXTRA_CFLAGS)
+KBUILD_EXTRA_SYMBOLS := $(EXTRA_SYMVERS)
+obj-m += sx_emad_dump.o
 
-sx_emad_dump-y := sx_emad_dump_main.o
+sx_emad_dump-objs := sx_emad_dump_main.o
 
