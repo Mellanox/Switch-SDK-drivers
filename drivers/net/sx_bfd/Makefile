@@ -11,14 +11,16 @@
 # detailed in the file "LICENSE.txt".
 #
 #
+EXTRA_CFLAGS += $(SXD_KERNEL_EXTRA_CFLAGS)
+KBUILD_EXTRA_SYMBOLS := $(EXTRA_SYMVERS)
+obj-m += sx_bfd.o
+sx_bfd-objs := sx_bfd_main.o        \
+               sx_bfd_rx_session.o  \
+               sx_bfd_tx_session.o  \
+               sx_bfd_cdev.o        \
+               sx_bfd_engine_ctrl.o \
+               sx_bfd_engine_data.o \
+               sx_bfd_socket.o      \
+               sx_bfd_workqueue.o   \
+               sx_bfd_event.o
 
-obj-$(CONFIG_SX_BFD) += sx_bfd.o
-sx_bfd-objs := sx_bfd_main.o sx_bfd_rx_session.o sx_bfd_tx_session.o sx_bfd_cdev.o sx_bfd_engine_ctrl.o sx_bfd_engine_data.o sx_bfd_socket.o sx_bfd_workqueue.o sx_bfd_event.o
-
-sx_bfd-y := sx_bfd.o
-
-#all:
-#	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
-#
-#clean:
-#	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
