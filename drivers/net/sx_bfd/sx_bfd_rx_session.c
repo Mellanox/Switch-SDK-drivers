@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/string.h>
@@ -78,7 +59,8 @@ static void rx_timeout_handler(uint32_t session_id)
 
     session = sx_bfd_rx_sess_get_by_id(session_id);
     if (!session) {
-        printk(KERN_ERR "RX timeout, but no session found.\n");
+        printk(KERN_ERR "RX timeout error: session id %d isn't found.\n",
+               session_id);
         /* Noting to do, session is probably deleted */
         return;
     }
@@ -285,7 +267,8 @@ static int rx_sess_add(struct bfd_offload_info *request_hdr, char *data, int upd
      * will be done via trap. */
     session->packet = (char*)kmalloc(request_hdr->size, GFP_KERNEL);
     if (session->packet == NULL) {
-        printk(KERN_ERR "Failed to allocate packet in RX session.\n");
+        printk(KERN_ERR "Failed to allocate packet of size %zu in RX session.\n",
+               request_hdr->size);
         err = -ENOMEM;
         goto bail;
     }
@@ -337,7 +320,7 @@ static int rx_sess_add(struct bfd_offload_info *request_hdr, char *data, int upd
     /* Allocate entry_session for hash*/
     entry_session = kmalloc(sizeof(struct sx_bfd_rx_session_entry), GFP_KERNEL);
     if (!entry_session) {
-        printk(KERN_ERR "Create RX entry session failed.\n");
+        printk(KERN_ERR "RX entry session allocation failed.\n");
         err = -ENOMEM;
         goto bail;
     }
@@ -350,7 +333,13 @@ static int rx_sess_add(struct bfd_offload_info *request_hdr, char *data, int upd
     if (sx_bfd_rx_sess_lkp_entry_by_ip_addr_vrf(&session->ip_addr,
                                                 session->vrf_id)) {
         spin_unlock_bh(&rx_sess_lock);
-        printk(KERN_WARNING "RX session already exists.\n");
+        if (session->ip_addr.family == AF_INET) {
+            printk(KERN_WARNING "RX session [ip:%pI4, vrf_id:%d] already exists.\n",
+                   &(session->ip_addr.ipv4), session->vrf_id);
+        } else {
+            printk(KERN_WARNING "RX session [ip:%pI6, vrf_id:%d] already exists.\n",
+                   &(session->ip_addr.ipv6), session->vrf_id);
+        }
         err = -EINVAL;
         goto bail;
     }
@@ -371,9 +360,13 @@ static int rx_sess_add(struct bfd_offload_info *request_hdr, char *data, int upd
          * done in spinlock */
         spin_unlock_bh(&rx_sess_lock);
 
-        entry_vrf = sx_bfd_rx_vrf_init(session->vrf_id, request_hdr->bfd_pid);
+        entry_vrf = sx_bfd_rx_vrf_init(session->vrf_id,
+                                       request_hdr->use_vrf_device,
+                                       request_hdr->linux_vrf_name,
+                                       request_hdr->bfd_pid);
         if (!entry_vrf) {
-            printk(KERN_ERR "Initialization of VRF/socket FAILED.\n");
+            printk(KERN_ERR "Initialization of VRF %d (%s) socket FAILED.\n",
+                   session->vrf_id, request_hdr->linux_vrf_name);
             err = -EINVAL;
             goto bail;
         }
@@ -449,12 +442,13 @@ int sx_bfd_rx_sess_add(char * data)
 
     err = rx_sess_add(&request_hdr, data, 0, NULL);
     if (err < 0) {
-        printk(KERN_ERR "rx_sess_add for session %d VRF %d FAILED.\n", request_hdr.session_id, request_hdr.vrf_id);
+        printk(KERN_ERR "rx_sess_add for session %d VRF %d FAILED.\n",
+               request_hdr.session_id, request_hdr.vrf_id);
         goto bail;
     }
 
-    printk(KERN_DEBUG "Session added session_id %d VRF %d.\n",
-           request_hdr.session_id, request_hdr.vrf_id);
+    pr_debug("Session added session_id %d VRF %d.\n",
+             request_hdr.session_id, request_hdr.vrf_id);
 
 bail:
     mutex_unlock(&rx_db_lock);
@@ -481,7 +475,8 @@ static int rx_sess_del(uint32_t session_id, int update, void *stats)
     /* If no entry - exit from the function with err */
     if (!entry) {
         spin_unlock_bh(&rx_sess_lock);
-        printk(KERN_ERR "RX session doesn't exist.\n");
+        printk(KERN_ERR "RX session %d doesn't exist.\n",
+               session_id);
         return -ENOENT;
     }
 
@@ -564,7 +559,7 @@ int sx_bfd_rx_sess_del(char * data)
         printk(KERN_ERR "Failed to delete rx_session %d.\n", request_hdr.session_id);
         goto bail;
     }
-    printk(KERN_DEBUG "rx session %u was deleted\n", request_hdr.session_id);
+    pr_debug("rx session %u was deleted\n", request_hdr.session_id);
 
 bail:
 /*mutex_unlock - no care about entering new command*/
@@ -624,7 +619,8 @@ int sx_bfd_get_rx_sess_stats(char * data, uint8_t clear_stats)
     /* Get session DS from DB and update (increment) ref_count on session and VRF*/
     session = sx_bfd_rx_sess_get_by_id(request_hdr.session_id);
     if (!session) {
-        printk(KERN_DEBUG "RX session doesn't exist.\n");
+        pr_debug("RX session %d doesn't exist.\n",
+                 request_hdr.session_id);
         goto bail;
     }
 
@@ -692,8 +688,8 @@ int sx_bfd_rx_sess_update(char *data)
         goto bail;
     }
 
-    printk(KERN_DEBUG "Session session_id %d VRF %d updated.\n",
-           request_hdr.session_id, request_hdr.vrf_id);
+    pr_debug("Session session_id %d VRF %d updated.\n",
+             request_hdr.session_id, request_hdr.vrf_id);
 
 bail:
     mutex_unlock(&rx_db_lock);

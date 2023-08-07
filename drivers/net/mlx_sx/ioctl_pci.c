@@ -1,104 +1,141 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/mlx_sx/kernel_user.h>
 
 #include "sx.h"
 #include "ioctl_internal.h"
+#include "dev_init.h"
 
 long ctrl_cmd_set_pci_profile(struct file *file, unsigned int cmd, unsigned long data)
 {
-    struct sx_dev *dev;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-    return sx_core_ioctl_set_pci_profile(dev, data, 1);
+    return sx_core_ioctl_set_pci_profile(file, NULL, data, 1);
 }
 
 
 long ctrl_cmd_set_pci_profile_driver_only(struct file *file, unsigned int cmd, unsigned long data)
 {
-    struct sx_dev *dev;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-    return sx_core_ioctl_set_pci_profile(dev, data, 0);
+    return sx_core_ioctl_set_pci_profile(file, NULL, data, 0);
 }
 
 
 long ctrl_cmd_pci_register_driver(struct file *file, unsigned int cmd, unsigned long data)
 {
-    return register_driver_with_pci();
+    struct sx_dev *dev;
+    sxd_dev_id_t   device_id = DEFAULT_DEVICE_ID;
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_dev_db_get_dev_by_id(device_id);
+
+    printk(KERN_INFO "ioctl PCI register driver called for device\n");
+
+    if (!dev) {
+        printk(KERN_ERR "default device wasn't found\n");
+        return -ENODEV;
+    }
+
+    return sx_restart_one_pci(dev);
 }
 
 
 long ctrl_cmd_pci_device_restart(struct file *file, unsigned int cmd, unsigned long data)
 {
-    struct sx_dev *tmp_dev = NULL, *curr_dev = NULL;
-    u8             found = 0;
+    sxd_dev_id_t   dev_id = (sxd_dev_id_t)data;
+    struct sx_dev *dev;
 
-    printk(KERN_DEBUG PFX "ioctl device restart called for device %lu\n", data);
-
-    spin_lock(&sx_glb.pci_devs_lock);
-
-    list_for_each_entry_safe(curr_dev, tmp_dev, &sx_glb.pci_devs_list, list) {
-        if (curr_dev->device_id == data) {
-            found = 1;
-            break;
-        }
+    if (sx_core_has_predefined_devices()) {
+        dev_id = get_device_id_from_fd(file);
     }
 
-    spin_unlock(&sx_glb.pci_devs_lock);
+    printk(KERN_INFO "ioctl PCI device restart restart called for device %u\n", dev_id);
 
-    if (!found) {
-        printk(KERN_ERR "ioctl device restart: the device wasn't found\n");
+    dev = sx_dev_db_get_dev_by_id(dev_id);
+
+    if (!dev) {
+        printk(KERN_ERR "device %u wasn't found\n", dev_id);
         return -ENODEV;
     }
 
-    return sx_restart_one_pci(curr_dev->pdev);
+    return sx_restart_one_pci(dev);
 }
 
 
 long ctrl_cmd_get_pci_profile(struct file *file, unsigned int cmd, unsigned long data)
 {
-    struct sx_dev *dev;
+    struct sx_dev            *dev;
+    struct ku_get_pci_profile pci_prof;
+    int                       err = 0;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    err = copy_from_user(&pci_prof,
+                         (void*)data, sizeof(pci_prof));
+
+    if (sx_core_has_predefined_devices()) {
+        pci_prof.dev_id = get_device_id_from_fd(file);
+    }
+
+    if (err) {
+        return -ENOMEM;
+    }
+
+    dev = sx_core_ioctl_get_dev(pci_prof.dev_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
     return sx_core_ioctl_get_pci_profile(dev, data);
 }
 
 
 long ctrl_cmd_reset(struct file *file, unsigned int cmd, unsigned long data)
 {
+    sxd_dev_id_t   dev_id = (sxd_dev_id_t)data;
     struct sx_dev *dev;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    if (sx_core_has_predefined_devices()) {
+        dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(dev_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
     return sx_change_configuration(dev);
+}
+
+long ctrl_cmd_get_secure_fw_boot_status(struct file* file, unsigned int cmd, unsigned long data)
+{
+    struct ku_secure_fw_boot_status secure_fw_boot_status;
+    struct sx_dev                  *dev;
+    int                             err;
+
+    err = copy_from_user(&secure_fw_boot_status, (void*)data, sizeof(secure_fw_boot_status));
+    if (err) {
+        return err;
+    }
+
+    dev = sx_dev_db_get_dev_by_id(secure_fw_boot_status.dev_id);
+    if (!dev && (secure_fw_boot_status.dev_id != DEFAULT_DEVICE_ID)) {
+        dev = sx_dev_db_get_dev_by_id(DEFAULT_DEVICE_ID);
+    }
+    if (!dev) {
+        printk(KERN_ERR "could not get secure FW boot mode for device %u\n", secure_fw_boot_status.dev_id);
+        return -ENODEV;
+    }
+
+    secure_fw_boot_status.boot_status = sx_priv(dev)->secure_fw_boot_status;
+    return copy_to_user((void*)data, &secure_fw_boot_status, sizeof(secure_fw_boot_status));
 }
