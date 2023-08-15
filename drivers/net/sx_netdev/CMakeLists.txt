@@ -1,0 +1,34 @@
+
+set (TARGET_NAME sx_netdev)
+set (MODULE_NAME ${TARGET_NAME}.ko)
+set (TARGET_NAME_CLEAN ${TARGET_NAME}_clean)
+file(RELATIVE_PATH SXD_MODULE_PATH ${SXD_KERNEL_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
+
+set (MODULE_CMD ${MODULE_CMD_COMMON} EXTRA_SYMVERS=${EXTRA_SYMVERS_VAR} M=${CMAKE_CURRENT_BINARY_DIR} src=${CMAKE_CURRENT_SOURCE_DIR})
+
+add_custom_command (
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/Kbuild
+    COMMAND cp -f ${CMAKE_CURRENT_SOURCE_DIR}/Makefile ${CMAKE_CURRENT_BINARY_DIR}/Kbuild
+)
+
+add_custom_target (
+    ${TARGET_NAME} ALL
+    COMMAND ${MODULE_CMD} modules
+    DEPENDS sx_core ${CMAKE_CURRENT_BINARY_DIR}/Kbuild
+    COMMENT "Building ${MODULE_NAME}"
+    VERBATIM
+)
+
+if (MEMTRACK)
+    add_dependencies(${TARGET_NAME} memtrack)
+endif()
+
+add_custom_target (${TARGET_NAME_CLEAN}
+    COMMAND ${MODULE_CMD} clean
+    COMMENT "Cleaning ${MODULE_NAME}"
+)
+
+install (
+    PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/${MODULE_NAME}
+    DESTINATION lib/modules/${OS_RELEASE}/update/kernel/${SXD_MODULE_PATH}/
+)

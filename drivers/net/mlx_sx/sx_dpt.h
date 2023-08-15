@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef _SX_DPT_H_
@@ -35,7 +16,7 @@
 
 #include <linux/pci.h>
 #include <linux/mlx_sx/device.h>
-
+#include "fw.h"
 
 #define SX_GET_PCI_BUS_ID(x)  (((x) & 0xFF0000) >> 16)
 #define SX_GET_PCI_DEV_ID(x)  (((x) & 0x00FF00) >> 8)
@@ -46,7 +27,6 @@
  */
 struct sx_dpt_info {
     /* spinlock_t				dpt_lock; */
-    struct sx_dev           *sx_dev;
     enum ku_dpt_path_type    cmd_path;
     enum ku_dpt_path_type    emad_path;
     enum ku_dpt_path_type    mad_path;
@@ -56,11 +36,12 @@ struct sx_dpt_info {
     struct ku_dpt_i2c_info   sx_i2c_info;
     struct ku_dpt_pcie_info  sx_pcie_info;
     struct ku_dpt_sgmii_info sx_sgmii_info;
-    u32                      in_mb_size;
-    u32                      in_mb_offset;
-    u32                      out_mb_size;
-    u32                      out_mb_offset;
-    u64                      fw_rev;
+    /* Each HCR has its own in and out mailboxes in FW */
+    u32 in_mb_size[NUM_OF_HCRS];
+    u32 in_mb_offset[NUM_OF_HCRS];
+    u32 out_mb_size[NUM_OF_HCRS];
+    u32 out_mb_offset[NUM_OF_HCRS];
+    u64 fw_rev;
 };
 struct sx_dpt_s {
     struct sx_dpt_info dpt_info[MAX_NUM_OF_REMOTE_SWITCHES + 1];
@@ -86,10 +67,6 @@ int sx_dpt_init_dev_pci(struct sx_dev *sx_dev);
  */
 
 bool sx_dpt_is_valid(int sx_dev_id);
-int sx_dpt_alloc_dev_id(int* dpt_dev_id, struct sx_dev *sx_dev);
-void sx_dpt_set_dev(int sx_dev_id, struct sx_dev *sx_dev);
-
-struct sx_dev * sx_dpt_get_dev_from_id(int sx_dev_id);
 
 /**
  * This function returns true if the given path is valid for
@@ -178,6 +155,11 @@ int sx_dpt_set_mad_path(int sx_dev_id, enum  ku_dpt_path_type mad_path);
 int sx_dpt_set_cr_access_path(int                    sx_dev_id,
                               enum  ku_dpt_path_type cr_access_path);
 
+u32 sx_dpt_mst_readl(u32 address, int *err);
+int sx_dpt_mst_writel(u32 offset, u32 value);
+int sx_dpt_mst_read_buf(u32 offset, u8 *buff, int size);
+int sx_dpt_mst_write_buf(u32 offset, u8 *buff, int size);
+
 /**
  * This functions will perform access through cmd_path defined in DPT : I2C,PCI,SGMII.
  * Each writel in driver should be replaced to sx_dpt_write_u32.
@@ -225,12 +207,8 @@ int sx_dpt_validate_new_mad_path(int sx_dev_id);
 void sx_dpt_dump(void);
 int sx_dpt_get_cmd_path(int sx_dev_id);
 int sx_dpt_get_i2c_info(int sx_dev_id, struct ku_dpt_i2c_info** i2c_info);
-int sx_dpt_get_pcie_info(int sx_dev_id, struct ku_dpt_pcie_info** pcie_info);
 int sx_dpt_get_i2c_dev_by_id(int sx_dev_id, int *i2c_dev);
-int sx_dpt_get_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev);
 int sx_dpt_get_cmd_sx_dev_by_id(int sx_dev_id, struct sx_dev **dev);
-int sx_dpt_find_pci_dev(unsigned int sx_pci_dev_id,
-                        int vendor, int device, struct pci_dev **sx_pci_dev);
 int sx_dpt_stub_i2c_write(int i2c_dev_id, int offset, int len, u8 *in_out_buf);
 int sx_dpt_stub_i2c_read(int i2c_dev_id, int offset, int len, u8 *in_out_buf);
 int sx_dpt_stub_i2c_write_dword(int i2c_dev_id, int offset, u32 val);
@@ -242,6 +220,9 @@ int sx_dpt_cr_space_read(int dev_id, unsigned int address,
                          unsigned char *buf, int size);
 int sx_dpt_cr_space_write(int dev_id, unsigned int address,
                           unsigned char *buf, int size);
-int sx_dpt_move(int dst_dev_id, int src_dev_id);
+int sx_core_cr_dump_handler(struct ku_cr_dump *read_data, unsigned char *buf);
+int sx_core_cr_dump_get_cap_dump_host_size(u8 opcode, struct sx_cr_dump_ret *ret);
 int sx_dpt_is_dev_pci_attached(int sx_dev_id);
+bool sx_dpt_dump_hanlders_per_device_init(struct sx_dev *dev, void *context);
+bool sx_dpt_dump_hanlders_per_device_deinit(struct sx_dev *dev, void *context);
 #endif /* ifndef _SX_DPT_H_ */

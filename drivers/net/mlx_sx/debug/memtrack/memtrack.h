@@ -1,40 +1,34 @@
 /*
- * Copyright (c) 2010-2016,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef H_MEMTRACK_H
 #define H_MEMTRACK_H
 
+#include <linux/types.h>
+
+#define MEMTRACK_MARGIN_SIZE (16)
+#define MEMTRACK_SIZE_INCLUDING_MARGINS(size) ((size) + (2 * MEMTRACK_MARGIN_SIZE))
+#define MEMTRACK_MARGIN_TO_USER_PTR(ptr)                                      \
+    (ZERO_OR_NULL_PTR(ptr) ? ((void*)ptr) : ((void*)(((unsigned long)(ptr)) + \
+                                                     MEMTRACK_MARGIN_SIZE)))
+#define MEMTRACK_USER_TO_MARGIN_PTR(ptr, used_margins)         \
+    ((void*)((used_margins) ?                                  \
+             (((unsigned long)(ptr)) - MEMTRACK_MARGIN_SIZE) : \
+             ((unsigned long)(ptr))))
+
 enum memtrack_memtype_t {
     MEMTRACK_KMALLOC,
+    MEMTRACK_KSTRDUP,
     MEMTRACK_VMALLOC,
     MEMTRACK_KMEM_OBJ,
     MEMTRACK_IOREMAP,       /* IO-RE/UN-MAP */
@@ -46,15 +40,27 @@ enum memtrack_memtype_t {
     MEMTRACK_NUM_OF_MEMTYPES
 };
 
+enum memtrack_margins_op {
+    MEMTRACK_MARGINS_OP_DONT,
+    MEMTRACK_MARGINS_OP_DO
+};
+
+enum memtrack_pattern_op {
+    MEMTRACK_PATTERN_OP_DONT,
+    MEMTRACK_PATTERN_OP_DO
+};
+
 /* Invoke on memory allocation */
 void memtrack_alloc(enum memtrack_memtype_t memtype, unsigned long dev,
-                    unsigned long addr, unsigned long size, unsigned long addr2,
+                    unsigned long addr, unsigned long size,
+                    enum memtrack_margins_op margins_op,
+                    enum memtrack_pattern_op pattern_op,
                     int direction, const char *filename,
                     const unsigned long line_num, int alloc_flags);
 
 /* Invoke on memory free */
-void memtrack_free(enum memtrack_memtype_t memtype, unsigned long dev,
-                   unsigned long addr, unsigned long size, int direction,
+bool memtrack_free(enum memtrack_memtype_t memtype, unsigned long dev,
+                   unsigned long addr, unsigned long size, enum memtrack_pattern_op pattern_op, int direction,
                    const char *filename, const unsigned long line_num);
 
 /*
@@ -103,15 +109,5 @@ int memtrack_is_new_addr(enum memtrack_memtype_t memtype, unsigned long addr, in
 
 /* Return current page reference counter */
 int memtrack_get_page_ref_count(unsigned long addr);
-
-/* Report current allocations status (for all memory types) */
-/* we do not export this function since it is used by cleanup_module only */
-/* void memtrack_report(void); */
-
-/* Allow support of error injections */
-int memtrack_inject_error(void);
-
-/* randomize allocated memory */
-int memtrack_randomize_mem(void);
 
 #endif /* ifndef H_MEMTRACK_H */

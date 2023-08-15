@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include "sx_bfd_cdev.h"
@@ -45,7 +26,7 @@ static long sx_bfd_ioctl(struct file *fp __attribute__((unused)), unsigned int c
 
     err = parse_func((char*)data, cmd);
     if (err < 0) {
-        printk(KERN_ERR "Parsing BFD command failed (%d).\n", err);
+        printk(KERN_ERR "Parsing BFD command %d failed (err:%d).\n", cmd, err);
         goto bail;
     }
 
@@ -65,7 +46,7 @@ int sx_bfd_cdev_init(parse_cmd_func func)
     static dev_t char_dev;
 
     if (!g_initialized) {
-        printk(KERN_DEBUG "Creating char device with major:232 minor:193 \n");
+        pr_debug("Creating char device with major:232 minor:193 \n");
 
         char_dev = MKDEV(232, 193); /* TODO - defined? enum? */
         err = register_chrdev_region(char_dev, 1, "bfdcdev");
@@ -90,7 +71,7 @@ int sx_bfd_cdev_init(parse_cmd_func func)
 
         parse_func = func;
 
-        printk(KERN_DEBUG "BFD char-device initialized.\n");
+        pr_debug("BFD char-device initialized.\n");
 
         g_initialized = true;
     }
@@ -106,7 +87,7 @@ void sx_bfd_cdev_deinit(void)
         cdev_del(&cdev);
         unregister_chrdev_region(cdev.dev, 1);
 
-        printk(KERN_DEBUG "BFD char-device deinitialized.\n");
+        pr_debug("BFD char-device deinitialized.\n");
 
         g_initialized = false;
     }
