@@ -1,48 +1,24 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/kernel.h>
 
-#include "sx_bfd_event.h"
 #include <linux/sx_bfd/sx_bfd_ctrl_cmds.h>
+#include <linux/mlx_sx/device.h>
+#include <linux/mlx_sx/kernel_user.h>
+#include "sx_bfd_event.h"
 
-#define SX_BFD_USER_PORT             3786
-#define SX_TRAP_ID_BFD_TIMEOUT_EVENT 0x20f
-#define SX_TRAP_ID_BFD_PACKET_EVENT  0x210
-
-extern int send_trap(const void    *buf,
-                     const uint32_t buf_size,
-                     uint16_t       trap_id);
-
+#define SX_BFD_USER_PORT 3786
 
 void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
                               char                     *packet,
@@ -63,7 +39,8 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
     /* Allocate event_msg to send via packet trap*/
     event_msg = kmalloc(event_msg_size, GFP_ATOMIC);
     if (!event_msg) {
-        printk(KERN_ERR "event_msg is NULL .\n");
+        printk(KERN_ERR "event_msg allocation failed (event_msg_size:%d, pkt_size:%d).\n",
+               event_msg_size, size);
         goto out;
     }
 
@@ -93,10 +70,12 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
     if (family == AF_INET) {
         event_msg->peer_addr.peer_in.sin_family = AF_INET;
         memcpy(&event_msg->peer_addr.peer_in.sin_addr, &metadata->peer_addr.peer_in.sin_addr, sizeof(struct in_addr));
+        event_msg->peer_addr.peer_in.sin_port = metadata->peer_addr.peer_in.sin_port;
     } else {
         event_msg->peer_addr.peer_in.sin_family = AF_INET6;
         memcpy(&event_msg->peer_addr.peer_in6.sin6_addr, &metadata->peer_addr.peer_in6.sin6_addr,
                sizeof(struct in6_addr));
+        event_msg->peer_addr.peer_in6.sin6_port = metadata->peer_addr.peer_in6.sin6_port;
     }
     family = ((struct sockaddr*)&metadata->local_addr)->sa_family;
     if (family == AF_INET) {
@@ -104,10 +83,12 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
         memcpy(&event_msg->local_addr.local_in.sin_addr,
                &metadata->local_addr.local_in.sin_addr,
                sizeof(struct in_addr));
+        event_msg->local_addr.local_in.sin_port = metadata->local_addr.local_in.sin_port;
     } else {
         event_msg->local_addr.local_in.sin_family = AF_INET6;
         memcpy(&event_msg->local_addr.local_in6.sin6_addr, &metadata->local_addr.local_in6.sin6_addr,
                sizeof(struct in6_addr));
+        event_msg->local_addr.local_in6.sin6_port = metadata->local_addr.local_in6.sin6_port;
     }
 
     /* Fill the rest of required parameters */
@@ -118,8 +99,10 @@ void sx_bfd_event_send_packet(struct sx_bfd_rx_session *session,
 
     if (send_trap(event_msg,
                   event_msg_size,
-                  SX_TRAP_ID_BFD_PACKET_EVENT) != 0) {
-        printk(KERN_ERR "Failed to send data trap 0x210 for session (%d).\n", session ? session->session_id : -1);
+                  SXD_TRAP_ID_BFD_PACKET_EVENT, 0, 1, 0, GFP_ATOMIC) != 0) {
+        printk(KERN_ERR "Failed to send data trap 0x%x for session (%d).\n",
+               SXD_TRAP_ID_BFD_PACKET_EVENT,
+               session ? session->session_id : -1);
     }
 
 out:
@@ -141,8 +124,9 @@ void sx_bfd_event_send_timeout(struct sx_bfd_rx_session *session)
     /*Send the trap */
     if (send_trap(&event,
                   sizeof(struct bfd_timeout_event),
-                  SX_TRAP_ID_BFD_TIMEOUT_EVENT) != 0) {
-        printk(KERN_ERR "Failed to send timeout trap for session_id %d and VRF %d.\n",
+                  SXD_TRAP_ID_BFD_TIMEOUT_EVENT, 0, 1, 0, GFP_ATOMIC) != 0) {
+        printk(KERN_ERR "Failed to send timeout trap 0x%x for session_id %d and VRF %d.\n",
+               SXD_TRAP_ID_BFD_TIMEOUT_EVENT,
                session->session_id, session->vrf_id);
     }
 }

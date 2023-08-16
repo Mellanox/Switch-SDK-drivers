@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/mlx_sx/kernel_user.h>
@@ -37,6 +18,8 @@
 #include "sgmii.h"
 #include "alloc.h"
 #include "ioctl_internal.h"
+#include "health_check.h"
+
 
 long ctrl_cmd_query_fw(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -44,11 +27,18 @@ long ctrl_cmd_query_fw(struct file *file, unsigned int cmd, unsigned long data)
     struct sx_dev     *dev;
     int                err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&query_fw, (struct ku_query_fw *)data, sizeof(query_fw));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        query_fw.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(query_fw.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = sx_QUERY_FW(dev, &query_fw);
@@ -69,11 +59,18 @@ long ctrl_cmd_mad_demux(struct file *file, unsigned int cmd, unsigned long data)
     struct sx_dev      *dev;
     int                 err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&mad_demux, (struct ku_mad_demux*)data, sizeof(mad_demux));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        mad_demux.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(mad_demux.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = sx_MAD_DEMUX(dev, mad_demux.dev_id, mad_demux.enable);
@@ -89,11 +86,18 @@ long ctrl_cmd_query_rsrc(struct file *file, unsigned int cmd, unsigned long data
     struct sx_dev       *dev;
     int                  err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&query_rsrc, (struct ku_query_rsrc *)data, sizeof(query_rsrc));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        query_rsrc.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(query_rsrc.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = sx_QUERY_RSRC(dev, &query_rsrc);
@@ -112,13 +116,81 @@ long ctrl_cmd_query_board_info(struct file *file, unsigned int cmd, unsigned lon
 {
     struct ku_query_board_info board_info;
     struct sx_dev             *dev;
+    int                        err = 0;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    err = copy_from_user(&board_info, (struct ku_query_board_info *)data, sizeof(board_info));
+    if (err) {
+        goto out;
+    }
 
-    board_info.vsd_vendor_id = dev->vsd_vendor_id;
-    memcpy(board_info.board_id, dev->board_id, sizeof(dev->board_id));
+    if (sx_core_has_predefined_devices()) {
+        board_info.dev_id = get_device_id_from_fd(file);
+    }
 
-    return 0;
+    dev = sx_core_ioctl_get_dev(board_info.dev_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    err = sx_QUERY_BOARDINFO(dev, &board_info);
+    if (err) {
+        goto out;
+    }
+
+    err = copy_to_user((void*)data, &board_info, sizeof(board_info));
+
+out:
+    return err;
+}
+
+long ctrl_cmd_memory_to_cpu_map(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct sx_dev       *dev;
+    int                  err = 0;
+    struct ku_map_memory map_memory;
+    sxd_dev_id_t         device_id = DEFAULT_DEVICE_ID;
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    if (sx_cr_mode()) {
+        printk(KERN_NOTICE "Memory-to-CPU map is not supported in CR mode, ignoring\n");
+        return 0;
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    if (sx_priv(dev)->fw.pp_icm != NULL) {
+        printk(KERN_INFO PFX "pp_icm is NOT null.\n");
+        sx_free_icm(dev, sx_priv(dev)->fw.pp_icm, 0);
+        sx_priv(dev)->fw.pp_icm = NULL;
+    }
+
+    memset(&map_memory, 0, sizeof(map_memory));
+    err = copy_from_user(&map_memory, (void*)data, sizeof(map_memory));
+    if (err) {
+        goto out;
+    }
+
+    sx_priv(dev)->fw.pp_icm = sx_alloc_icm(dev, map_memory.mem_size, GFP_HIGHUSER | __GFP_NOWARN, 0);
+    if (sx_priv(dev)->fw.pp_icm == NULL) {
+        sx_err(dev, "Couldn't allocate Port Profile memory area, aborting.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    err = sx_MAP_FA(dev, sx_priv(dev)->fw.pp_icm, map_memory.mem_type);
+    if (err != 0) {
+        sx_err(dev, "MAP_FA command failed, aborting.\n");
+        sx_free_icm(dev, sx_priv(dev)->fw.pp_icm, 0);
+        goto out;
+    }
+out:
+    return err;
 }
 
 
@@ -129,15 +201,25 @@ long ctrl_cmd_set_device_profile(struct file *file, unsigned int cmd, unsigned l
     struct profile_driver_params addition_params;
     u8                           swid;
     struct sx_dev               *dev;
+    struct sx_priv              *priv;
     int                          err;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     memset(&addition_params, 0, sizeof(addition_params));
     err = copy_from_user(&profile, (void*)data, sizeof(profile));
     if (err) {
         goto out;
     }
+
+    if (sx_core_has_predefined_devices()) {
+        profile.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(profile.dev_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    priv = sx_priv(dev);
 
     if (profile.dev_id != DEFAULT_DEVICE_ID) {
         err = __sx_core_dev_specific_cb_get_reference(dev);
@@ -159,8 +241,8 @@ long ctrl_cmd_set_device_profile(struct file *file, unsigned int cmd, unsigned l
      * create ib devices if needed
      */
 
-    if ((is_sgmii_supported() && !dev->dev_profile_set) || sx_dpt_is_dev_pci_attached(profile.dev_id)) {
-        sx_glb.profile = profile;
+    if ((is_sgmii_supported() && !priv->profile.dev_profile_set) || sx_dpt_is_dev_pci_attached(profile.dev_id)) {
+        priv->profile.dev_profile = profile;
 
         /*
          * set events for all IB enabled swids if
@@ -179,17 +261,17 @@ long ctrl_cmd_set_device_profile(struct file *file, unsigned int cmd, unsigned l
 
             err = sx_send_enable_ib_swid_events(dev, swid);
             if (err) {
-                spin_lock(&dev->profile_lock);
-                dev->dev_profile_set = 0;
-                spin_unlock(&dev->profile_lock);
+                spin_lock(&priv->profile.profile_lock);
+                priv->profile.dev_profile_set = false;
+                spin_unlock(&priv->profile.profile_lock);
                 goto out;
             }
         }
 
         /* Mark profile set */
-        spin_lock(&dev->profile_lock);
-        dev->dev_profile_set = 1;
-        spin_unlock(&dev->profile_lock);
+        spin_lock(&priv->profile.profile_lock);
+        priv->profile.dev_profile_set = true;
+        spin_unlock(&priv->profile.profile_lock);
     }
 
 out:
@@ -203,7 +285,19 @@ long ctrl_cmd_get_device_profile(struct file *file, unsigned int cmd, unsigned l
     int               err;
     struct sx_dev    *dev;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    err = copy_from_user(&profile, (void*)data, sizeof(profile));
+    if (err) {
+        goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        profile.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(profile.dev_id);
+    if (!dev) {
+        return -ENODEV;
+    }
 
     err = sx_GET_PROFILE(dev, &profile, NULL);
     if (err) {
@@ -219,6 +313,68 @@ out:
     return err;
 }
 
+long ctrl_cmd_set_kvh_cache_params(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct profile_kvh_params kvh_params;
+    struct sx_dev            *dev;
+    int                       err;
+    sxd_dev_id_t              device_id = DEFAULT_DEVICE_ID;
+
+    err = copy_from_user(&kvh_params, (void*)data, sizeof(kvh_params));
+    if (err) {
+        goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    if (dev->device_id != DEFAULT_DEVICE_ID) {
+        err = sx_SET_KVH_CACHE_PARAMS(dev, &kvh_params);
+        if (err) {
+            goto out;
+        }
+    }
+
+out:
+    return err;
+}
+
+long ctrl_cmd_get_kvh_cache_params(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct profile_kvh_params kvh_params;
+    int                       err;
+    struct sx_dev            *dev;
+    sxd_dev_id_t              device_id = DEFAULT_DEVICE_ID;
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    err = sx_GET_KVH_CACHE_PARAMS(dev, &kvh_params);
+    if (err) {
+        goto out;
+    }
+
+    err = copy_to_user((void*)data, &kvh_params, sizeof(kvh_params));
+    if (err) {
+        goto out;
+    }
+
+out:
+    return err;
+}
+
 
 long ctrl_cmd_set_system_mkey(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -226,11 +382,18 @@ long ctrl_cmd_set_system_mkey(struct file *file, unsigned int cmd, unsigned long
     struct sx_dev         *dev;
     int                    err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&system_m_key, (struct ku_system_m_key *)data, sizeof(system_m_key));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        system_m_key.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(system_m_key.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = sx_SET_SYSTEM_M_KEY(dev, &system_m_key);
@@ -251,11 +414,18 @@ long ctrl_cmd_get_system_mkey(struct file *file, unsigned int cmd, unsigned long
     struct sx_dev         *dev;
     int                    err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&system_m_key, (struct ku_system_m_key *)data, sizeof(system_m_key));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        system_m_key.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(system_m_key.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = sx_GET_SYSTEM_M_KEY(dev, &system_m_key);
@@ -264,6 +434,37 @@ long ctrl_cmd_get_system_mkey(struct file *file, unsigned int cmd, unsigned long
     }
 
     err = copy_to_user((void*)data, &system_m_key, sizeof(system_m_key));
+
+out:
+    return err;
+}
+
+long ctrl_cmd_send_fatal_failure_detect_info_set(struct file *file, unsigned int cmd, unsigned long data)
+{
+    ku_dbg_health_check_params_t params;
+    struct sx_dev               *dev = NULL;
+    int                          err = 0;
+
+    if (sx_cr_mode()) {
+        printk(KERN_NOTICE "Health-Check feature is not supported in CR mode, ignoring\n");
+        return 0;
+    }
+
+    err = copy_from_user(&params, (struct ku_dbg_health_check_params_t *)data, sizeof(params));
+    if (err) {
+        goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        params.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(params.dev_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    err = sx_health_check_configure(&params);
 
 out:
     return err;
