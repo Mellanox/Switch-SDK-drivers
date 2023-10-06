@@ -1,0 +1,10 @@
+Patch to adapt iproute2 to support net-devices on top of NVIDIA switch ports
+
+iproute2 GIT repository:
+git://git.kernel.org/pub/scm/network/iproute2/iproute2.git
+
+Patch Directory       Based On Upstream Commit
+==========================================================================================================================================
+5.10.0                c9c64b8d1ebed69054f8a170d640b13c3abb1fdb (tag: v5.10.0)
+5.11.0                bbddfcec6c32781e5b4915ef4ce6b9b13eed82ef (tag: v5.11.0)
+6.1.0                 83699d3d5077bbb3957030938f746601317767d2 (tag: v6.1.0)

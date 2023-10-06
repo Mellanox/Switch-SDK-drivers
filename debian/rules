@@ -15,7 +15,6 @@ pdev:=$(pname)-dev
 
 %:
 	dh $@
-
 override_dh_auto_clean:
 	rm -rf debian/$(pname)
 	rm -rf debian/$(pdev)

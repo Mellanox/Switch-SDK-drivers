@@ -1,0 +1,13 @@
+diff --git a/include/net/psample.h b/include/net/psample.h
+index 0509d2d..c66e325 100644
+--- a/include/net/psample.h
++++ b/include/net/psample.h
+@@ -14,6 +14,8 @@ struct psample_group {
+ 	struct rcu_head rcu;
+ };
+ 
++#define PSAMPLE_MD_EXTENDED_ATTR 1
++
+ struct psample_metadata {
+ 	u32 trunc_size;
+ 	int in_ifindex;
