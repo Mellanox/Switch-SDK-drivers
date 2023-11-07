@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/vmalloc.h>
@@ -37,7 +18,11 @@
 
 #include "alloc.h"
 #include "sx_dpt.h"
+#include "cq.h"
+#include "ber_monitor.h"
 #include "ioctl_internal.h"
+#include "drop_monitor.h"
+#include "dev_init.h"
 
 /**
  * magic number for struct ku_sx_core_db.
@@ -46,7 +31,6 @@
  * struct is successfully copied between user space and kernel space.
  */
 #define SX_CORE_DB_MAGIC_NUM 0xabcdabcd
-
 static int sx_core_ioctl_set_dpt_info(struct sx_dev *dev, struct ku_sx_core_db *sx_core_db)
 {
     int                    err = 0;
@@ -114,7 +98,6 @@ out:
     return err;
 }
 
-
 static int sx_core_ioctl_set_trap_group_info(struct sx_dev *dev, struct ku_sx_core_db *sx_core_db)
 {
     int                       i;
@@ -150,19 +133,19 @@ static int sx_core_ioctl_set_netdev_trap_info(struct sx_dev *dev, struct ku_sx_c
             case USER_CHANNEL_L3_NETDEV:
                 err =
                     sx_core_add_synd_l3(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                        &(sx_core_db->port_vlan_params[uc_type][i]));
+                                        &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
 
             case USER_CHANNEL_LOG_PORT_NETDEV:
                 err =
                     sx_core_add_synd_l2(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                        &(sx_core_db->port_vlan_params[uc_type][i]));
+                                        &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
 
             case USER_CHANNEL_PHY_PORT_NETDEV:
                 err =
                     sx_core_add_synd_phy(0, sx_core_db->trap_ids[uc_type][i], dev,
-                                         &(sx_core_db->port_vlan_params[uc_type][i]));
+                                         &(sx_core_db->port_vlan_params[uc_type][i]), 1);
                 break;
             }
 
@@ -186,6 +169,14 @@ static int sx_core_ioctl_set_rdq_properties(struct sx_dev *dev, struct ku_sx_cor
             sx_bitmap_set(&sx_priv(dev)->cq_table.ts_bitmap, i);
         } else {
             sx_bitmap_free(&sx_priv(dev)->cq_table.ts_bitmap, i);
+        }
+    }
+
+    for (i = 0; i < sx_core_db->ts_hw_utc_bitmap.max; i++) {
+        if (sx_core_db->ts_hw_utc_bitmap.table[i]) {
+            sx_bitmap_set(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, i);
+        } else {
+            sx_bitmap_free(&sx_priv(dev)->cq_table.ts_hw_utc_bitmap, i);
         }
     }
 
@@ -265,11 +256,12 @@ out:
 
 static int sx_core_ioctl_get_swid_info(struct sx_dev *dev, struct ku_sx_core_db __user *sx_core_db)
 {
-    int err = 0;
-    int i = 0;
+    struct sx_priv *priv = sx_priv(dev);
+    int             err = 0;
+    int             i = 0;
 
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
-        err = put_user((uint8_t)(dev->profile.dev_id), &(sx_core_db->swid_data[i].dev_id));
+        err = put_user((uint8_t)(priv->profile.pci_profile.dev_id), &(sx_core_db->swid_data[i].dev_id));
         if (err) {
             goto out;
         }
@@ -382,7 +374,7 @@ static int sx_core_ioctl_get_rdq_properties(struct sx_dev *dev, struct ku_sx_cor
         goto out;
     }
     for (i = 0; i < sx_priv(dev)->cq_table.ts_bitmap.max; i++) {
-        if (sx_bitmap_test(&(sx_priv(dev)->cq_table.ts_bitmap), i)) {
+        if (IS_CQ_WORKING_WITH_TIMESTAMP(dev, i)) {
             err = put_user((uint8_t)1, &(sx_core_db->ts_bitmap.table[i]));
         } else {
             err = put_user((uint8_t)0, &(sx_core_db->ts_bitmap.table[i]));
@@ -423,21 +415,32 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     struct ku_sx_core_db *sx_core_db = NULL;
     struct ku_sx_core_db  __user *sx_core_db_user = (struct ku_sx_core_db __user*)(data);
     struct sx_dev        *dev;
+    struct sx_priv       *priv;
     int                   i;
     unsigned long         flags;
+    sxd_dev_id_t          device_id = DEFAULT_DEVICE_ID;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
 
-    spin_lock(&dev->profile_lock);
-    if (dev->profile_set) {
-        spin_unlock(&dev->profile_lock);
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    priv = sx_priv(dev);
+
+    spin_lock(&priv->profile.profile_lock);
+    if (priv->profile.pci_profile_set) {
+        spin_unlock(&priv->profile.profile_lock);
         return -EINVAL;
     }
-    spin_unlock(&dev->profile_lock);
+    spin_unlock(&priv->profile.profile_lock);
 
     sx_core_db = vmalloc(sizeof(struct ku_sx_core_db));
     if (!sx_core_db) {
-        printk(KERN_DEBUG PFX "can't vmalloc sx_core_db\n");
+        pr_debug(PFX "can't vmalloc sx_core_db\n");
         err = -ENOMEM;
         goto out;
     }
@@ -458,14 +461,14 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
         goto out;
     }
 
-    err = sx_core_ioctl_set_pci_profile(dev, (unsigned long)(&(sx_core_db_user->profile.profile)), 0);
+    err = sx_core_ioctl_set_pci_profile(file, dev, (unsigned long)(&(sx_core_db_user->profile.profile)), 0);
     if (err) {
         goto out;
     }
 
     for (i = 0; i < NUMBER_OF_SWIDS; i++) {
         if (sx_core_db->swid_enabled[i]) {
-            err = sx_core_ioctl_enable_swid(dev, (unsigned long)(&(sx_core_db_user->swid_data[i])));
+            err = sx_core_ioctl_enable_swid(file, dev, (unsigned long)(&(sx_core_db_user->swid_data[i])));
             if (err) {
                 goto out;
             }
@@ -502,13 +505,10 @@ long ctrl_cmd_restore_sx_core_db(struct file *file, unsigned int cmd, unsigned l
     SX_CORE_IOCTL_MEMCPY(lag_rp_rif);
     SX_CORE_IOCTL_MEMCPY(lag_rp_rif_valid);
     SX_CORE_IOCTL_MEMCPY(lag_member_to_local_db);
-    SX_CORE_IOCTL_MEMCPY(local_is_rp);
     SX_CORE_IOCTL_MEMCPY(local_rp_vid);
     SX_CORE_IOCTL_MEMCPY(port_rp_rif);
     SX_CORE_IOCTL_MEMCPY(port_rp_rif_valid);
     SX_CORE_IOCTL_MEMCPY(lag_oper_state);
-    SX_CORE_IOCTL_MEMCPY(port_ber_monitor_state);
-    SX_CORE_IOCTL_MEMCPY(port_ber_monitor_bitmask);
     SX_CORE_IOCTL_MEMCPY(tele_thrs_state);
     SX_CORE_IOCTL_MEMCPY(tele_thrs_tc_vec);
     SX_CORE_IOCTL_MEMCPY(truncate_size_db);
@@ -546,8 +546,16 @@ long ctrl_cmd_save_sx_core_db(struct file *file, unsigned int cmd, unsigned long
     struct sx_dev       *dev;
     unsigned long        flags;
     bool                 db_locked = false;
+    sxd_dev_id_t         device_id = DEFAULT_DEVICE_ID;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
 
     err = sx_core_ioctl_get_dpt_info(dev, sx_core_db);
     if (err) {
@@ -595,13 +603,10 @@ long ctrl_cmd_save_sx_core_db(struct file *file, unsigned int cmd, unsigned long
     SX_CORE_IOCTL_COPY_TO_USER(lag_rp_rif);
     SX_CORE_IOCTL_COPY_TO_USER(lag_rp_rif_valid);
     SX_CORE_IOCTL_COPY_TO_USER(lag_member_to_local_db);
-    SX_CORE_IOCTL_COPY_TO_USER(local_is_rp);
     SX_CORE_IOCTL_COPY_TO_USER(local_rp_vid);
     SX_CORE_IOCTL_COPY_TO_USER(port_rp_rif);
     SX_CORE_IOCTL_COPY_TO_USER(port_rp_rif_valid);
     SX_CORE_IOCTL_COPY_TO_USER(lag_oper_state);
-    SX_CORE_IOCTL_COPY_TO_USER(port_ber_monitor_state);
-    SX_CORE_IOCTL_COPY_TO_USER(port_ber_monitor_bitmask);
     SX_CORE_IOCTL_COPY_TO_USER(tele_thrs_state);
     SX_CORE_IOCTL_COPY_TO_USER(tele_thrs_tc_vec);
     SX_CORE_IOCTL_COPY_TO_USER(truncate_size_db);
@@ -610,6 +615,7 @@ long ctrl_cmd_save_sx_core_db(struct file *file, unsigned int cmd, unsigned long
     SX_CORE_IOCTL_COPY_TO_USER(fid_to_hwfid);
     SX_CORE_IOCTL_COPY_TO_USER(rif_id_to_hwfid);
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+
     db_locked = false;
 
     err = sx_core_ioctl_get_rdq_properties(dev, sx_core_db);
@@ -637,14 +643,25 @@ out:
 
 long ctrl_cmd_get_sx_core_db_restore_allowed(struct file *file, unsigned int cmd, unsigned long data)
 {
-    uint8_t        restore_allowed;
-    struct sx_dev *dev;
+    uint8_t         restore_allowed;
+    struct sx_dev  *dev;
+    struct sx_priv *priv;
+    sxd_dev_id_t    device_id = DEFAULT_DEVICE_ID;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
 
-    spin_lock(&dev->profile_lock);
-    restore_allowed = !(dev->profile_set);
-    spin_unlock(&dev->profile_lock);
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    priv = sx_priv(dev);
+
+    spin_lock(&priv->profile.profile_lock);
+    restore_allowed = !(priv->profile.pci_profile_set);
+    spin_unlock(&priv->profile.profile_lock);
 
     return copy_to_user((uint8_t*)data, &restore_allowed, sizeof(restore_allowed));
 }
@@ -685,11 +702,18 @@ long ctrl_cmd_set_vid_membership(struct file *file, unsigned int cmd, unsigned l
     unsigned long                 flags;
     int                           err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&vid_data, (void*)data, sizeof(vid_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        vid_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(vid_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (vid_data.is_lag) {
@@ -730,11 +754,18 @@ long ctrl_cmd_set_prio_tagging(struct file *file, unsigned int cmd, unsigned lon
     unsigned long               flags;
     int                         err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&prio_tag_data, (void*)data, sizeof(prio_tag_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        prio_tag_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(prio_tag_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (prio_tag_data.is_lag) {
@@ -769,11 +800,18 @@ long ctrl_cmd_set_prio_to_tc(struct file *file, unsigned int cmd, unsigned long 
     unsigned long             flags;
     int                       err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&prio_to_tc_data, (void*)data, sizeof(prio_to_tc_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        prio_to_tc_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(prio_to_tc_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (prio_to_tc_data.is_lag) {
@@ -821,11 +859,18 @@ long ctrl_cmd_set_local_port_to_swid(struct file *file, unsigned int cmd, unsign
     struct sx_dev                 *dev;
     int                            err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&local_port_swid_data, (void*)data, sizeof(local_port_swid_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        local_port_swid_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(local_port_swid_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = __validate_phy_port(dev, local_port_swid_data.local_port);
@@ -838,9 +883,9 @@ long ctrl_cmd_set_local_port_to_swid(struct file *file, unsigned int cmd, unsign
     sx_priv(dev)->local_to_swid_db[local_port_swid_data.local_port] = local_port_swid_data.swid;
 
 #ifdef SX_DEBUG
-    printk(KERN_DEBUG PFX " sx_ioctl() (PSPA) LOC_PORT_TO_SWID lp:%d, swid: %d \n",
-           local_port_swid_data.local_port,
-           local_port_swid_data.swid);
+    pr_debug(PFX " sx_ioctl() (PSPA) LOC_PORT_TO_SWID lp:%d, swid: %d \n",
+             local_port_swid_data.local_port,
+             local_port_swid_data.swid);
 #endif
 
 out:
@@ -854,11 +899,18 @@ long ctrl_cmd_set_ib_to_local_port(struct file *file, unsigned int cmd, unsigned
     struct sx_dev               *dev;
     int                          err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&ib_local_port_data, (void*)data, sizeof(ib_local_port_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        ib_local_port_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(ib_local_port_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = __validate_phy_port(dev, ib_local_port_data.local_port);
@@ -878,9 +930,9 @@ long ctrl_cmd_set_ib_to_local_port(struct file *file, unsigned int cmd, unsigned
     sx_priv(dev)->ib_to_local_db[ib_local_port_data.ib_port] = ib_local_port_data.local_port;
 
 #ifdef SX_DEBUG
-    printk(KERN_DEBUG PFX " sx_ioctl() (PLIB) IB_TO_LOCAL_PORT ib_p:%d, lc_p:%d \n",
-           ib_local_port_data.ib_port,
-           ib_local_port_data.local_port);
+    pr_debug(PFX " sx_ioctl() (PLIB) IB_TO_LOCAL_PORT ib_p:%d, lc_p:%d \n",
+             ib_local_port_data.ib_port,
+             ib_local_port_data.local_port);
 #endif
 
 out:
@@ -895,11 +947,18 @@ long ctrl_cmd_set_system_to_local_port(struct file *file, unsigned int cmd, unsi
     unsigned long                    flags;
     int                              err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&system_local_port_data, (void*)data, sizeof(system_local_port_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        system_local_port_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(system_local_port_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = __validate_phy_port(dev, system_local_port_data.local_port);
@@ -914,15 +973,133 @@ long ctrl_cmd_set_system_to_local_port(struct file *file, unsigned int cmd, unsi
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
 #ifdef SX_DEBUG
-    printk(KERN_DEBUG PFX " sx_ioctl() (SSPR) SYSTEM_TO_LOCAL_PORT sys_p:0x%x, lc_p:%d \n",
-           system_local_port_data.system_port,
-           system_local_port_data.local_port);
+    pr_debug(
+        PFX " sx_ioctl() (SSPR) SYSTEM_TO_LOCAL_PORT system_port: 0x%x, local_port: 0x%x, lp_msb: 0x%x\n",
+        system_local_port_data.system_port,
+        system_local_port_data.local_port,
+        system_local_port_data.lp_msb);
 #endif
 
 out:
     return err;
 }
 
+static long __rp_mode_set_validate_lag(struct sx_dev               *dev,
+                                       struct ku_port_rp_mode_data *port_rp_mode_data_p,
+                                       uint16_t                     lag_max)
+{
+    long err = 0;
+
+    if (port_rp_mode_data_p->lag_id >= lag_max) {
+        printk(KERN_ERR PFX "Received LAG ID 0x%x is invalid\n", port_rp_mode_data_p->lag_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    /* if RIF exists than validate that only VLAN was changed */
+    if (sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].is_valid) {
+        /* validate that existed RIF configured with LAG*/
+        if (!sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].is_lag) {
+            printk(KERN_ERR PFX "RIF edit: Only VLAN edit allowed. Try to change regular port %d to LAG ID %d .\n",
+                   port_rp_mode_data_p->sysport, sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].lag_id);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* validate that lag_id provided with params is the same as RIF lag_id */
+        if (sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].lag_id != port_rp_mode_data_p->lag_id) {
+            printk(KERN_ERR PFX "RIF %d edit: Only VLAN edit is allowed (curr LAG ID %d != new LAG ID %d).\n",
+                   port_rp_mode_data_p->rif_id,
+                   sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].lag_id,
+                   port_rp_mode_data_p->lag_id);
+            err = -EINVAL;
+            goto out;
+        }
+    }
+
+out:
+    return err;
+}
+
+static long __rp_mode_set_validate_port(struct sx_dev               *dev,
+                                        uint16_t                     local_port,
+                                        struct ku_port_rp_mode_data *port_rp_mode_data_p,
+                                        uint16_t                     phy_port_max)
+{
+    long     err = 0;
+    uint16_t rif_id = port_rp_mode_data_p->rif_id;
+
+    if (local_port > phy_port_max) {
+        printk(KERN_ERR PFX "Received Local %d is invalid. (MAX %d).\n", local_port, phy_port_max);
+        err = -EINVAL;
+        goto out;
+    }
+
+
+    /* if RIF exists than validate that only VLAN was changed */
+    if (sx_priv(dev)->rif_data[port_rp_mode_data_p->rif_id].is_valid) {
+        /* validate that existed RIF configured with port and not LAG*/
+        if (sx_priv(dev)->rif_data[rif_id].is_lag) {
+            printk(KERN_ERR PFX "RIF %d edit: Only VLAN edit allowed. Try to change LAG %d to regular port %d.\n",
+                   rif_id, sx_priv(dev)->rif_data[rif_id].lag_id, local_port);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /*
+         * If provided rif already exist, validate that current port and provided port are the same.
+         * (because only VLAN edit allowed)
+         */
+        if (sx_priv(dev)->rif_data[rif_id].is_valid &&
+            (sx_priv(dev)->rif_data[rif_id].local_port != local_port)) {
+            printk(KERN_ERR PFX "Rif %d edit: Only VLAN edit is allowed (curr rif local %d != new local port %d).\n",
+                   rif_id, sx_priv(dev)->rif_data[rif_id].local_port, local_port);
+            err = -EINVAL;
+            goto out;
+        }
+    }
+
+out:
+    return err;
+}
+
+static void __rp_mode_update_rif_data(struct sx_dev               *dev,
+                                      uint8_t                      is_lag,
+                                      uint16_t                     lag_id_or_local_port,
+                                      struct ku_port_rp_mode_data *port_rp_mode_data_p)
+{
+    uint16_t rif_id = port_rp_mode_data_p->rif_id;
+    uint16_t curr_vlan_id = sx_priv(dev)->rif_data[rif_id].vlan_id;
+    uint16_t new_vlan_id = port_rp_mode_data_p->vlan_id;
+
+
+    /* Check if this is EDIT operation :
+     *    provided rif already exist and
+     *    operation is create (valid is 1) and
+     *    rif_vid != vid
+     * Then (port,prev_vlan_id) setting should be cleared
+     */
+    if (sx_priv(dev)->rif_data[rif_id].is_valid &&
+        port_rp_mode_data_p->is_valid &&
+        (curr_vlan_id != new_vlan_id)) {
+        if (is_lag) {
+            sx_priv(dev)->lag_rp_rif_valid[lag_id_or_local_port][curr_vlan_id] = 0;
+        } else {
+            sx_priv(dev)->port_rp_rif_valid[lag_id_or_local_port][curr_vlan_id] = 0;
+        }
+    }
+
+    /* set rif data configuration */
+    sx_priv(dev)->rif_data[rif_id].is_valid = port_rp_mode_data_p->is_valid;
+    sx_priv(dev)->rif_data[rif_id].is_lag = is_lag;
+    sx_priv(dev)->rif_data[rif_id].vlan_id = new_vlan_id;
+
+    if (is_lag) {
+        sx_priv(dev)->rif_data[rif_id].lag_id = lag_id_or_local_port;
+    } else {
+        sx_priv(dev)->rif_data[rif_id].local_port = lag_id_or_local_port;
+    }
+}
 
 long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned long data)
 {
@@ -932,14 +1109,21 @@ long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned lon
     uint16_t                    lag_max = 0, lag_member_max = 0;
     uint16_t                    phy_port_max = 0;
     uint16_t                    local_port;
-    uint8_t                     lag_port_index;
+    uint16_t                    lag_port_index;
     int                         err;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     err = copy_from_user(&port_rp_mode_data, (void*)data, sizeof(port_rp_mode_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        port_rp_mode_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(port_rp_mode_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (sx_core_get_phy_port_max(dev, &phy_port_max)) {
@@ -957,9 +1141,23 @@ long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned lon
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
 
     if (port_rp_mode_data.is_lag) {
-        if (port_rp_mode_data.lag_id >= lag_max) {
-            printk(KERN_ERR PFX "Received LAG ID 0x%x is invalid\n", port_rp_mode_data.lag_id);
-            err = -EINVAL;
+        err = __rp_mode_set_validate_lag(dev, &port_rp_mode_data, lag_max);
+        if (err) {
+            goto out_unlock;
+        }
+
+        /* Invalidate rif data if exist , Update rif data with new info */
+        __rp_mode_update_rif_data(dev, 1, port_rp_mode_data.lag_id, &port_rp_mode_data);
+
+        /*
+         * Handle delete operation (port_rp_mode_data.is_valid == 0) only for RIF that is currently configured
+         * This intended to prevent an issue when RIF delete is deferred and it
+         * come after new RIF is configured
+         */
+        if (sx_priv(dev)->lag_rp_rif_valid[port_rp_mode_data.lag_id][port_rp_mode_data.vlan_id] &&
+            (port_rp_mode_data.is_valid == 0) &&
+            (sx_priv(dev)->lag_rp_rif[port_rp_mode_data.lag_id][port_rp_mode_data.vlan_id]
+             != port_rp_mode_data.rif_id)) {
             goto out_unlock;
         }
 
@@ -987,13 +1185,26 @@ long ctrl_cmd_set_port_rp_mode(struct file *file, unsigned int cmd, unsigned lon
     } else {
         local_port = sx_priv(dev)->system_to_local_db[port_rp_mode_data.sysport];
 
-        if (local_port > phy_port_max) {
-            printk(KERN_ERR PFX "Received Local %d is invalid. (MAX %d).\n", local_port, phy_port_max);
-            err = -EINVAL;
+        err = __rp_mode_set_validate_port(dev, local_port, &port_rp_mode_data, phy_port_max);
+        if (err) {
             goto out_unlock;
         }
 
-        sx_priv(dev)->local_is_rp[local_port] = port_rp_mode_data.is_rp;
+        /* Invalidate rif data if exist , Update rif data with new info */
+        __rp_mode_update_rif_data(dev, 0, local_port, &port_rp_mode_data);
+
+        /*
+         * Handle delete operation only for RIF that is currently configured
+         * This intended to prevent an issue when RIF delete is deferred and it
+         * come after new RIF is configured
+         */
+        if (sx_priv(dev)->port_rp_rif_valid[local_port][port_rp_mode_data.vlan_id] &&
+            (port_rp_mode_data.is_valid == 0) &&
+            (sx_priv(dev)->port_rp_rif[local_port][port_rp_mode_data.vlan_id] !=
+             port_rp_mode_data.rif_id)) {
+            goto out_unlock;
+        }
+
         sx_priv(dev)->local_rp_vid[local_port] = port_rp_mode_data.vlan_id;
         sx_priv(dev)->port_rp_rif[local_port][port_rp_mode_data.vlan_id] = port_rp_mode_data.rif_id;
 
@@ -1026,11 +1237,18 @@ long ctrl_cmd_set_local_port_to_lag(struct file *file, unsigned int cmd, unsigne
     uint16_t                         lag_port_index;
     int                              err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&local_to_lag_data, (void*)data, sizeof(local_to_lag_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        local_to_lag_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(local_to_lag_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = __validate_phy_port(dev, local_to_lag_data.local_port);
@@ -1072,11 +1290,11 @@ long ctrl_cmd_set_local_port_to_lag(struct file *file, unsigned int cmd, unsigne
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
 #ifdef SX_DEBUG
-    printk(KERN_DEBUG PFX " sx_ioctl() (SLCOR) LOCAL_PORT_TO_LAG is_lag:%d,lid:%d,port_id:%x,loc_port:%d\n",
-           local_to_lag_data.is_lag,
-           lag_id,
-           lag_port_index,
-           local_to_lag_data.local_port);
+    pr_debug(PFX " sx_ioctl() (SLCOR) LOCAL_PORT_TO_LAG is_lag:%d,lid:%d,port_id:%x,loc_port:%d\n",
+             local_to_lag_data.is_lag,
+             lag_id,
+             lag_port_index,
+             local_to_lag_data.local_port);
 #endif
 
 out:
@@ -1091,12 +1309,20 @@ long ctrl_cmd_lag_oper_state_set(struct file *file, unsigned int cmd, unsigned l
     struct sx_dev                *dev;
     unsigned long                 flags;
     int                           err;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    sxd_dev_id_t                  device_id = DEFAULT_DEVICE_ID;
 
     err = copy_from_user(&lag_oper_state_data, (void*)data, sizeof(lag_oper_state_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = __validate_lag(dev, lag_oper_state_data.lag_id, 0);
@@ -1129,63 +1355,42 @@ out:
 long ctrl_cmd_port_ber_monitor_state_set(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_ber_monitor_state_data ber_monitor_state_data;
-    struct sx_dev                   *dev;
-    unsigned long                    flags;
     int                              err;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     err = copy_from_user(&ber_monitor_state_data, (void*)data, sizeof(ber_monitor_state_data));
     if (err) {
         goto out;
     }
 
-    if (ber_monitor_state_data.local_port > MAX_PHYPORT_NUM) {
-        printk(KERN_ERR PFX "Received local_port %d is invalid (max. %d) \n",
-               ber_monitor_state_data.local_port,
-               MAX_PHYPORT_NUM);
-        err = -EINVAL;
-        goto out;
+    if (sx_core_has_predefined_devices()) {
+        ber_monitor_state_data.dev_id = get_device_id_from_fd(file);
     }
 
-    spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-    sx_priv(dev)->port_ber_monitor_state[ber_monitor_state_data.local_port] = ber_monitor_state_data.ber_monitor_state;
-    spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    err = sx_core_ber_monitor_set_state(ber_monitor_state_data.dev_id,
+                                        ber_monitor_state_data.local_port,
+                                        ber_monitor_state_data.ber_monitor_state);
 
 out:
     return err;
 }
 
-
 long ctrl_cmd_port_ber_monitor_bitmask_set(struct file *file, unsigned int cmd, unsigned long data)
 {
     struct ku_ber_monitor_bitmask_data ber_monitor_bitmask_data;
-    struct sx_dev                     *dev;
-    unsigned long                      flags;
     int                                err;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
 
     err = copy_from_user(&ber_monitor_bitmask_data, (void*)data, sizeof(ber_monitor_bitmask_data));
     if (err) {
         goto out;
     }
 
-    if (ber_monitor_bitmask_data.local_port > MAX_PHYPORT_NUM) {
-        printk(KERN_ERR PFX "Received local_port %d is invalid (max. %d) \n",
-               ber_monitor_bitmask_data.local_port,
-               MAX_PHYPORT_NUM);
-        err = -EINVAL;
-        goto out;
+    if (sx_core_has_predefined_devices()) {
+        ber_monitor_bitmask_data.dev_id = get_device_id_from_fd(file);
     }
 
-    spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
-    sx_priv(dev)->port_ber_monitor_bitmask[ber_monitor_bitmask_data.local_port] = ber_monitor_bitmask_data.bitmask;
-    /* If BER monitor is disable: clear the operational state */
-    if (ber_monitor_bitmask_data.bitmask == 0) {
-        sx_priv(dev)->port_ber_monitor_state[ber_monitor_bitmask_data.local_port] = 0;
-    }
-    spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
+    err = sx_core_ber_monitor_set_bitmask(ber_monitor_bitmask_data.dev_id,
+                                          ber_monitor_bitmask_data.local_port,
+                                          ber_monitor_bitmask_data.bitmask);
 
 out:
     return err;
@@ -1198,14 +1403,20 @@ long ctrl_cmd_tele_threshold_set(struct file *file, unsigned int cmd, unsigned l
     struct sx_dev                *dev;
     unsigned long                 flags;
     int                           err;
-
-    printk(KERN_DEBUG PFX "ioctl CTRL_CMD_TELE_THRESHOLD_SET called\n");
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    sxd_dev_id_t                  device_id = DEFAULT_DEVICE_ID;
 
     err = copy_from_user(&tele_thrs_data, (void*)data, sizeof(tele_thrs_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (tele_thrs_data.local_port > MAX_PHYPORT_NUM) {
@@ -1216,13 +1427,20 @@ long ctrl_cmd_tele_threshold_set(struct file *file, unsigned int cmd, unsigned l
         goto out;
     }
 
+    if (tele_thrs_data.dir_ing > TELE_DIR_ING_MAX_E) {
+        printk(KERN_ERR PFX "Received dir_ing %d is invalid (max. %d) \n",
+               tele_thrs_data.dir_ing, TELE_DIR_ING_MAX_E);
+        err = -EINVAL;
+        goto out;
+    }
+
     spin_lock_irqsave(&sx_priv(dev)->db_lock, flags);
     if (tele_thrs_data.tc_vec == 0) {
-        sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port] = 0;
+        sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port][tele_thrs_data.dir_ing] = 0;
         /* We clear tc vector DB only if all TCs were removed */
-        sx_priv(dev)->tele_thrs_tc_vec[tele_thrs_data.local_port] = 0;
+        sx_priv(dev)->tele_thrs_tc_vec[tele_thrs_data.local_port][tele_thrs_data.dir_ing] = 0;
     } else {
-        SX_TELE_THRS_VALID_SET(sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port]);
+        SX_TELE_THRS_VALID_SET(sx_priv(dev)->tele_thrs_state[tele_thrs_data.local_port][tele_thrs_data.dir_ing]);
     }
     spin_unlock_irqrestore(&sx_priv(dev)->db_lock, flags);
 
@@ -1237,12 +1455,20 @@ long ctrl_cmd_set_vid_2_ip(struct file *file, unsigned int cmd, unsigned long da
     struct sx_dev        *dev;
     unsigned long         flags;
     int                   err;
-
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
+    sxd_dev_id_t          device_id = DEFAULT_DEVICE_ID;
 
     err = copy_from_user(&vid2ip_data, (void*)data, sizeof(vid2ip_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (vid2ip_data.vid >= SXD_MAX_VLAN_NUM) {
@@ -1274,11 +1500,18 @@ long ctrl_cmd_set_port_vid_to_fid_map(struct file *file, unsigned int cmd, unsig
     uint16_t                            phy_port_max = 0;
     int                                 err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&port_vlan_to_fid_map_data, (void*)data, sizeof(port_vlan_to_fid_map_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        port_vlan_to_fid_map_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(port_vlan_to_fid_map_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     err = __validate_phy_port(dev, port_vlan_to_fid_map_data.local_port);
@@ -1318,11 +1551,18 @@ long ctrl_cmd_set_fid_to_hwfid_map(struct file *file, unsigned int cmd, unsigned
     unsigned long                   flags;
     int                             err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&fid_to_hwfid_map_data, (void*)data, sizeof(fid_to_hwfid_map_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        fid_to_hwfid_map_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(fid_to_hwfid_map_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (fid_to_hwfid_map_data.fid >= MAX_FIDS_NUM) {
@@ -1349,11 +1589,18 @@ long ctrl_cmd_set_default_vid(struct file *file, unsigned int cmd, unsigned long
     unsigned long              flags;
     int                        err;
 
-    SX_CORE_IOCTL_GET_GLOBAL_DEV(&dev);
-
     err = copy_from_user(&default_vid_data, (void*)data, sizeof(default_vid_data));
     if (err) {
         goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        default_vid_data.dev_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(default_vid_data.dev_id);
+    if (!dev) {
+        return -ENODEV;
     }
 
     if (default_vid_data.is_lag) {
@@ -1375,4 +1622,92 @@ long ctrl_cmd_set_default_vid(struct file *file, unsigned int cmd, unsigned long
 
 out:
     return err;
+}
+
+long ctrl_cmd_set_warm_boot_mode(struct file *file, unsigned int cmd, unsigned long data)
+{
+    uint32_t        warm_boot_mode;
+    struct sx_priv *priv;
+    struct sx_dev  *dev;
+    unsigned long   flags;
+    int             err;
+    sxd_dev_id_t    device_id = DEFAULT_DEVICE_ID;
+
+    err = copy_from_user(&warm_boot_mode, (void*)data, sizeof(warm_boot_mode));
+    if (err) {
+        goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    priv = sx_priv(dev);
+
+    if (warm_boot_mode) {
+        /* if FW does not support independent-module - generate udev_add event (for system management purpose) */
+        if (!SX_IS_FW_CAP(priv, SX_FW_CAP_IND_MOD)) {
+            sx_send_udev_event(dev->pdev, priv, KOBJ_ADD);
+        }
+
+        /* sx_priv(dev)->warm_boot_mode is for debug purpose only */
+        spin_lock_irqsave(&priv->db_lock, flags);
+        priv->warm_boot_mode = warm_boot_mode;
+        spin_unlock_irqrestore(&priv->db_lock, flags);
+    }
+
+out:
+    return err;
+}
+
+long ctrl_cmd_psample_port_sample_rate_update(struct file *file, unsigned int cmd, unsigned long data)
+{
+    struct ku_psample_port_sample_rate sample_rate;
+    union sx_event_data               *event_data;
+    struct sx_dev                     *dev;
+    int                                err;
+    sxd_dev_id_t                       device_id = DEFAULT_DEVICE_ID;
+
+#if !IS_ENABLED(CONFIG_PSAMPLE)
+    return 0;
+#endif /* !IS_ENABLED(CONFIG_PSAMPLE) */
+       /* coverity[unreachable] */
+
+    err = copy_from_user(&sample_rate, (void*)data, sizeof(sample_rate));
+    if (err) {
+        goto out;
+    }
+
+    if (sx_core_has_predefined_devices()) {
+        device_id = get_device_id_from_fd(file);
+    }
+
+    dev = sx_core_ioctl_get_dev(device_id);
+    if (!dev) {
+        return -ENODEV;
+    }
+
+    event_data = kzalloc(sizeof(union sx_event_data), GFP_KERNEL);
+    if (!event_data) {
+        err = -ENOMEM;
+        goto out;
+    }
+
+    event_data->psample_port_sample_rate.local_port = sample_rate.local_port;
+    event_data->psample_port_sample_rate.sample_rate = sample_rate.rate;
+    sx_core_dispatch_event(dev, SX_DEV_EVENT_UPDATE_SAMPLE_RATE, event_data);
+    kfree(event_data);
+
+out:
+    return err;
+}
+
+long ctrl_cmd_buffer_drop_params(struct file *file, unsigned int cmd, unsigned long data)
+{
+    return sx_drop_monitor_set_buffer_drop_params(data);
 }
