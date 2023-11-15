@@ -1,0 +1,7 @@
+Copy the whole directory which contains this README to some folder on the machine where you plan to build the linux kernel,
+then execute "./apply_patches_example.sh -d <your_linux_kernel_source_folder>".
+
+Patch                                                                      Upstream-Commit                             From-Kernel-Version
+==========================================================================================================================================
+0001-psample-define-the-macro-PSAMPLE_MD_EXTENDED_ATTR.patch               N/A                                         N/A
+0002-drop_monitor-Extend-WJH-buffer-linux-channel.patch                    N/A                                         N/A

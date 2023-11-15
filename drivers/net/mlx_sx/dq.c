@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 /************************************************
@@ -49,9 +30,9 @@
 #include "sx_proc.h"
 #include "sgmii.h"
 
-#define SX_FULL_DQ_TOUT_MSECS 300000
+#define SDQ_WATCHDOG_FULL_MSECS 300000
 
-extern struct sx_globals sx_glb;
+#define SX_MAX_SDQ_SW_QUEUE_LEN (10 * (1 << (SX_MAX_LOG_DQ_SIZE)))
 
 /************************************************
  *  Globals
@@ -102,7 +83,7 @@ static __be16 sx_set_wqe_flags(u8 set_lp, enum ku_pkt_type type)
 {
     u16 flags = 0;
 
-    flags |= (1 << 15);
+    flags |= (1 << 15); /* Generate CQE for this WQE */
     if (set_lp) {
         flags |= (1 << 14);
     }
@@ -112,26 +93,31 @@ static __be16 sx_set_wqe_flags(u8 set_lp, enum ku_pkt_type type)
     case SX_PKT_TYPE_ETH_DATA:
     case SX_PKT_TYPE_DROUTE_EMAD_CTL:
     case SX_PKT_TYPE_EMAD_CTL:
-        flags |= (0xA << 7);
+        flags |= (WQE_PKT_TYPE_ETH << 7);
         break;
 
     case SX_PKT_TYPE_FCOE_CTL_UC:
     case SX_PKT_TYPE_FCOE_CTL_MC:
-        flags |= (0xD << 7);
+        flags |= (WQE_PKT_TYPE_FCOE << 7);
         break;
 
     case SX_PKT_TYPE_IB_RAW_CTL:
     case SX_PKT_TYPE_IB_RAW_DATA:
-        flags |= (0x8 << 7);
+        flags |= (WQE_PKT_TYPE_RAW_IB << 7);
         break;
 
     case SX_PKT_TYPE_IB_TRANSPORT_CTL:
     case SX_PKT_TYPE_IB_TRANSPORT_DATA:
-        flags |= (0x9 << 7);
+    case SX_PKT_TYPE_IB_CTL_2:
+        flags |= (WQE_PKT_TYPE_IB_TRANSPORT << 7);
         break;
 
     case SX_PKT_TYPE_FCOIB_CTL:
-        flags |= (0xC << 7);
+        flags |= (WQE_PKT_TYPE_FCOIB << 7);
+        break;
+
+    case SX_PKT_TYPE_IB_NVLINK:
+        flags |= (WQE_PKT_TYPE_NVLoIB << 7);
         break;
 
     case SX_PKT_TYPE_FC_CTL_UC:
@@ -164,9 +150,9 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
     sdq->sge[idx].skb = skb;
     sdq->sge[idx].hdr_pld_sg.vaddr = skb->data;
     sdq->sge[idx].hdr_pld_sg.len = skb_headlen(skb);
-    sdq->sge[idx].hdr_pld_sg.dma_addr = pci_map_single(sdq->dev->pdev,
+    sdq->sge[idx].hdr_pld_sg.dma_addr = dma_map_single(&sdq->dev->pdev->dev,
                                                        sdq->sge[idx].hdr_pld_sg.vaddr,
-                                                       sdq->sge[idx].hdr_pld_sg.len, PCI_DMA_TODEVICE);
+                                                       sdq->sge[idx].hdr_pld_sg.len, DMA_TO_DEVICE);
     if (dma_mapping_error(&sdq->dev->pdev->dev,
                           sdq->sge[idx].hdr_pld_sg.dma_addr)) {
         if (orig_skb) {
@@ -184,9 +170,9 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
     wqe->dma_addr[0] = cpu_to_be64(sdq->sge[idx].hdr_pld_sg.dma_addr);
     wqe->byte_count[0] = cpu_to_be16(sdq->sge[idx].hdr_pld_sg.len);
 
-    pci_dma_sync_single_for_device(sdq->dev->pdev,
-                                   sdq->sge[idx].hdr_pld_sg.dma_addr,
-                                   sdq->sge[idx].hdr_pld_sg.len, DMA_TO_DEVICE);
+    dma_sync_single_for_device(&sdq->dev->pdev->dev,
+                               sdq->sge[idx].hdr_pld_sg.dma_addr,
+                               sdq->sge[idx].hdr_pld_sg.len, DMA_TO_DEVICE);
 
     for (i = 0; i < num_frags; i++) {
         skb_frag_t         *frag = &skb_shinfo(skb)->frags[i];
@@ -197,20 +183,25 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
             sge_data = &sdq->sge[idx].pld_sg_2;
         }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+        sge_data->vaddr = skb_frag_address(frag);
+        sge_data->len = skb_frag_size(frag);
+#else
         sge_data->vaddr = lowmem_page_address(frag->page.p) +
                           frag->page_offset;
         sge_data->len = frag->size;
+#endif
 
-        sge_data->dma_addr = pci_map_single(sdq->dev->pdev,
-                                            sge_data->vaddr, sge_data->len, PCI_DMA_TODEVICE);
+        sge_data->dma_addr = dma_map_single(&sdq->dev->pdev->dev,
+                                            sge_data->vaddr, sge_data->len, DMA_TO_DEVICE);
         if (dma_mapping_error(&sdq->dev->pdev->dev, sge_data->dma_addr)) {
             return -ENOMEM;
         }
 
         wqe->dma_addr[i + 1] = cpu_to_be64(sge_data->dma_addr);
         wqe->byte_count[i + 1] = cpu_to_be16(sge_data->len);
-        pci_dma_sync_single_for_device(sdq->dev->pdev,
-                                       sge_data->dma_addr, sge_data->len, DMA_TO_DEVICE);
+        dma_sync_single_for_device(&sdq->dev->pdev->dev,
+                                   sge_data->dma_addr, sge_data->len, DMA_TO_DEVICE);
     }
 
     for (; i < 2; i++) {
@@ -218,14 +209,12 @@ static int sx_build_send_packet(struct sx_dq *sdq, struct sk_buff *skb, struct s
     }
 
     if (orig_skb) {
-        sx_skb_free(orig_skb); /* delete orig_skb instead of completion handler. the completion handler will
-                                *  delete the copy */
+        sx_skb_consume(orig_skb); /* delete orig_skb instead of completion handler. the completion handler will
+                                   *  delete the copy */
     }
 
     return 0;
 }
-
-
 /* DQ must be locked here!!! */
 static int sx_dq_overflow(struct sx_dq *sdq)
 {
@@ -252,9 +241,14 @@ static int sx_is_overflow(unsigned head, unsigned tail, int n)
 
 int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state)
 {
-    int           err;
-    unsigned long flags;
-    unsigned long end;
+    int             err;
+    unsigned long   flags;
+    unsigned long   end;
+    struct sx_priv *priv = sx_priv(dev);
+
+    if (priv->dev_stuck) {
+        return -ETIMEDOUT;
+    }
 
     if (update_flushing_state) {
         dq->is_flushing = 1;
@@ -268,19 +262,22 @@ int sx_flush_dq(struct sx_dev *dev, struct sx_dq *dq, bool update_flushing_state
 
     end = jiffies + 5 * HZ;
     spin_lock_irqsave(&dq->lock, flags);
-    while ((int)(dq->head - dq->tail) > 0) {
+    while ((dq->head != dq->tail) || !sx_is_cq_idle(dev, dq->cq->cqn)) {
         spin_unlock_irqrestore(&dq->lock, flags);
         msleep(1000 / HZ);
         if (time_after(jiffies, end)) {
             spin_lock_irqsave(&dq->lock, flags);
+
+            sx_err(dev, "sx_core: Error: DQ flush timeout [dqn=%d, head=%u, tail=%u, is_monitor=%s, idle=%s]\n",
+                   dq->dqn,
+                   dq->head,
+                   dq->tail,
+                   (dq->is_monitor ? "true" : "false"),
+                   (sx_is_cq_idle(dev, dq->cq->cqn) ? "true" : "false"));
             break;
         }
 
         spin_lock_irqsave(&dq->lock, flags);
-    }
-
-    if ((int)(dq->head - dq->tail) > 0) {
-        sx_warn(dev, "not all entries flushed for DQN %06x\n", dq->dqn);
     }
 
     if (update_flushing_state) {
@@ -310,8 +307,8 @@ int sx_add_pkts_to_sdq(struct sx_dq *sdq)
     struct list_head *pos, *q;
     u8                arm = 0;
 
-    list_for_each_safe(pos, q, &sdq->pkts_list.list) {
-        curr_pkt = list_entry(pos, struct sx_pkt, list);
+    list_for_each_safe(pos, q, &sdq->pkts_list.list_send_to_sdq) {
+        curr_pkt = list_entry(pos, struct sx_pkt, list_send_to_sdq);
         list_del(pos);
         wqe_idx = sdq->head & (sdq->wqe_cnt - 1);
         wqe = sx_get_send_wqe(sdq, wqe_idx);
@@ -319,12 +316,18 @@ int sx_add_pkts_to_sdq(struct sx_dq *sdq)
         wqe->flags = sx_set_wqe_flags(curr_pkt->set_lp, curr_pkt->type);
         err = sx_build_send_packet(sdq, curr_pkt->skb, wqe, wqe_idx);
         if (err) {
-            sx_skb_free(curr_pkt->skb);
+            sx_skb_free(curr_pkt->skb); /* drop packet flow, use kfree_skb */
             break;
         }
 
+        curr_pkt->idx = wqe_idx;
+        curr_pkt->since = jiffies;
+        list_add_tail(&curr_pkt->list_wait_for_completion, &sdq->pkts_comp_list.list_wait_for_completion);
+        sdq->pkts_sent_to_sdq++;
+        sdq->pkts_in_sw_queue--;
+
         ++sdq->head;
-        kfree(curr_pkt);
+
         arm = 1;
         if (sx_dq_overflow(sdq)) {
             break; /* go to arm the db */
@@ -340,76 +343,91 @@ int sx_add_pkts_to_sdq(struct sx_dq *sdq)
 
         __raw_writel((__force u32)cpu_to_be32(sdq->head & 0xffff),
                      sdq->db);
-        mmiowb();
+        MMIOWB();
     }
     return err;
 }
 
-int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *meta)
+int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *meta, u8 sdq_id)
 {
-    unsigned long  flags = 0;
-    int            err = 0;
-    struct sx_pkt *new_pkt;
-    struct sx_dq  *sdq = NULL;
-    u8             sdqn;
-    u8             stclass;
-    u8             max_cpu_etclass_for_unlimited_mtu;
+    struct sx_priv *priv = sx_priv(dev);
+    unsigned long   flags = 0;
+    int             err = 0;
+    struct sx_pkt  *new_pkt;
+    struct sx_dq   *sdq = NULL;
+    u8              sdqn;
+    u8              stclass;
+    u8              max_cpu_etclass_for_unlimited_mtu;
+    u16             cap_max_mtu = 0;
 
-    if (!dev || !dev->profile_set) {
+    if (!dev || !priv->profile.pci_profile_set) {
         printk(KERN_WARNING PFX "__sx_core_post_send() cannot "
                "execute because the profile is not "
                "set\n");
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
 
-    if (dev->global_flushing == 1) {
+    if (priv->global_flushing) {
         if (printk_ratelimit()) {
             printk(KERN_WARNING "__sx_core_post_send: Cannot send packet "
                    "while in global_flushing mode\n");
         }
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
 
     if (NUMBER_OF_SWIDS <= meta->swid) {
         printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on swid %u\n",
                meta->swid);
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
 
     err = sx_get_sdq(meta, dev, meta->type, meta->swid,
-                     meta->etclass, &stclass, &sdqn, &max_cpu_etclass_for_unlimited_mtu);
+                     meta->etclass, &stclass, &sdqn, &max_cpu_etclass_for_unlimited_mtu,
+                     &cap_max_mtu);
 
     if (err) {
         if (printk_ratelimit()) {
             printk(KERN_WARNING PFX "sx_core_post_send: error in callback structure sx_get_sdq for "
                    "selecting SDQ \n");
         }
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
-
-    sdq = sx_priv(dev)->sdq_table.dq[sdqn];
+    if (DONT_FORCE_SDQ_ID == sdq_id) {
+        sdq = sx_priv(dev)->sdq_table.dq[sdqn];
+    } else {
+        /* used for Health event mechanism (SDQ monitor)*/
+        sdq = sx_priv(dev)->sdq_table.dq[sdq_id];
+    }
 
     if (!sdq) {
         if (printk_ratelimit()) {
             printk(KERN_WARNING PFX "sx_core_post_send: ERR: " \
                    "SDQ was not allocated\n");
         }
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
 
     if (sdq->is_flushing == 1) {
         if (printk_ratelimit()) {
-            printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on dqn [%u]"
+            printk(KERN_WARNING "__sx_core_post_send: Cannot send packet on dqn [%u] "
                    "while in flushing mode\n", sdqn);
         }
-        sx_skb_free(skb);
-        err = -EFAULT;
-        goto out;
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
+        return -EFAULT;
+    }
+
+    if (skb->len > cap_max_mtu) {
+        if (printk_ratelimit()) {
+            printk(KERN_WARNING PFX "%s: cannot send packet of size %u, "
+                   "larger than max MTU %u\n", __func__, skb->len, cap_max_mtu);
+        }
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
+        return -EFAULT;
     }
 
     err = sx_build_isx_header(meta, skb, stclass);
@@ -418,15 +436,15 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
             printk(KERN_WARNING PFX "sx_core_post_send: "
                    "error in build header/stub\n");
         }
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
 
-    if ((skb->len > 2048) && (dev->profile.cpu_egress_tclass[sdqn] > max_cpu_etclass_for_unlimited_mtu)) {
+    if ((skb->len > 2048) && (priv->profile.pci_profile.cpu_egress_tclass[sdqn] > max_cpu_etclass_for_unlimited_mtu)) {
         printk(KERN_ERR PFX "sx_core_post_send: cannot send packet of size %u "
                "from SDQ %u since it's bounded to cpu_tclass %u\n",
-               skb->len, sdqn, dev->profile.cpu_egress_tclass[sdqn]);
-        sx_skb_free(skb);
+               skb->len, sdqn, priv->profile.pci_profile.cpu_egress_tclass[sdqn]);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -EFAULT;
     }
 
@@ -439,41 +457,44 @@ int __sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta
         tx_stub_func(skb, 0);
     }
 
-#ifdef NO_PCI /* The IB tests needs us to generate IB completions */
-    if ((meta->type == SX_PKT_TYPE_IB_TRANSPORT_DATA) ||
-        (meta->type == SX_PKT_TYPE_IB_TRANSPORT_CTL) ||
-        (meta->type == SX_PKT_TYPE_ETH_DATA) ||
-        (meta->type == SX_PKT_TYPE_ETH_CTL_UC) ||
-        (tx_stub_func == NULL)) {
-        sx_skb_free(skb);
-    }
-
-    return 0;
-#endif
-
     new_pkt = kmalloc(sizeof(*new_pkt), GFP_ATOMIC);
     if (!new_pkt) {
         if (printk_ratelimit()) {
             printk(KERN_WARNING PFX "sx_core_post_send: "
                    "error - cannot allocate packets memory\n");
         }
-        sx_skb_free(skb);
+        sx_skb_free(skb); /* drop packet flow, use kfree_skb */
         return -ENOMEM;
     }
 
     new_pkt->skb = skb;
     new_pkt->set_lp = meta->lp;
     new_pkt->type = meta->type;
+
     spin_lock_irqsave(&sdq->lock, flags);
-    list_add_tail(&new_pkt->list, &sdq->pkts_list.list);
+    if (sdq->pkts_in_sw_queue < SX_MAX_SDQ_SW_QUEUE_LEN) {
+        list_add_tail(&new_pkt->list_send_to_sdq, &sdq->pkts_list.list_send_to_sdq);
+        sdq->pkts_in_sw_queue++;
+    } else {
+        sx_skb_free(skb);   /* drop packet flow, use kfree_skb */
+        kfree(new_pkt);
+        sdq->pkts_sw_queue_drops++;
+
+        if (printk_ratelimit()) {
+            printk(KERN_NOTICE "SW queue for SDQ %u is full. dropping the packet!\n", sdq->dqn);
+        }
+        err = -EFAULT;
+        goto out;
+    }
+
     if (sx_dq_overflow(sdq)) {
         if ((sdq->last_full_queue != sdq->last_completion) &&
-            (time_after_eq(jiffies, (sdq->last_completion + msecs_to_jiffies(SX_FULL_DQ_TOUT_MSECS))))) {
+            (time_after_eq(jiffies, (sdq->last_completion + msecs_to_jiffies(SDQ_WATCHDOG_FULL_MSECS))))) {
             sdq->last_full_queue = sdq->last_completion;
             printk(KERN_ERR PFX "%s: sdq[%d] buffer is full for at least %d seconds\n",
                    __func__,
                    sdq->dqn,
-                   SX_FULL_DQ_TOUT_MSECS / 1000);
+                   SDQ_WATCHDOG_FULL_MSECS / 1000);
         }
         goto out;
     }
@@ -489,7 +510,8 @@ out:
 
 int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *meta)
 {
-    int err = 0;
+    struct sx_priv *priv = (dev != NULL) ? sx_priv(dev) : NULL;
+    int             err = 0;
 
     /* WA for pad TX packets with size less than ETH_ZLEN */
     if (((meta->type == SX_PKT_TYPE_ETH_DATA) ||
@@ -497,7 +519,7 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
         (skb->len < ETH_ZLEN)) {
         err = skb_pad(skb, ETH_ZLEN - skb->len);
         if (err) {
-            sx_skb_free(skb);
+            sx_skb_free(skb);   /* drop packet flow, use kfree_skb */
             return err;
         }
         skb->len = ETH_ZLEN;
@@ -512,16 +534,16 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
         ((tx_debug_emad_type == SX_DBG_EMAD_TYPE_ANY) ||
          (tx_debug_emad_type ==
           be16_to_cpu(((struct sx_emad *)skb->data)->emad_op.register_id)))) {
-        printk(KERN_DEBUG PFX "sx_core_post_send: Sending "
-               "pkt with meta: "
-               "et: %d , swid: %d , sysport:0x%x, rdq: %d,"
-               "to_cpu: %d, lp:%d, type: %d, dev_id: %d rx_is_router: %d "
-               "fid_valid: %d fid :%d, skb_headlen(skb):%d, skb_shinfo(skb)->nr_frags:%d  \n",
-               meta->etclass, meta->swid,
-               meta->system_port_mid,
-               meta->rdq, meta->to_cpu, meta->lp, meta->type,
-               meta->dev_id, meta->rx_is_router, meta->fid_valid, meta->fid,
-               skb_headlen(skb), skb_shinfo(skb)->nr_frags);
+        pr_debug(PFX "sx_core_post_send: Sending "
+                 "pkt with meta: "
+                 "et: %d , swid: %d , sysport:0x%x, rdq: %d,"
+                 "to_cpu: %d, lp:%d, type: %d, dev_id: %d rx_is_router: %d "
+                 "fid_valid: %d fid :%d, skb_headlen(skb):%d, skb_shinfo(skb)->nr_frags:%d  \n",
+                 meta->etclass, meta->swid,
+                 meta->system_port_mid,
+                 meta->rdq, meta->to_cpu, meta->lp, meta->type,
+                 meta->dev_id, meta->rx_is_router, meta->fid_valid, meta->fid,
+                 skb_headlen(skb), skb_shinfo(skb)->nr_frags);
 
 
         if (tx_dump) {
@@ -531,42 +553,52 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
 
             for (i = 0; i < cnt; i++) {
                 if ((i == 0) || (i % 4 == 0)) {
-                    printk("\n0x%04x : ", i);
+                    printk(KERN_INFO "\n0x%04x : ", i);
                 }
 
-                printk(" 0x%02x", buf[i]);
+                printk(KERN_INFO " 0x%02x", buf[i]);
             }
 
             if (skb_shinfo(skb)->nr_frags) {
                 skb_frag_t *frag = &skb_shinfo(skb)->frags[0];
                 int         prev_size = cnt;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                buf = skb_frag_address(frag);
+                cnt = skb_frag_size(frag);
+#else
                 buf = (void*)(lowmem_page_address(frag->page.p) + frag->page_offset);
                 cnt = frag->size;
+#endif
                 for (i = 0; i < cnt; i++) {
                     if ((i == 0) || (i % 4 == 0)) {
-                        printk("\n0x%04x : ", i + prev_size);
+                        printk(KERN_INFO "\n0x%04x : ", i + prev_size);
                     }
 
-                    printk(" 0x%02x", buf[i]);
+                    printk(KERN_INFO " 0x%02x", buf[i]);
                 }
 
                 if (skb_shinfo(skb)->nr_frags > 1) {
                     skb_frag_t *frag = &skb_shinfo(skb)->frags[1];
 
                     prev_size += cnt;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                    buf = skb_frag_address(frag);
+                    cnt = skb_frag_size(frag);
+#else
                     buf = (void*)(lowmem_page_address(frag->page.p) + frag->page_offset);
                     cnt = frag->size;
+#endif
                     for (i = 0; i < cnt; i++) {
                         if ((i == 0) || (i % 4 == 0)) {
-                            printk("\n0x%04x : ", i + prev_size);
+                            printk(KERN_INFO "\n0x%04x : ", i + prev_size);
                         }
 
-                        printk(" 0x%02x", buf[i]);
+                        printk(KERN_INFO " 0x%02x", buf[i]);
                     }
                 }
             }
 
-            printk("\n");
+            printk(KERN_INFO "\n");
         }
 
         if ((tx_dump_cnt != 0xFFFF) && (tx_dump_cnt > 0)) {
@@ -581,20 +613,11 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
     }
 
     if ((dev != NULL) && (meta->swid < NUMBER_OF_SWIDS)) {
-        sx_glb.stats.tx_by_pkt_type[meta->swid][meta->type]++;
-        sx_glb.stats.tx_by_pkt_type_bytes[meta->swid][meta->type] += skb->len;
-        dev->stats.tx_by_pkt_type[meta->swid][meta->type]++;
-        dev->stats.tx_by_pkt_type_bytes[meta->swid][meta->type] += skb->len;
+        priv->stats.tx_by_pkt_type[meta->swid][meta->type]++;
+        priv->stats.tx_by_pkt_type_bytes[meta->swid][meta->type] += skb->len;
     } else if (dev != NULL) {
-        sx_glb.stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-        sx_glb.stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
-        dev->stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-        dev->stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
-    } else if (sx_glb.tmp_dev_ptr) {
-        sx_glb.stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-        sx_glb.stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
-        sx_glb.tmp_dev_ptr->stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
-        sx_glb.tmp_dev_ptr->stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
+        priv->stats.tx_by_pkt_type[NUMBER_OF_SWIDS][meta->type]++;
+        priv->stats.tx_by_pkt_type_bytes[NUMBER_OF_SWIDS][meta->type] += skb->len;
     }
 
     if ((meta->type == SX_PKT_TYPE_DROUTE_EMAD_CTL) || /* emad */
@@ -606,20 +629,15 @@ int sx_core_post_send(struct sx_dev *dev, struct sk_buff *skb, struct isx_meta *
     } else if (is_sgmii_device(meta->dev_id)) {
         err = sgmii_send_misc(meta->dev_id, skb, meta);
         if (err) {
-            sx_skb_free(skb);
+            sx_skb_free(skb);   /* drop packet flow, use kfree_skb */
         }
-    }
-#ifndef NO_PCI /* In real mode we should only call __sx_core_post_send when we have PCI device */
-    else if (dev && dev->pdev) {
-        err = __sx_core_post_send(dev, skb, meta);
+    } else if (dev && dev->pdev) {
+        err = __sx_core_post_send(dev, skb, meta, DONT_FORCE_SDQ_ID);
+    } else if (sx_cr_mode()) {
+        err = sx_cr_send_packet(dev, skb, meta);
     } else {
         return -EFAULT;
     }
-#else
-    else {
-        err = __sx_core_post_send(dev, skb, meta);
-    }
-#endif
 
     return err;
 }
@@ -632,19 +650,21 @@ EXPORT_SYMBOL(sx_core_post_send);
  */
 void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
 {
-    unsigned long  flags;
-    int            idx;
-    struct sx_wqe *wqe;
-    int            length = rdq->dev->profile.rdq_properties[rdq->dqn].entry_size;
+    unsigned long   flags;
+    int             idx;
+    struct sx_wqe  *wqe;
+    struct sx_priv *priv = sx_priv(rdq->dev);
+    int             length = priv->profile.pci_profile.rdq_properties[rdq->dqn].entry_size;
 
 #ifdef CONFIG_44x
     int i;
 #endif
 
-    if (!rdq->dev->profile_set) {
-        printk(KERN_WARNING PFX "sx_core_post_recv() cannot "
-               "execute because the profile is not "
-               "set\n");
+    if (!priv->profile.pci_profile_set) {
+        if (printk_ratelimit()) {
+            printk(KERN_WARNING PFX "sx_core_post_recv() cannot execute because the profile is not set\n");
+        }
+
         return;
     }
     spin_lock_irqsave(&rdq->lock, flags);
@@ -693,9 +713,9 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
 #endif
 
         /* DMA_TODEVICE in order the marking will be written */
-        rdq->sge[idx].hdr_pld_sg.dma_addr = pci_map_single(rdq->dev->pdev,
+        rdq->sge[idx].hdr_pld_sg.dma_addr = dma_map_single(&rdq->dev->pdev->dev,
                                                            rdq->sge[idx].hdr_pld_sg.vaddr,
-                                                           length, PCI_DMA_TODEVICE);
+                                                           length, DMA_TO_DEVICE);
         if (dma_mapping_error(&rdq->dev->pdev->dev,
                               rdq->sge[idx].hdr_pld_sg.dma_addr)) {
             if (printk_ratelimit()) {
@@ -704,14 +724,14 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
             }
             goto out;
         }
-        pci_unmap_single(rdq->dev->pdev,
+        dma_unmap_single(&rdq->dev->pdev->dev,
                          rdq->sge[idx].hdr_pld_sg.dma_addr,
-                         length, PCI_DMA_TODEVICE);
+                         length, DMA_TO_DEVICE);
     }
 
-    rdq->sge[idx].hdr_pld_sg.dma_addr = pci_map_single(rdq->dev->pdev,
+    rdq->sge[idx].hdr_pld_sg.dma_addr = dma_map_single(&rdq->dev->pdev->dev,
                                                        rdq->sge[idx].hdr_pld_sg.vaddr,
-                                                       length, PCI_DMA_FROMDEVICE);
+                                                       length, DMA_FROM_DEVICE);
     if (dma_mapping_error(&rdq->dev->pdev->dev,
                           rdq->sge[idx].hdr_pld_sg.dma_addr)) {
         if (printk_ratelimit()) {
@@ -725,9 +745,9 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
         cpu_to_be64(rdq->sge[idx].hdr_pld_sg.dma_addr);
     wqe->byte_count[0] = cpu_to_be16(rdq->sge[idx].hdr_pld_sg.len);
 
-    pci_dma_sync_single_for_device(rdq->dev->pdev,
-                                   rdq->sge[idx].hdr_pld_sg.dma_addr,
-                                   rdq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
+    dma_sync_single_for_device(&rdq->dev->pdev->dev,
+                               rdq->sge[idx].hdr_pld_sg.dma_addr,
+                               rdq->sge[idx].hdr_pld_sg.len, DMA_FROM_DEVICE);
 
     rdq->head++;
 
@@ -750,9 +770,7 @@ void sx_core_post_recv(struct sx_dq *rdq, struct sk_buff *skb)
     wmb();
 
     __raw_writel((__force u32)cpu_to_be32(rdq->head & 0xffff), rdq->db);
-
-    mmiowb();
-
+    MMIOWB();
 out:
     spin_unlock_irqrestore(&rdq->lock, flags);
 }
@@ -761,14 +779,20 @@ out:
  * This function is used because we can't call kfree_skb on IB packets
  * which hold info in the nonlinear part of the SKB which was not
  * allocated by us, but was given to us by the user */
-void sx_skb_free(struct sk_buff *skb)
+void __sx_skb_free(struct sk_buff *skb, int is_drop_pkt_flow)
 {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))
     int i;
+#endif
 
     if (!skb) {
         return;
     }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+    skb_shinfo(skb)->nr_frags = 0;
+    skb_shinfo(skb)->frag_list = NULL;
+#else
     for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
         skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
         frag->page.p = NULL;
@@ -780,10 +804,36 @@ void sx_skb_free(struct sk_buff *skb)
         skb_shinfo(skb)->nr_frags = 0;
         skb_shinfo(skb)->frag_list = NULL;
     }
+#endif
 
-    kfree_skb(skb);
+    /* sx_skb_free is called from drop packet flow */
+    if (is_drop_pkt_flow) {
+        kfree_skb(skb);
+    } else {
+        consume_skb(skb);
+    }
+}
+
+/*
+ * This function is used because we can't call kfree_skb on IB packets
+ * which hold info in the nonlinear part of the SKB which was not
+ * allocated by us, but was given to us by the user */
+void sx_skb_free(struct sk_buff *skb)
+{
+    __sx_skb_free(skb, 1);
 }
 EXPORT_SYMBOL(sx_skb_free);
+
+/*
+ * This function is used because we can't call kfree_skb on IB packets
+ * which hold info in the nonlinear part of the SKB which was not
+ * allocated by us, but was given to us by the user */
+void sx_skb_consume(struct sk_buff *skb)
+{
+    __sx_skb_free(skb, 0);
+}
+EXPORT_SYMBOL(sx_skb_consume);
+
 
 /************************************************
  * Create Functions                             *
@@ -802,7 +852,6 @@ int sx_init_dq_table(struct sx_dev *dev, unsigned int ndqs, int send)
     spin_lock_init(&dq_table->lock);
 
     dq_array = kzalloc(ndqs * sizeof(*dq_array), GFP_KERNEL);
-
     if (!dq_array) {
         return -ENOMEM;
     }
@@ -821,12 +870,12 @@ int sx_init_dq_table(struct sx_dev *dev, unsigned int ndqs, int send)
 
 int sx_core_init_sdq_table(struct sx_dev *dev)
 {
-    return sx_init_dq_table(dev, dev->dev_cap.max_num_sdqs, true);
+    return sx_init_dq_table(dev, sx_priv(dev)->dev_cap.max_num_sdqs, true);
 }
 
 int sx_core_init_rdq_table(struct sx_dev *dev)
 {
-    return sx_init_dq_table(dev, dev->dev_cap.max_num_rdqs, false);
+    return sx_init_dq_table(dev, sx_priv(dev)->dev_cap.max_num_rdqs, false);
 }
 
 int sx_hw2sw_dq(struct sx_dev *dev, struct sx_dq *dq)
@@ -859,6 +908,7 @@ int sx_dq_modify_2err(struct sx_dev *dev, struct sx_dq *dq)
 
 int sx_sw2hw_dq(struct sx_dev *dev, struct sx_dq *dq)
 {
+    struct sx_priv        *priv = sx_priv(dev);
     struct sx_cmd_mailbox *mailbox;
     struct sx_dq_context  *context;
     int                    err = 0;
@@ -877,7 +927,7 @@ int sx_sw2hw_dq(struct sx_dev *dev, struct sx_dq *dq)
     context->cq = dq->cq->cqn;
     context->log2_dq_sz = ilog2(sx_nent_to_4k(dq->wqe_cnt));
     if (dq->is_send) {
-        context->sdq_tclass = dev->profile.cpu_egress_tclass[dq->dqn];
+        context->sdq_tclass = priv->profile.pci_profile.cpu_egress_tclass[dq->dqn];
     }
 
     if (dev->pdev) {
@@ -889,8 +939,8 @@ int sx_sw2hw_dq(struct sx_dev *dev, struct sx_dq *dq)
                  sx_priv(dev)->fw.local_in_mb_size);
     if (!err) {
         if (dev->pdev && !dq->is_send) {
-            u16      size = dev->profile.rdq_properties[dq->dqn].entry_size;
-            uint16_t nent = dev->profile.rdq_properties[dq->dqn].number_of_entries;
+            u16      size = priv->profile.pci_profile.rdq_properties[dq->dqn].entry_size;
+            uint16_t nent = priv->profile.pci_profile.rdq_properties[dq->dqn].number_of_entries;
             for (i = 0; i < nent; i++) {
                 skb = alloc_skb(size, GFP_KERNEL);
                 if (!skb) {
@@ -946,12 +996,19 @@ static int sx_dq_alloc(struct sx_dev *dev, u8 send, struct sx_dq *dq, u8 dqn)
     init_completion(&dq->free);
     init_waitqueue_head(&dq->tx_full_wait);
     dq_base = send ? SX_SEND_DQ_DB_BASE : SX_RECV_DQ_DB_BASE;
-    dq->db = dev->db_base + dq_base + dq->dqn * 4;
+    dq->db = priv->db_base + dq_base + dq->dqn * 4;
     spin_lock_init(&dq->lock);
     dq->state = DQ_STATE_RESET;
     dq->dev = dev;
     if (send) {
-        INIT_LIST_HEAD(&dq->pkts_list.list);
+        INIT_LIST_HEAD(&dq->pkts_list.list_send_to_sdq);
+        INIT_LIST_HEAD(&dq->pkts_comp_list.list_wait_for_completion);
+        dq->pkts_sent_to_sdq = 0;
+        dq->pkts_recv_completion = 0;
+        dq->pkts_late_completion = 0;
+        dq->pkts_in_sw_queue = 0;
+        dq->pkts_sw_queue_drops = 0;
+        dq->max_comp_time = 0;
     }
 
     return 0;
@@ -965,19 +1022,22 @@ err_out:
 
 static int sx_create_dq(struct sx_dev *dev, int nent, u8 dqn, struct sx_dq **dq, u8 send)
 {
-    int           ret;
-    struct sx_dq *tdq;
-    struct sx_cq *cq;
-    int           cqn = send ? dqn : dqn + NUMBER_OF_SDQS;
+    struct sx_priv *priv = sx_priv(dev);
+    int             ret;
+    struct sx_dq   *tdq;
+    struct sx_cq   *cq;
+    int             cqn = send ? dqn : dqn + NUMBER_OF_SDQS;
 
     tdq = kzalloc(sizeof *tdq, GFP_KERNEL);
     if (!tdq) {
+        printk(KERN_ERR "failed to allocate DQ (dqn=%d, is_send=%u)\n", dqn, send);
         return -ENOMEM;
     }
 
-    ret = sx_core_create_cq(dev, (1 << dev->dev_cap.log_max_cq_sz),
+    ret = sx_core_create_cq(dev, (1 << priv->dev_cap.log_max_cq_sz),
                             &cq, cqn);
     if (ret < 0) {
+        printk(KERN_ERR "failed to allocate CQ for DQ (dqn=%d, is_send=%u, err=%d)\n", dqn, send, ret);
         goto free_dq;
     }
 
@@ -985,6 +1045,7 @@ static int sx_create_dq(struct sx_dev *dev, int nent, u8 dqn, struct sx_dq **dq,
     ret = sx_buf_alloc(dev, nent * sizeof(struct sx_wqe),
                        PAGE_SIZE, &tdq->buf, 0);
     if (ret) {
+        printk(KERN_ERR "failed to allocate buffers for DQ (dqn=%d, is_send=%u, err=%d)\n", dqn, send, ret);
         ret = -ENOMEM;
         goto free_cq;
     }
@@ -992,21 +1053,25 @@ static int sx_create_dq(struct sx_dev *dev, int nent, u8 dqn, struct sx_dq **dq,
     tdq->wqe_cnt = nent;
     ret = sx_dq_alloc(dev, send, tdq, dqn);
     if (ret) {
+        printk(KERN_ERR "failed to allocate DQ elements (dqn=%d, is_send=%u, err=%d)\n", dqn, send, ret);
         goto free_buf;
     }
 
     tdq->state = DQ_STATE_RESET;
     tdq->is_flushing = 0;
-    /* TODO: handle errors */
     ret = sx_sw2hw_dq(dev, tdq);
-    *dq = tdq;
+    if (ret) {
+        printk(KERN_ERR "failed to create DQ in HW (err=%d)\n", ret);
+        goto free_buf;
+    }
 
+    *dq = tdq;
     return 0;
 
 free_buf:
     sx_buf_free(dev, nent * sizeof(struct sx_wqe), &tdq->buf);
 free_cq:
-    sx_core_destroy_cq(dev, cq);
+    sx_core_destroy_cq(dev, cq, tdq);
 free_dq:
     kfree(tdq);
     return ret;
@@ -1042,7 +1107,7 @@ int sx_core_add_rdq_to_monitor_rdq_list(struct sx_dq *dq)
     if (!is_found) {
         sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count] = dq->dqn;
         sx_priv(dev)->monitor_rdqs_count++;
-        sx_bitmap_set(&sx_priv(dev)->active_monitor_cq_bitmap, dq->cq->cqn);
+        sx_bitmap_set(&sx_priv(dev)->monitor_cq_bitmap, dq->cq->cqn);
     }
 
     return 0;
@@ -1052,15 +1117,20 @@ void sx_core_del_rdq_from_monitor_rdq_list(struct sx_dq *dq)
 {
     int            i;
     struct sx_dev *dev = dq->dev;
+    u32            monitor_rdqs_count = sx_priv(dev)->monitor_rdqs_count;
 
     /* remove monitor rdq from the list */
-    for (i = 0; i < sx_priv(dev)->monitor_rdqs_count; i++) {
+    for (i = 0; i < monitor_rdqs_count; i++) {
         if (sx_priv(dev)->monitor_rdqs_arr[i] == dq->dqn) {
+            sx_bitmap_free(&(sx_priv(dev)->monitor_cq_bitmap), dq->cq->cqn);
             sx_bitmap_free(&(sx_priv(dev)->active_monitor_cq_bitmap), dq->cq->cqn);
-            sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[sx_priv(dev)->monitor_rdqs_count - 1];
+            sx_priv(dev)->monitor_rdqs_arr[i] = sx_priv(dev)->monitor_rdqs_arr[monitor_rdqs_count - 1];
             sx_priv(dev)->monitor_rdqs_count--;
+            sx_priv(dev)->monitor_rdqs_arr[monitor_rdqs_count - 1] = RDQ_INVALID_ID;
         }
     }
+
+    sx_cq_arm(dq->cq);
 }
 
 
@@ -1073,14 +1143,12 @@ static void sx_free_dq_sges(struct sx_dev *dev, struct sx_dq *dq)
 
     for (i = 0; i < dq->wqe_cnt; ++i) {
         if (dq->sge[i].hdr_pld_sg.vaddr) {
-#ifndef NO_PCI
             wqe_sync_for_cpu(dq, i);
-#endif
             /* The destructor assumes the context of the user
              *  who sent the packet still exists, and we might
              *  get a kernel oops if the user already closed the FD */
             dq->sge[i].skb->destructor = NULL;
-            sx_skb_free(dq->sge[i].skb);
+            sx_skb_consume(dq->sge[i].skb); /* free unused skb, use consume_skb */
         }
     }
 }
@@ -1096,15 +1164,19 @@ static void sx_dq_free(struct sx_dev *dev, struct sx_dq *dq)
 
     wait_for_completion(&dq->free);
 
-    if (dq->is_send && !list_empty(&dq->pkts_list.list)) {
-        list_for_each_safe(pos, q, &dq->pkts_list.list) {
-            tmp_pkt = list_entry(pos, struct sx_pkt, list);
+    if (dq->is_send && !list_empty(&dq->pkts_list.list_send_to_sdq)) {
+        list_for_each_safe(pos, q, &dq->pkts_list.list_send_to_sdq) {
+            tmp_pkt = list_entry(pos, struct sx_pkt, list_send_to_sdq);
             list_del(pos);
-            /* The destructor assumes the context of the user
-             *  who sent the packet still exists, and we might
-             *  get a kernel oops if the user already closed the FD */
-            tmp_pkt->skb->destructor = NULL;
-            sx_skb_free(tmp_pkt->skb);
+            sx_skb_consume(tmp_pkt->skb);   /* free unused skb, use consume_skb */
+            kfree(tmp_pkt);
+        }
+    }
+
+    if (dq->is_send && !list_empty(&dq->pkts_comp_list.list_wait_for_completion)) {
+        list_for_each_safe(pos, q, &dq->pkts_comp_list.list_wait_for_completion) {
+            tmp_pkt = list_entry(pos, struct sx_pkt, list_wait_for_completion);
+            list_del(pos);
             kfree(tmp_pkt);
         }
     }
@@ -1129,8 +1201,20 @@ static void sx_destroy_dq(struct sx_dev *dev, struct sx_dq *dq)
 {
     /* set dq flushing state true for the entire flow to stop packets sending */
     dq->is_flushing = 1;
+
+    /* before flushing a RDQ, increment its CQ reference count.
+     * The reference count will be decremented when the CQ is done handling all buffers that were
+     * punted to CPU on sx_dq_modify_2err().
+     *
+     * The waiting on sx_flush_dq() is not enough because when dq->head == dq->tail, the CQ may still
+     * be iterating in sx_cq_completion().
+     */
+    if (!dq->is_send) {
+        atomic_inc(&dq->cq->refcount);
+    }
+
     sx_flush_dq(dev, dq, false);
-    sx_core_destroy_cq(dev, dq->cq);
+    sx_core_destroy_cq(dev, dq->cq, dq);
     sx_dq_remove(dev, dq);
     sx_dq_free(dev, dq);
     sx_buf_free(dev, dq->wqe_cnt * sizeof(struct sx_wqe), &dq->buf);
@@ -1153,7 +1237,7 @@ void sx_core_destroy_sdq_table(struct sx_dev *dev, u8 free_table)
     struct sx_dq_table *sdq_table = &priv->sdq_table;
     int                 i;
 
-    for (i = 0; i < dev->dev_cap.max_num_sdqs; i++) {
+    for (i = 0; i < priv->dev_cap.max_num_sdqs; i++) {
         if (sdq_table->dq[i]) {
             if (atomic_read(&sdq_table->dq[i]->refcount) == 1) {
                 sx_core_destroy_sdq(dev, sdq_table->dq[i]);
@@ -1174,10 +1258,10 @@ void sx_core_destroy_rdq_table(struct sx_dev *dev, u8 free_table)
     struct sx_dq_table *rdq_table = &priv->rdq_table;
     int                 i;
 
-    for (i = 0; i < dev->dev_cap.max_num_rdqs; i++) {
+    for (i = 0; i < priv->dev_cap.max_num_rdqs; i++) {
         if (rdq_table->dq[i]) {
             if (atomic_read(&rdq_table->dq[i]->refcount) == 1) {
-                sx_core_del_rdq_from_monitor_rdq_list(rdq_table->dq[i]);
+                disable_monitor_rdq(dev, rdq_table->dq[i]->dqn, 1);
                 sx_core_destroy_rdq(dev, rdq_table->dq[i]);
             } else {
                 atomic_dec(&rdq_table->dq[i]->refcount);
