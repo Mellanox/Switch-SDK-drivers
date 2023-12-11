@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 /************************************************
@@ -46,24 +27,27 @@
 #include "sx_dpt.h"
 #include "sx_proc.h"
 #include "sgmii.h"
+#include "dev_init.h"
+#include "health_check.h"
 #include <linux/mlx_sx/auto_registers/reg.h>
 #include <linux/mlx_sx/auto_registers/cmd_auto.h>
+
 
 /************************************************
  *  Definitions
  ***********************************************/
 
-#define CMD_POLL_TOKEN 0xffff
+#define CMD_POLL_TOKEN               0xffff
+#define DEV_STUCK_DURATION_TOLERANCE (5 * 60) /* 5 minutes */
 
 /************************************************
  *  Globals
  ***********************************************/
 
-extern struct sx_globals sx_glb;
-extern int               i2c_cmd_dump;
-extern int               i2c_cmd_op;
-extern int               i2c_cmd_reg_id;
-extern int               i2c_cmd_dump_cnt;
+extern int i2c_cmd_dump;
+extern int i2c_cmd_op;
+extern int i2c_cmd_reg_id;
+extern int i2c_cmd_dump_cnt;
 
 /* for simulator only */
 static int (*cmd_ifc_stub_func)(void *rxbuff, void *txbuf, int size,
@@ -79,13 +63,13 @@ void mem_blk_dump(char *name, u8 *data, int len)
     u8 *buf = (void*)data;
     int cnt = len;
 
-    printk("======= %s =========\n", name);
+    printk(KERN_INFO "======= %s =========\n", name);
     for (i = 0; i < cnt; i++) {
         if ((i == 0) || (i % 4 == 0)) {
-            printk("\n");
-            printk("0x%04x : ", i);
+            printk(KERN_INFO "\n");
+            printk(KERN_INFO "0x%04x : ", i);
         }
-        printk(" 0x%02x", buf[i]);
+        printk(KERN_INFO " 0x%02x", buf[i]);
     }
 
     printk(KERN_INFO "\n");
@@ -123,34 +107,31 @@ enum {
     CMD_STAT_BAD_INDEX = 0x0a,
     /* FW image corrupted: */
     CMD_STAT_BAD_NVMEM = 0x0b,
+    /* FW is in ISSU */
+    CMD_STAT_FW_ISSU = 0x27,
     /* Bad management packet (silently discarded): */
     CMD_STAT_BAD_PKT = 0x30,
 };
 
 enum {
-    HCR_IN_PARAM_OFFSET = 0x00,
+    HCR_IN_PARAM_OFFSET    = 0x00,
     HCR_IN_MODIFIER_OFFSET = 0x08,
-    HCR_OUT_PARAM_OFFSET = 0x0c,
-    HCR_TOKEN_OFFSET = 0x14,
-    HCR_STATUS_OFFSET = 0x18,
-    HCR_OPMOD_SHIFT = 12,
-    HCR_E_BIT = 22,
-    HCR_GO_BIT = 23
+    HCR_OUT_PARAM_OFFSET   = 0x0c,
+    HCR_TOKEN_OFFSET       = 0x14,
+    HCR_STATUS_OFFSET      = 0x18,
+    HCR_OPMOD_SHIFT        = 12,
+    HCR_E_BIT              = 22,
+    HCR_GO_BIT             = 23
 };
 
 enum {
-#ifdef NO_PCI
-    GO_BIT_TIMEOUT_MSECS = 10,
-    I2C_GO_BIT_TIMEOUT_MSECS = 10
-#else
-    GO_BIT_TIMEOUT_MSECS = 500,
-    I2C_GO_BIT_TIMEOUT_MSECS = 500
-#endif
+    I2C_GO_BIT_TIMEOUT_MSECS = 500,
+    GO_BIT_TIMEOUT_MSECS     = 500
 };
 
 enum {
-    SX_HCR_BASE = 0x71000,
-    SX_HCR_SIZE = 0x0001c,
+    SX_HCR1_BASE = 0x71000,
+    SX_HCR1_SIZE = 0x0001c,
     SX_HCR2_BASE = 0x72000,         /* for i2c command interface */
     SX_HCR2_SIZE = 0x0001c,
 };
@@ -163,6 +144,7 @@ struct sx_cmd_context {
     u16               token;
     u16               opcode;
 };
+
 static const char * cmd_str(u16 opcode)
 {
     switch (opcode) {
@@ -174,6 +156,9 @@ static const char * cmd_str(u16 opcode)
 
     case SX_CMD_QUERY_FW:
         return "SX_CMD_QUERY_FW";
+
+    case SX_CMD_QUERY_FW_HCR1:
+        return "SX_CMD_QUERY_FW_HCR1";
 
     case SX_CMD_QUERY_RSRC:
         return "SX_CMD_QUERY_RSRC";
@@ -256,6 +241,7 @@ static int sx_status_to_errno(u8 status)
         [CMD_STAT_BAD_RES_STATE] = -EBADF,
         [CMD_STAT_BAD_INDEX] = -EBADF,
         [CMD_STAT_BAD_NVMEM] = -EFAULT,
+        [CMD_STAT_FW_ISSU] = -ENODEV,
         [CMD_STAT_BAD_PKT] = -EINVAL,
     };
 
@@ -278,33 +264,42 @@ static int cmd_get_hcr_pci(struct sx_dev *dev, int offset)
     return status;
 }
 
+static int cmd_get_hcr_mst(int hcr_base, int offset, int *err)
+{
+    return sx_dpt_mst_readl(hcr_base + offset, err);
+}
+
 static int cmd_get_hcr_i2c(int sx_dev_id, int hcr_base, int offset, int *err)
 {
-#ifdef NO_PCI
-    return 0;
-#else
     return sx_dpt_i2c_readl(sx_dev_id, hcr_base + offset, err);
-#endif
 }
 
 static u32 cmd_get_hcr_reg(struct sx_dev *dev, int sx_dev_id, int hcr_base, int offset, int cmd_path, int *err)
 {
     u32 reg = 0xffff;
 
-    if (cmd_path == DPT_PATH_I2C) {
-        reg = be32_to_cpu(cmd_get_hcr_i2c(sx_dev_id, hcr_base, offset, err));
-    } else if (cmd_path == DPT_PATH_PCI_E) {
+    switch (cmd_path) {
+    case DPT_PATH_PCI_E:
         reg = be32_to_cpu((__force __be32)cmd_get_hcr_pci(dev, offset));
         *err = 0;
-    } else {
-        printk(KERN_CRIT "%s(): Error: unsupported cmd_path %d \n",
-               __func__, cmd_path);
+        break;
+
+    case DPT_PATH_I2C:
+        reg = be32_to_cpu(cmd_get_hcr_i2c(sx_dev_id, hcr_base, offset, err));
+        break;
+
+    case DPT_PATH_MST:
+        reg = be32_to_cpu(cmd_get_hcr_mst(hcr_base, offset, err));
+        break;
+
+    default:
+        printk(KERN_CRIT "%s(): Error: unsupported cmd_path %d \n", __func__, cmd_path);
         *err = -EINVAL;
+        break;
     }
 
     return reg;
 }
-
 
 int sx_cmd_send_mad_sync(struct sx_dev *dev,
                          int            dev_id,
@@ -350,32 +345,30 @@ int sx_cmd_send_mad_sync(struct sx_dev *dev,
     return err;
 }
 
-
-static int cmd_pending(struct sx_dev *dev, int sx_dev_id, int cmd_path, u16 op, int *err)
+static int cmd_pending(struct sx_dev *dev, int sx_dev_id, u32 hcr_base, int cmd_path, int *err)
 {
     u32 status;
 
-    if ((op == SX_CMD_MAD_IFC) || (op == SX_CMD_INIT_MAD_DEMUX)) {
-        status = cmd_get_hcr_reg(dev, sx_dev_id, SX_HCR_BASE, HCR_STATUS_OFFSET, cmd_path, err);
-    } else {
-        status = cmd_get_hcr_reg(dev, sx_dev_id, SX_HCR2_BASE, HCR_STATUS_OFFSET, cmd_path, err);
-    }
-
+    status = cmd_get_hcr_reg(dev, sx_dev_id, hcr_base, HCR_STATUS_OFFSET, cmd_path, err);
     return status & (1 << HCR_GO_BIT);
 }
 
-static int wait_for_cmd_pending(struct sx_dev *dev, int sx_dev_id, int cmd_path, u16 op, int timeout)
+static int wait_for_cmd_pending(struct sx_dev *dev, int sx_dev_id, u32 hcr_base, int cmd_path, u16 op, int timeout)
 {
     int           err = 0;
     unsigned long end = 0;
     unsigned long start = 0;
 
+#ifdef QUANTUM3_BU
+    timeout = timeout * 4000 * 5;
+#endif
+
     start = jiffies;
     end = msecs_to_jiffies(timeout * 10) + start;
 
-    while (cmd_pending(dev, sx_dev_id, cmd_path, op, &err) || (err != 0)) {
+    while (cmd_pending(dev, sx_dev_id, hcr_base, cmd_path, &err) || (err != 0)) {
         if (time_after_eq(jiffies, end)) {
-#ifdef INCREASED_TIMEOUT
+#if defined(INCREASED_TIMEOUT) && !defined(QUANTUM3_BU)
             end = msecs_to_jiffies(timeout * 4000) + jiffies;
             sx_warn(dev,
                     "INCREASED_TIMEOUT is set, Skipping timeout. op=%d, timeout=%d, start=%lu, end=%lu\n",
@@ -396,43 +389,125 @@ static int wait_for_cmd_pending(struct sx_dev *dev, int sx_dev_id, int cmd_path,
     return err;
 }
 
-static int sx_cmd_post_pci(struct sx_dev         *dev,
-                           struct sx_cmd_mailbox *in_mb,
-                           struct sx_cmd_mailbox *out_mb,
-                           u32                    in_modifier,
-                           u8                     op_modifier,
-                           u16                    op,
-                           u16                    token,
-                           int                    event)
+int sx_cmd_health_check_send(struct sx_dev *dev, void** mailbox_p, void* cmd_ctx)
 {
-    struct sx_cmd *cmd = &sx_priv(dev)->cmd;
-    int            ret = -EAGAIN;
-    u64            in_param = in_mb ? (in_mb->is_in_param_imm ? in_mb->imm_data : in_mb->dma) : 0;
-    u64            out_param = out_mb ? out_mb->dma : 0;
-    u32 __iomem   *hcr = cmd->hcr;
-    int            err = 0;
+    struct sx_cmd_context *context = (struct sx_cmd_context*)cmd_ctx;
+    u16                    token;
+    int                    event;
+    int                    err = 0;
+    struct sx_cmd         *cmd = &sx_priv(dev)->cmd;
+    u32 __iomem           *hcr = cmd->hcr;
+    dma_addr_t             dma = 0;
+    struct sx_cmd_mailbox* cmd_mailbox = NULL;
 
     mutex_lock(&cmd->hcr_mutex);
 
-    err = wait_for_cmd_pending(dev, dev->device_id, DPT_PATH_PCI_E, op, (event ? GO_BIT_TIMEOUT_MSECS : 0));
-    if (-ETIMEDOUT == err) {
-        if (!dev->dev_stuck) {
-            printk(KERN_ERR "Device %d is stuck from a previous command. Aborting command %s.\n",
-                   dev->device_id, cmd_str(op));
-
-            dev->dev_stuck = 1;
-        }
-
+    cmd_mailbox = sx_alloc_cmd_mailbox(dev, dev->device_id);
+    if (IS_ERR(cmd_mailbox)) {
+        err = PTR_ERR(cmd_mailbox);
         goto out;
     }
 
-    if (dev->dev_stuck) {
-        printk(KERN_INFO "Device %d is no longer stuck on previous command.\n",
-               dev->device_id);
+    dma = cmd_mailbox->dma;
+    token = cmd->use_events ? context->token : CMD_POLL_TOKEN;
+    event = cmd->use_events ? 1 : 0;
+    sx_cmd_write_to_pci(dev, 0, dma, 0, 0, SX_CMD_QUERY_FW,
+                        token, event, SXD_HEALTH_CAUSE_NONE, hcr);
+    *mailbox_p = cmd_mailbox;
+out:
+    return err;
+}
 
-        dev->dev_stuck = 0;
+/* this function is in use by health-check, only on PCI configuration */
+int sx_cmd_check_go_bit(struct sx_dev *dev, int sx_dev_id)
+{
+    int err = 0;
+
+    return cmd_pending(dev, sx_dev_id, SX_HCR1_BASE, DPT_PATH_PCI_E, &err);
+}
+
+static int __sx_cmd_prepare_post_events(u16 op, struct sx_cmd *cmd, bool try_lock, void **context)
+{
+    struct sx_cmd_context *cmd_ctx = NULL;
+    int                    rc = 0;
+
+    if (try_lock) {
+        rc = down_trylock(&cmd->event_sem);
+        if (rc != 0) {
+            return rc;
+        }
+    } else {
+        down(&cmd->event_sem);
+    }
+    spin_lock(&cmd->context_lock);
+    BUG_ON(cmd->free_head < 0);
+    cmd_ctx = &cmd->context[cmd->free_head];
+    cmd_ctx->token += cmd->token_mask + 1;
+    if (op == SX_CMD_QUERY_FW_HCR1) {
+        op = SX_CMD_QUERY_FW;
+    }
+    cmd_ctx->opcode = op;
+    cmd->free_head = cmd_ctx->next;
+    spin_unlock(&cmd->context_lock);
+    init_completion(&cmd_ctx->done);
+
+    *context = cmd_ctx;
+    return 0;
+}
+
+int sx_cmd_prepare(struct sx_dev *dev, u16 op, void **context)
+{
+    struct sx_cmd *cmd = &sx_priv(dev)->cmd;
+    int            rc = 0;
+
+    if (cmd->use_events) {
+        rc = __sx_cmd_prepare_post_events(op, cmd, true, context);
+    } else {
+        /* polling case*/
+        rc = down_trylock(&cmd->pci_poll_sem);
     }
 
+    return rc;
+}
+
+static void __sx_cmd_release_events(struct sx_cmd *cmd, void *context)
+{
+    struct sx_cmd_context *cmd_ctx = (struct sx_cmd_context*)context;
+
+    spin_lock(&cmd->context_lock);
+    cmd_ctx->next = cmd->free_head;
+    cmd->free_head = cmd_ctx - cmd->context;
+    spin_unlock(&cmd->context_lock);
+
+    up(&cmd->event_sem);
+}
+
+void sx_cmd_health_check_release(struct sx_dev *dev, void* mailbox_p, void * cmd_ctx)
+{
+    struct sx_cmd *cmd = &sx_priv(dev)->cmd;
+
+    sx_free_cmd_mailbox(dev, (struct sx_cmd_mailbox*)mailbox_p);
+
+    mutex_unlock(&cmd->hcr_mutex);
+
+    if (cmd->use_events) {
+        __sx_cmd_release_events(cmd, cmd_ctx);
+    } else {
+        up(&cmd->pci_poll_sem);
+    }
+}
+
+void sx_cmd_write_to_pci(struct sx_dev      *dev,
+                         u64                 in_param,
+                         u64                 out_param,
+                         u32                 in_modifier,
+                         u8                  op_modifier,
+                         u16                 op,
+                         u16                 token,
+                         int                 event,
+                         sxd_health_cause_t *cause,
+                         u32 __iomem        *hcr)
+{
     /*
      * We use writel (instead of something like memcpy_toio)
      * because writes of less than 32 bits to the HCR don't work
@@ -460,11 +535,69 @@ static int sx_cmd_post_pci(struct sx_dev         *dev,
                                           (op_modifier << HCR_OPMOD_SHIFT) |
                                           op), hcr + 6);
 
+    MMIOWB();
+}
+
+static int sx_cmd_post_pci(struct sx_dev         *dev,
+                           struct sx_cmd_mailbox *in_mb,
+                           struct sx_cmd_mailbox *out_mb,
+                           u32                    in_modifier,
+                           u8                     op_modifier,
+                           u16                    op,
+                           u16                    token,
+                           int                    event,
+                           sxd_health_cause_t    *cause)
+{
+    struct sx_priv *priv = sx_priv(dev);
+    struct sx_cmd  *cmd = &priv->cmd;
+    int             ret = -EAGAIN;
+    u64             in_param = in_mb ? (in_mb->is_in_param_imm ? in_mb->imm_data : in_mb->dma) : 0;
+    u64             out_param = out_mb ? out_mb->dma : 0;
+    u32 __iomem    *hcr = cmd->hcr;
+    int             err = 0;
+
+    mutex_lock(&cmd->hcr_mutex);
+
     /*
-     * Make sure that our HCR writes don't get mixed in with
-     * writes from another CPU starting a FW command.
+     * SX_CMD_QUERY_FW_HCR1 is a local CMD used to call SX_CMD_QUERY_FW with SX_HCR1_BASE explicitly
+     * We need it because now FW has two different mailboxes: one for PCI (HCR1) and one for I2C (HCR2).
+     * Even if we use I2C, there are a few commands that must be sent on HCR1. Thus, we need to get the mailbox of this HCR
      */
-    mmiowb();
+    if (op == SX_CMD_QUERY_FW_HCR1) {
+        op = SX_CMD_QUERY_FW;
+    }
+
+    if (priv->dev_stuck && time_after(jiffies, (priv->dev_stuck_time + DEV_STUCK_DURATION_TOLERANCE * HZ))) {
+        if (printk_ratelimit()) {
+            printk(KERN_ERR "Device %d is considered FATAL from previous command!\n", dev->device_id);
+        }
+
+        goto out;
+    }
+
+    err =
+        wait_for_cmd_pending(dev, dev->device_id, SX_HCR1_BASE, DPT_PATH_PCI_E, op,
+                             (event ? GO_BIT_TIMEOUT_MSECS : 0));
+    if (-ETIMEDOUT == err) {
+        *cause = SXD_HEALTH_CAUSE_GO_BIT;
+        if (!priv->dev_stuck) {
+            printk(KERN_ERR "Device %d is stuck from a previous command. Aborting command %s.\n",
+                   dev->device_id, cmd_str(op));
+
+            priv->dev_stuck = true;
+            priv->dev_stuck_time = jiffies;
+        }
+        goto out;
+    }
+
+    if (priv->dev_stuck) {
+        printk(KERN_INFO "Device %d is no longer stuck on previous command.\n",
+               dev->device_id);
+
+        priv->dev_stuck = false;
+        priv->dev_stuck_time = 0;
+    }
+    sx_cmd_write_to_pci(dev, in_param, out_param, in_modifier, op_modifier, op, token, event, cause, hcr);
     ret = 0;
 
 out:
@@ -477,61 +610,162 @@ static inline struct sx_cmd_mailbox * sx_mailbox(dma_addr_t *dma_addr)
     return container_of(dma_addr, struct sx_cmd_mailbox, dma);
 }
 
-static int sx_cmd_post_i2c(struct sx_dev         *dev,
+static void __fill_hcr(struct sx_cmd_mailbox *in_mb,
+                       u32                    hcr_base,
+                       u32                    in_modifier,
+                       u8                     op_modifier,
+                       u16                    op,
+                       u16                    token,
+                       u32                   *hcr_buf)
+{
+    u32 tmp_u32;
+
+    /*
+     *   When using a local mailbox, software
+     *   should specify 0 as the Input/Output parameters.
+     */
+    if (in_mb && in_mb->is_in_param_imm) {
+        tmp_u32 = in_mb->imm_data >> 32;
+        hcr_buf[0] = cpu_to_be32(tmp_u32);
+        tmp_u32 = in_mb->imm_data & 0xFFFFFFFF;
+        hcr_buf[1] = cpu_to_be32(tmp_u32);
+    } else {
+        hcr_buf[0] = 0;
+        hcr_buf[1] = 0;
+    }
+
+    hcr_buf[2] = cpu_to_be32(in_modifier);
+    hcr_buf[3] = 0;
+    hcr_buf[4] = 0;
+    hcr_buf[5] = cpu_to_be32(token << 16);
+    hcr_buf[6] = cpu_to_be32((op_modifier << HCR_OPMOD_SHIFT) | op);
+}
+
+static void __raise_go_bit(u32 *hcr_buf)
+{
+    hcr_buf[6] |= cpu_to_be32(1 << HCR_GO_BIT);
+}
+
+static int sx_cmd_post_mst(struct sx_dev         *dev,
                            int                    sx_dev_id,
+                           u8                     hcr_number,
+                           u32                    hcr_base,
                            struct sx_cmd_mailbox *in_mb,
                            struct sx_cmd_mailbox *out_mb,
                            u32                    in_modifier,
                            u8                     op_modifier,
                            u16                    op,
                            u16                    token,
-                           int                    event,
-                           int                    in_mb_size)
+                           int                    in_mb_size,
+                           sxd_health_cause_t    *cause)
 {
     struct sx_cmd *cmd = &sx_priv(dev)->cmd;
     int            ret = -EAGAIN;
-    u32            hcr2 = (u32)SX_HCR2_BASE;
     u32            hcr_buf[7];
     int            err = 0;
-    u32            tmp_u32;
 
-    if ((op == SX_CMD_MAD_IFC) || (op == SX_CMD_INIT_MAD_DEMUX)) {
-        hcr2 = (u32)SX_HCR_BASE;     /* to enable MAD over i2c for OOB bootstrap */
-    } else if ((op != SX_CMD_QUERY_FW) &&
-               (op != SX_CMD_QUERY_BOARDINFO) &&
-               (op != SX_CMD_CONFIG_PROFILE) &&
-               (op != SX_CMD_ACCESS_REG) &&
-               (op != SX_CMD_INIT_SYSTEM_M_KEY) &&
-               (op != SX_CMD_ISSU_FW)) {
+    mutex_lock(&cmd->hcr_mutex);
+
+    err = wait_for_cmd_pending(dev, 0 /* reserved in MST */, hcr_base, DPT_PATH_MST, op, GO_BIT_TIMEOUT_MSECS);
+    if (-ETIMEDOUT == err) {
+        sx_warn(dev, "MST go bit not cleared\n");
+        *cause = SXD_HEALTH_CAUSE_GO_BIT;
+        goto out;
+    } else if (err) {
+        sx_err(dev, "MST client return error %d\n", err);
+        goto out;
+    }
+
+    if (in_mb) {
+        ret = sx_dpt_mst_write_buf(sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset[hcr_number], in_mb->buf, in_mb_size);
+        if (ret) {
+            pr_debug("first write_buf failed, err = %d\n", ret);
+            goto out;
+        }
+    }
+
+    __fill_hcr(in_mb, hcr_base, in_modifier, op_modifier, op, token, hcr_buf);
+    ret = sx_dpt_mst_write_buf(hcr_base, (void*)hcr_buf,  28);
+    if (ret) {
+        pr_debug("second write_buf failed, err = %d\n", ret);
+        goto out;
+    }
+
+    /* We write to go bit after writing all other HCR values */
+    __raise_go_bit(hcr_buf);
+    ret = sx_dpt_mst_writel(hcr_base + 6 * sizeof(u32), hcr_buf[6]);
+    if (ret) {
+        pr_debug("first writel failed, err = %d\n", ret);
+        goto out;
+    }
+
+    ret = 0;
+
+out:
+    mutex_unlock(&cmd->hcr_mutex);
+    return ret;
+}
+
+static int sx_cmd_post_i2c(struct sx_dev         *dev,
+                           int                    sx_dev_id,
+                           u8                     hcr_number,
+                           u32                    hcr_base,
+                           struct sx_cmd_mailbox *in_mb,
+                           struct sx_cmd_mailbox *out_mb,
+                           u32                    in_modifier,
+                           u8                     op_modifier,
+                           u16                    op,
+                           u16                    token,
+                           int                    in_mb_size,
+                           sxd_health_cause_t    *cause)
+{
+    struct sx_cmd *cmd = &sx_priv(dev)->cmd;
+    int            ret = -EAGAIN;
+    u32            hcr_buf[7];
+    int            err = 0;
+
+    if ((op != SX_CMD_QUERY_FW) &&
+        (op != SX_CMD_MAD_IFC) &&
+        (op != SX_CMD_INIT_MAD_DEMUX) &&
+        (op != SX_CMD_QUERY_FW_HCR1) &&
+        (op != SX_CMD_QUERY_BOARDINFO) &&
+        (op != SX_CMD_CONFIG_PROFILE) &&
+        (op != SX_CMD_ACCESS_REG) &&
+        (op != SX_CMD_QUERY_RSRC) &&
+        (op != SX_CMD_INIT_SYSTEM_M_KEY) &&
+        (op != SX_CMD_ISSU_FW)) {
         sx_err(dev, "command (0x%x) not supported by I2C ifc\n", op);
         return -EINVAL;
     }
 
+    /*
+     * SX_CMD_QUERY_FW_HCR1 is a local CMD used to call SX_CMD_QUERY_FW with SX_HCR1_BASE explicitly
+     * We need it because now FW has two different mailboxes: one for PCI (HCR1) and one for I2C (HCR2).
+     * Even if we use I2C, there are a few commands that must be sent on HCR1. Thus, we need to get the mailbox of this HCR.
+     */
+    if ((op == SX_CMD_QUERY_FW_HCR1)) {
+        op = SX_CMD_QUERY_FW;
+    }
+
     mutex_lock(&cmd->hcr_mutex);
 
-    err = wait_for_cmd_pending(dev, sx_dev_id, DPT_PATH_I2C, op, I2C_GO_BIT_TIMEOUT_MSECS);
+    err = wait_for_cmd_pending(dev, sx_dev_id, hcr_base, DPT_PATH_I2C, op, I2C_GO_BIT_TIMEOUT_MSECS);
     if (-EUNATCH == err) {
         sx_err(dev, "client not ready yet for "
                "sx_dev_id %d\n", sx_dev_id);
         goto out;
     } else if (-ETIMEDOUT == err) {
         sx_warn(dev, "I2C go bit not cleared\n");
+        *cause = SXD_HEALTH_CAUSE_GO_BIT;
         if (sx_glb.sx_i2c.set_go_bit_stuck) {
             int i2c_dev_id;
-            err = sx_dpt_get_i2c_dev_by_id(
-                sx_dev_id,
-                &i2c_dev_id);
-            if (err) {
-                sx_err(dev, "sx_dpt_get_i2c_dev_by_id "
-                       "for dev_id: %d "
-                       "failed !\n",
+            if (sx_dpt_get_i2c_dev_by_id(sx_dev_id, &i2c_dev_id) != 0) {
+                sx_err(dev, "sx_dpt_get_i2c_dev_by_id for dev_id: %d failed !\n",
                        sx_dev_id);
-                return -EINVAL;
+            } else {
+                sx_glb.sx_i2c.set_go_bit_stuck(i2c_dev_id);
             }
-
-            sx_glb.sx_i2c.set_go_bit_stuck(i2c_dev_id);
         }
-
         goto out;
     } else if (err) {
         sx_err(dev, "client return error %d, "
@@ -548,48 +782,28 @@ static int sx_cmd_post_i2c(struct sx_dev         *dev,
      */
     if (in_mb) {
         ret = sx_dpt_i2c_write_buf(sx_dev_id,
-                                   sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset,
+                                   sx_glb.sx_dpt.dpt_info[sx_dev_id].in_mb_offset[hcr_number],
                                    in_mb->buf, in_mb_size);
         if (ret) {
-            printk(KERN_DEBUG "sx_cmd_post_i2c: first write_buf "
-                   "failed, err = %d\n", ret);
+            pr_debug("sx_cmd_post_i2c: first write_buf "
+                     "failed, err = %d\n", ret);
             goto out;
         }
     }
 
-    /*
-     *   When using a local mailbox, software
-     *   should specify 0 as the Input/Output parameters.
-     */
-    memset(hcr_buf, 0, 28);
-    hcr_buf[0] = 0;
-    hcr_buf[1] = 0;
-    if ((in_mb != NULL) && in_mb->is_in_param_imm) {
-        tmp_u32 = in_mb->imm_data >> 32;
-        hcr_buf[0] = cpu_to_be32(tmp_u32);
-        tmp_u32 = in_mb->imm_data & 0xFFFFFFFF;
-        hcr_buf[1] = cpu_to_be32(tmp_u32);
-    }
-    hcr_buf[2] = cpu_to_be32(in_modifier);
-    hcr_buf[3] = 0;
-    hcr_buf[4] = 0;
-    hcr_buf[5] = cpu_to_be32(token << 16);
-    hcr_buf[6] = cpu_to_be32((op_modifier << HCR_OPMOD_SHIFT) | op);
-    ret = sx_dpt_i2c_write_buf(sx_dev_id, hcr2, (void*)hcr_buf,  28);
+    __fill_hcr(in_mb, hcr_base, in_modifier, op_modifier, op, token, hcr_buf);
+    ret = sx_dpt_i2c_write_buf(sx_dev_id, hcr_base, (void*)hcr_buf,  28);
     if (ret) {
-        printk(KERN_DEBUG "sx_cmd_post_i2c: second write_buf "
-               "failed, err = %d\n", ret);
+        pr_debug("sx_cmd_post_i2c: second write_buf "
+                 "failed, err = %d\n", ret);
         goto out;
     }
+
     /* We write to go bit after writing all other HCR values */
-    hcr_buf[6] |= cpu_to_be32(1 << HCR_GO_BIT);
-    ret = sx_dpt_i2c_writel(
-        sx_dev_id,
-        hcr2 + 6 * sizeof(hcr2),
-        hcr_buf[6]);
+    __raise_go_bit(hcr_buf);
+    ret = sx_dpt_i2c_writel(sx_dev_id, hcr_base + 6 * sizeof(u32), hcr_buf[6]);
     if (ret) {
-        printk(KERN_DEBUG "sx_cmd_post_i2c: first writel "
-               "failed, err = %d\n", ret);
+        pr_debug("sx_cmd_post_i2c: first writel failed, err = %d\n", ret);
         goto out;
     }
 
@@ -603,6 +817,8 @@ out:
 
 static int sx_cmd_post(struct sx_dev         *dev,
                        int                    sx_dev_id,
+                       u8                     hcr_number,
+                       u32                    hcr_base,
                        struct sx_cmd_mailbox *in_mb,
                        struct sx_cmd_mailbox *out_mb,
                        u32                    in_modifier,
@@ -611,27 +827,85 @@ static int sx_cmd_post(struct sx_dev         *dev,
                        u16                    token,
                        int                    event,
                        int                    cmd_path,
-                       int                    in_mb_size)
+                       int                    in_mb_size,
+                       sxd_health_cause_t    *cause)
 {
     int err = 0;
 
-    if (cmd_path == DPT_PATH_I2C) {
-        err = sx_cmd_post_i2c(dev, sx_dev_id, in_mb, out_mb,
-                              in_modifier, op_modifier,
-                              op, token, event, in_mb_size);
-    } else if (cmd_path == DPT_PATH_PCI_E) {
+    switch (cmd_path) {
+    case DPT_PATH_PCI_E:
         if (dev->pdev) {
-            err = sx_cmd_post_pci(dev, in_mb, out_mb,
-                                  in_modifier, op_modifier,
-                                  op, token, event);
+            err = sx_cmd_post_pci(dev, in_mb, out_mb, in_modifier, op_modifier, op, token, event, cause);
         }
-    } else {
+        break;
+
+    case DPT_PATH_I2C:
+        err = sx_cmd_post_i2c(dev,
+                              sx_dev_id,
+                              hcr_number,
+                              hcr_base,
+                              in_mb,
+                              out_mb,
+                              in_modifier,
+                              op_modifier,
+                              op,
+                              token,
+                              in_mb_size,
+                              cause);
+        break;
+
+    case DPT_PATH_MST:
+        err = sx_cmd_post_mst(dev,
+                              sx_dev_id,
+                              hcr_number,
+                              hcr_base,
+                              in_mb,
+                              out_mb,
+                              in_modifier,
+                              op_modifier,
+                              op,
+                              token,
+                              in_mb_size,
+                              cause);
+        break;
+
+    default:
         printk(KERN_WARNING "%s(): Error: sx_dev_id %d unsupported "
                "cmd_path %d in_mod: 0x%x, op_mod: 0x%x "
                "op: 0x%x\n",
                __func__, sx_dev_id, cmd_path, in_modifier,
                op_modifier, op);
         err = -EINVAL;
+        break;
+    }
+
+    return err;
+}
+
+static int __read_out_mailbox(int dev_id, int cmd_path, int hcr_number, int offset, u8 *buff, int size)
+{
+    int err = 0;
+
+    if (size < 0) { /* read whatever you can from the mailbox */
+        size = sx_glb.sx_dpt.dpt_info[dev_id].out_mb_size[hcr_number] - offset;
+    }
+
+    switch (cmd_path) {
+    case DPT_PATH_I2C:
+        err =
+            sx_dpt_i2c_read_buf(dev_id, sx_glb.sx_dpt.dpt_info[dev_id].out_mb_offset[hcr_number] + offset, buff, size);
+        break;
+
+    case DPT_PATH_MST:
+        err = sx_dpt_mst_read_buf(sx_glb.sx_dpt.dpt_info[dev_id].out_mb_offset[hcr_number] + offset, buff, size);
+        break;
+
+    default:
+        break;
+    }
+
+    if (err) {
+        printk(KERN_ERR "Failed to read output mailbox (offset=0x%x, size=%d, err=%d)\n", offset, size, err);
     }
 
     return err;
@@ -647,17 +921,35 @@ static int sx_cmd_poll(struct sx_dev         *dev,
                        u16                    op,
                        unsigned long          timeout,
                        int                    cmd_path,
-                       int                    in_mb_size)
+                       int                    in_mb_size,
+                       sxd_health_cause_t    *cause)
 {
-    struct sx_priv   *priv = sx_priv(dev);
-    int               err = 0;
-    u32               status;
-    struct semaphore *poll_sem;
-    int               i2c_dev_id = 0;
-    int               hcr_base = SX_HCR2_BASE;
+    struct sx_priv                *priv = sx_priv(dev);
+    struct semaphore              *poll_sem = NULL;
+    int                            err = 0;
+    u32                            status;
+    int                            i2c_dev_id = 0;
+    bool                           use_hcr2;
+    int                            hcr_base;
+    int                            hcr_number;
+    u16                            reg_size_in_bytes = 0;
+    const struct sxd_emad_tlv_reg *reg_tlv = NULL;
 
-    poll_sem = (cmd_path == DPT_PATH_I2C) ?
-               &priv->cmd.i2c_poll_sem : &priv->cmd.pci_poll_sem;
+    /* HCR details is relevant only for I2C/MST. PCI does not use this */
+    use_hcr2 = (sx_cr_mode() ||
+                ((cmd_path == DPT_PATH_I2C) &&
+                 (op != SX_CMD_MAD_IFC && op != SX_CMD_INIT_MAD_DEMUX && op != SX_CMD_QUERY_FW_HCR1)));
+
+    if (use_hcr2) {
+        poll_sem = &priv->cmd.i2c_poll_sem;
+        hcr_base = SX_HCR2_BASE;
+        hcr_number = HCR2;
+    } else {
+        poll_sem = &priv->cmd.pci_poll_sem;
+        hcr_base = SX_HCR1_BASE;
+        hcr_number = HCR1;
+    }
+
     down(poll_sem);
 
     if (cmd_path == DPT_PATH_I2C) {
@@ -680,46 +972,37 @@ static int sx_cmd_poll(struct sx_dev         *dev,
         }
     }
 
-    err = sx_cmd_post(dev, sx_dev_id, in_param, out_param, in_modifier,
-                      op_modifier, op, CMD_POLL_TOKEN, 0, cmd_path, in_mb_size);
+    err = sx_cmd_post(dev, sx_dev_id, hcr_number, hcr_base, in_param, out_param, in_modifier,
+                      op_modifier, op, CMD_POLL_TOKEN, 0, cmd_path, in_mb_size, cause);
     if (err) {
         printk(KERN_WARNING "sx_cmd_poll: got err = %d "
                "from sx_cmd_post\n", err);
         goto out;
     }
 
-#ifdef NO_PCI
-    goto out;
-#endif
-
     /*
-     *  If in SW reset flow give the logic behind PCIe 100 msec to recover
-     *  before read access
+     *  If in SW reset flow give the logic behind PCIe 300 msec to recover
+     *  before read access (increased for Spectrum3)
      */
-    if ((dev->dev_sw_rst_flow == 1) && (cmd_path == DPT_PATH_PCI_E)) {
-        msleep(100);
+    if (priv->dev_sw_rst_flow && (cmd_path == DPT_PATH_PCI_E)) {
+        msleep(300);
     }
 
-    err = wait_for_cmd_pending(dev, sx_dev_id, cmd_path, op, timeout);
+    err = wait_for_cmd_pending(dev, sx_dev_id, hcr_base, cmd_path, op, timeout);
     if (err) {
-        printk(KERN_WARNING "sx_cmd_poll: got err = %d from "
-               "cmd_pending\n", err);
+        printk(KERN_WARNING "sx_cmd_poll: got err = %d from cmd_pending\n", err);
+        if (-ETIMEDOUT == err) {
+            *cause = SXD_HEALTH_CAUSE_GO_BIT;
+        }
         goto out;
-    }
-
-    /* hcr_base is relevant only for I2C. PCI does not use this */
-    if ((op == SX_CMD_MAD_IFC) || (op == SX_CMD_INIT_MAD_DEMUX)) {
-        hcr_base = SX_HCR_BASE;
-    } else {
-        hcr_base = SX_HCR2_BASE;
     }
 
     if (out_is_imm && out_param) {
         out_param->imm_data =
             (u64)cmd_get_hcr_reg(dev, sx_dev_id, hcr_base,
                                  HCR_OUT_PARAM_OFFSET, cmd_path, &err) << 32 |
-            (u64)cmd_get_hcr_reg(dev, sx_dev_id, hcr_base,
-                                 HCR_OUT_PARAM_OFFSET + 4, cmd_path, &err);
+                (u64)cmd_get_hcr_reg(dev, sx_dev_id, hcr_base,
+                                     HCR_OUT_PARAM_OFFSET + 4, cmd_path, &err);
     }
 
     status = cmd_get_hcr_reg(dev, sx_dev_id, hcr_base, HCR_STATUS_OFFSET, cmd_path, &err) >> 24;
@@ -730,31 +1013,85 @@ static int sx_cmd_poll(struct sx_dev         *dev,
         goto out;
     }
 
-    /*
-     *  The FW writes 0x26 to status after SW reset command.
-     *  Overriding to prevent error handling flow.
-     */
-    if ((dev->dev_sw_rst_flow == 1) &&
-        (cmd_path == DPT_PATH_PCI_E) &&
-        (status == 0x26)) {
-        sx_info(dev, "%s. Got FW status 0x%x after SW reset\n",
-                cmd_str(op), status);
-        status = CMD_STAT_OK;
+    if (priv->dev_sw_rst_flow) {
+        /*
+         *  The FW writes 0x26 to status after SW reset command.
+         *  Overriding to prevent error handling flow.
+         */
+        if ((cmd_path == DPT_PATH_PCI_E) && (status == 0x26)) {
+            sx_info(dev, "%s. Got FW status 0x%x after SW reset\n", cmd_str(op), status);
+            status = CMD_STAT_OK;
+        }
     }
 
     err = sx_status_to_errno(status);
     if (err) {
         sx_warn(dev, "%s failed. FW status = 0x%x\n", cmd_str(op), status);
-    } else {
-        if (cmd_path == DPT_PATH_I2C) {
-            if (!err && out_param && out_param->buf) {
-                memset(out_param->buf, 0, sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_size);
-                err = sx_dpt_i2c_read_buf(sx_dev_id, sx_glb.sx_dpt.dpt_info[sx_dev_id].out_mb_offset,
-                                          out_param->buf, 200);
+        goto out;
+    }
+
+    if (out_param && out_param->buf) {
+        if (op == SX_CMD_ACCESS_REG) {
+            if (priv->dev_sw_rst_flow) {
+                /* after reset (MRSR), not all mailbox size can be read, we need only the string TLV (size is 16 bytes) */
+                err = __read_out_mailbox(sx_dev_id,
+                                         cmd_path,
+                                         hcr_number,
+                                         0,
+                                         out_param->buf,
+                                         16 /* size of Operation-TLV header */);
                 if (err) {
-                    sx_err(dev, "%s failed.error at sx_dpt_i2c_read_buf. err = %d\n", cmd_str(op), err);
+                    printk(
+                        KERN_ERR "Failed to read operation TLV from output mailbox after reset of device %d (err=%d)\n",
+                        sx_dev_id,
+                        err);
                     goto out;
                 }
+            } else {
+                /* current layout: Operation-TLV (16 bytes), Reg-TLV (4 bytes header + X bytes register)
+                 * need to read the Reg-TLV to see how long (in dwords) is the register to read */
+                err = __read_out_mailbox(sx_dev_id,
+                                         cmd_path,
+                                         hcr_number,
+                                         0 /* Reg-TLV starts at offset 16 (after the Operation TLV) */,
+                                         out_param->buf,
+                                         20 /* size of Operation TLV + Reg-TLV header */);
+                if (err) {
+                    printk(
+                        KERN_ERR "Failed to read Operation-TLV and Reg-TLV header from output mailbox of device %d (err=%d)\n",
+                        sx_dev_id,
+                        err);
+                    goto out;
+                }
+
+                reg_tlv = (struct sxd_emad_tlv_reg*)((u8*)out_param->buf + 16);
+
+                /* validate Reg-TLV */
+                if (sxd_emad_tlv_type(reg_tlv) != TLV_TYPE_REG_E) {
+                    printk(KERN_ERR "TLV type is not Reg-TLV (type = %u) from device %d\n",
+                           sxd_emad_tlv_type(reg_tlv),
+                           sx_dev_id);
+                    err = -EINVAL;
+                    goto out;
+                }
+
+                reg_size_in_bytes = sxd_emad_tlv_len(reg_tlv) - 4; /* 4 = Reg-TLV length itself in bytes */
+                err = __read_out_mailbox(sx_dev_id, cmd_path, hcr_number, 20, out_param->buf + 20, reg_size_in_bytes);
+                if (err) {
+                    printk(KERN_ERR "Failed to read register from output mailbox of device %d (err=%d)\n",
+                           sx_dev_id,
+                           err);
+                    goto out;
+                }
+            }
+        } else {
+            err = __read_out_mailbox(sx_dev_id, cmd_path, hcr_number, 0, out_param->buf, -1 /* all mailbox */);
+            if (err) {
+                printk(KERN_ERR "Failed to read command-interface output mailbox of device %d for op=0x%x (err=%d)\n",
+                       sx_dev_id,
+                       op,
+                       err);
+                goto out;
             }
         }
     }
@@ -797,12 +1134,16 @@ void sx_cmd_event(struct sx_dev *dev, u16 token, u8 status, u64 out_param)
 
     context->result = sx_status_to_errno(status);
     if (context->result) {
-        sx_warn(dev, "command %s failed. FW status = %d, " \
+        sx_warn(dev, "command %s failed. FW status = 0x%x, " \
                 "driver result = %d\n",
                 cmd_str(context->opcode), status, context->result);
     }
 
     context->out_param = out_param;
+
+    /* command interface got answer from FW/HW use for Health check mechanism*/
+    priv->cmd_ifc_num_of_pck_received++;
+
     complete(&context->done);
 }
 EXPORT_SYMBOL(sx_cmd_event);
@@ -816,40 +1157,17 @@ static int sx_cmd_wait(struct sx_dev         *dev,
                        u8                     op_modifier,
                        u16                    op,
                        unsigned long          timeout,
-                       int                    cmd_path)
+                       int                    cmd_path,
+                       sxd_health_cause_t    *cause)
 {
     struct sx_cmd         *cmd = &sx_priv(dev)->cmd;
-    struct sx_cmd_context *context;
+    struct sx_cmd_context *context = NULL;
     int                    err = 0;
 
-    down(&cmd->event_sem);
-    spin_lock(&cmd->context_lock);
-    BUG_ON(cmd->free_head < 0);
-    context = &cmd->context[cmd->free_head];
-    context->token += cmd->token_mask + 1;
-    context->opcode = op;
-    cmd->free_head = context->next;
-    spin_unlock(&cmd->context_lock);
-    init_completion(&context->done);
-#ifdef NO_PCI
-    if (cmd_ifc_stub_func) {
-        void *in_buf = in_param ? in_param->buf : NULL;
-        void *out_buf = out_param ? out_param->buf : NULL;
+    __sx_cmd_prepare_post_events(op, cmd, false, (void**)&context);
 
-        printk(KERN_INFO "Sending command 0x%x (%s) to the "
-               "verification kernel module\n", op, cmd_str(op));
-        err = cmd_ifc_stub_func(in_buf, out_buf, SX_MAILBOX_SIZE,
-                                op_modifier, op, in_modifier, context->token);
-        if (err) {
-            printk(KERN_DEBUG PFX "Got error %d from cmd_ifc_stub_func", err);
-        }
-    } else {
-        goto out;
-    }
-#else
-    sx_cmd_post(dev, sx_dev_id, in_param, out_param, in_modifier,
-                op_modifier, op, context->token, 1, cmd_path, 0);
-#endif
+    sx_cmd_post(dev, sx_dev_id, HCR1, SX_HCR1_BASE, in_param, out_param, in_modifier,
+                op_modifier, op, context->token, 1, cmd_path, 0, cause);
 
 #ifdef INCREASED_TIMEOUT
     if (!wait_for_completion_timeout(&context->done, msecs_to_jiffies(timeout * 4000))) {
@@ -857,12 +1175,16 @@ static int sx_cmd_wait(struct sx_dev         *dev,
     if (!wait_for_completion_timeout(&context->done, msecs_to_jiffies(timeout))) {
 #endif
         if (!context->done.done) {
-            sx_err(dev, "command 0x%x (%s) timeout for "
-                   "device %d\n", op, cmd_str(op), sx_dev_id);
-            err = -EBUSY;
+            sx_err(dev, "command 0x%x (%s) timeout for cmd-ifc completion event on device %d\n",
+                   op, cmd_str(op), sx_dev_id);
+            err = -ETIMEDOUT;
+            *cause = SXD_HEALTH_CAUSE_NO_CMDIFC_COMPLETION;
             goto out;
         }
     }
+
+    /* command interface got answer from FW/HW */
+    sx_priv(dev)->cmd_ifc_num_of_pck_received++;
 
     err = context->result;
     if (err) {
@@ -897,7 +1219,7 @@ void __dump_cmd(struct sx_dev         *dev,
 {
     int print_cmd = 0;
 
-    printk("%s(): in cmd_path: %d (1- i2c, 2 - pci), op:0x%x \n",
+    printk(KERN_INFO "%s(): in cmd_path: %d (1- i2c, 2 - pci), op:0x%x \n",
            __func__, cmd_path, op);
 
     if ((i2c_cmd_op == SX_DBG_CMD_OP_TYPE_ANY) ||
@@ -910,11 +1232,11 @@ void __dump_cmd(struct sx_dev         *dev,
     }
 
     if (print_cmd && (NULL != in_param) && (NULL != in_param->buf)) {
-        mem_blk_dump("CMD input dump", in_param->buf, 0x40);
+        mem_blk_dump("CMD input dump", in_param->buf, 0x60);
     }
 
     if (print_cmd && (NULL != out_param) && (NULL != out_param->buf)) {
-        mem_blk_dump("CMD out parameter dump", out_param->buf, 0x40);
+        mem_blk_dump("CMD out parameter dump", out_param->buf, 0x60);
     }
 
     if ((i2c_cmd_dump_cnt != 0xFFFF) && (i2c_cmd_dump_cnt > 0)) {
@@ -939,18 +1261,25 @@ int __sx_cmd(struct sx_dev         *dev,
              unsigned long          timeout,
              int                    in_mb_size)
 {
-    int err = 0;
-    int cmd_path = 0;
+    int                err = 0;
+    int                cmd_path = 0;
+    sxd_health_cause_t cause = SXD_HEALTH_CAUSE_NONE;
+
+    if (sx_core_fw_is_faulty(dev)) {
+        printk(KERN_NOTICE "Command Interface: Faulty FW - ignoring\n");
+        return 0;
+    }
 
     if ((sx_dev_id == DEFAULT_DEVICE_ID) && is_sgmii_supported()) {
         err = sgmii_default_dev_id_get(&sx_dev_id);
         if (err) {
-            return err;
+            goto out;
         }
     }
 
     cmd_path = sx_dpt_get_cmd_path(sx_dev_id);
 
+#ifdef PD_BU
 /*
  *   Example how to add limited registers support to PD :
  *
@@ -982,44 +1311,6 @@ int __sx_cmd(struct sx_dev         *dev,
  *       break;
  *   }
  */
-
-#ifdef PD_BU
-#ifdef SPECTRUM3_BU
-    if (0) { /* all registers are opened */
-        switch (op) {
-        case SX_CMD_ACCESS_REG:
-        {
-            u16 reg_id = be16_to_cpu(((struct emad_operation *)(in_param->buf))->register_id);
-            switch (reg_id) {
-            case MGIR_REG_ID:
-            case HTGT_REG_ID:
-            case HPKT_REG_ID:
-#ifdef SX_DEBUG
-                printk(KERN_INFO PFX "__sx_cmd: Running command %s with reg_id 0x%x\n", cmd_str(op), reg_id);
-#endif
-                break;
-
-            default:
-                printk(KERN_INFO PFX "__sx_cmd: command %s with reg_id 0x%x is not yet "
-                       "supported. Not running it\n", cmd_str(op), reg_id);
-                return 0;
-            }
-            break;
-        }
-
-        default:
-#ifdef SX_DEBUG
-            printk(KERN_INFO PFX "__sx_cmd: Running command %s\n", cmd_str(op));
-#endif
-            break;
-        }
-    }
-
-#ifdef SX_DEBUG
-    printk(KERN_INFO PFX "__sx_cmd: Running command %s\n", cmd_str(op));
-#endif
-
-#endif /* #ifdef SPECTRUM3_BU */
 #endif /* #ifdef PD_BU */
 
     if (cmd_path == DPT_PATH_INVALID) {
@@ -1034,17 +1325,18 @@ int __sx_cmd(struct sx_dev         *dev,
                    "Aborting command %s\n", sx_dev_id, cmd_str(op));
         }
 
-        return -EINVAL;
+        err = -EINVAL;
+        goto out;
     }
 
     if (sx_priv(dev)->cmd.use_events && (cmd_path != DPT_PATH_I2C)) {
         err = sx_cmd_wait(dev, sx_dev_id, in_param, out_param,
                           out_is_imm, in_modifier, op_modifier,
-                          op, timeout, cmd_path);
+                          op, timeout, cmd_path, &cause);
     } else {
         err = sx_cmd_poll(dev, sx_dev_id, in_param, out_param,
                           out_is_imm, in_modifier, op_modifier,
-                          op, timeout, cmd_path, in_mb_size);
+                          op, timeout, cmd_path, in_mb_size, &cause);
     }
 
     if (i2c_cmd_dump) {
@@ -1063,6 +1355,22 @@ int __sx_cmd(struct sx_dev         *dev,
         printk(KERN_INFO PFX "__sx_cmd: command %s finished with err %d\n", cmd_str(op), err);
     }
 #endif
+
+out:
+    if (SXD_HEALTH_CAUSE_NONE != cause) {
+        printk(KERN_ERR PFX "CMD-IFC timeout for device:[%d] sending SDK health event (if enabled).\n", sx_dev_id);
+        if (sdk_health_test_and_disable(sx_dev_id)) {
+            sx_send_health_event(sx_dev_id, cause, SXD_HEALTH_SEVERITY_FATAL, DBG_ALL_IRICS, NULL, NULL);
+        } else {
+            /* in case fatal_failure_detection is active event will create from the health check mechanism*/
+            sx_health_external_report(sx_dev_id,
+                                      SXD_HEALTH_SEVERITY_WARN,
+                                      SXD_HEALTH_CAUSE_NO_CMDIFC_COMPLETION,
+                                      DBG_ALL_IRICS,
+                                      NULL,
+                                      "Command interface got timeout issue");
+        }
+    }
     return err;
 }
 EXPORT_SYMBOL(__sx_cmd);
@@ -1079,7 +1387,7 @@ int sx_cmd_pool_create(struct sx_dev *dev)
 {
     struct sx_cmd *cmd = &sx_priv(dev)->cmd;
 
-    cmd->pool = pci_pool_create("sx_cmd", dev->pdev,
+    cmd->pool = dma_pool_create("sx_cmd", &dev->pdev->dev,
                                 SX_MAILBOX_SIZE,
                                 SX_MAILBOX_SIZE, 0);
     if (!cmd->pool) {
@@ -1093,7 +1401,7 @@ void sx_cmd_pool_destroy(struct sx_dev *dev)
 {
     struct sx_cmd *cmd = &sx_priv(dev)->cmd;
 
-    pci_pool_destroy(cmd->pool);
+    dma_pool_destroy(cmd->pool);
     cmd->pool = NULL;
 }
 
@@ -1114,14 +1422,14 @@ int sx_cmd_init(struct sx_dev *dev)
 int sx_cmd_init_pci(struct sx_dev *dev)
 {
     sx_priv(dev)->cmd.hcr = ioremap(pci_resource_start(dev->pdev, 0) +
-                                    SX_HCR_BASE, SX_HCR_SIZE);
+                                    SX_HCR1_BASE, SX_HCR1_SIZE);
     if (!sx_priv(dev)->cmd.hcr) {
         sx_err(dev, "Couldn't map command register.");
         return -ENOMEM;
     }
 
     sx_info(dev, "map cmd: phys: 0x%llx , virtual: %p \n",
-            (u64)(pci_resource_start(dev->pdev, 0) + SX_HCR_BASE),
+            (u64)(pci_resource_start(dev->pdev, 0) + SX_HCR1_BASE),
             sx_priv(dev)->cmd.hcr);
 
     return 0;
@@ -1136,14 +1444,14 @@ int sx_cmd_use_events(struct sx_dev *dev)
     struct sx_priv *priv = sx_priv(dev);
     int             i;
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    /* The flow should be tested on Palladium/Protium once HW adds support */
-    return 0; /* No events yet... */
-#endif
-
     if (priv->cmd.use_events == 1) {
         return 0;
     }
+
+#if defined(PD_BU) && defined(PD_BU_DISABLE_CMD_EVENTS)
+    printk(KERN_INFO PFX "CMD EVENTS are DISABLED in PD mode.\n");
+    return 0;
+#endif
 
     priv->cmd.context = kmalloc(priv->cmd.max_cmds *
                                 sizeof(struct sx_cmd_context), GFP_KERNEL);
@@ -1220,7 +1528,7 @@ struct sx_cmd_mailbox * sx_alloc_cmd_mailbox(struct sx_dev *dev, int sx_dev_id)
             return ERR_PTR(-ENOMEM);
         }
 
-        mailbox->buf = pci_pool_alloc(sx_priv(dev)->cmd.pool,
+        mailbox->buf = dma_pool_alloc(sx_priv(dev)->cmd.pool,
                                       GFP_KERNEL, &mailbox->dma);
     }
 
@@ -1244,7 +1552,7 @@ void sx_free_cmd_mailbox(struct sx_dev *dev, struct sx_cmd_mailbox *mailbox)
         kfree(mailbox->buf);
     } else {
         if (mailbox->dma) {
-            pci_pool_free(sx_priv(dev)->cmd.pool, mailbox->buf,
+            dma_pool_free(sx_priv(dev)->cmd.pool, mailbox->buf,
                           mailbox->dma);
         }
     }
