@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef __SGMII_INTERNAL_H__
@@ -37,17 +18,17 @@
 #include <linux/if_vlan.h>
 
 #include <linux/mlx_sx/kernel_user.h>
+#include  <linux/mlx_sx/map.h>
 #include "sgmii.h"
 #include "counter.h"
-#include "map.h"
 
 struct sgmii_control_segment;
 struct sgmii_tx_base_header_version_0;
-extern struct sx_globals sx_glb;
-extern int               rx_debug;
-extern int               rx_dump;
-extern int               tx_debug;
-extern int               tx_dump;
+extern int rx_debug;
+extern int rx_dump;
+extern int tx_debug;
+extern int tx_debug_metadata;
+extern int tx_dump;
 
 /* *************************************************************************************** */
 /* SGMII misc                                                                              */
@@ -55,6 +36,10 @@ extern int               tx_dump;
 
 int sgmii_init(void);
 
+int sgmii_get_send_interval_msec_by_transport(sxd_transport_type_t transport_type);
+int sgmii_get_send_attempts_by_transport(sxd_transport_type_t transport_type);
+int sgmii_get_cr_send_attempts(void);
+int sgmii_get_cr_send_interval_msec(void);
 int sgmii_get_send_attempts(void);
 int sgmii_get_send_interval_msec(void);
 int sgmii_get_rx_pps(void);
@@ -185,10 +170,10 @@ int sgmii_dev_get_id(const struct sgmii_dev *sgmii_dev);
 #define CONVERT_TO_NETWORK_ORDER(x) do { (x) = htonl(x); } while (0)
 
 enum {
-    SGMII_PCP_BEST_EFFORT = 0,
-    SGMII_PCP_LOW = 2,
-    SGMII_PCP_MED = 3,
-    SGMII_PCP_HIGH = 7,
+    SGMII_PCP_BEST_EFFORT   = 0,
+    SGMII_PCP_LOW           = 2,
+    SGMII_PCP_MED           = 3,
+    SGMII_PCP_HIGH          = 7,
     SGMII_PCP_FROM_METADATA = 255
 };
 
@@ -251,7 +236,6 @@ enum sgmii_transaction_completion_status {
     SGMII_TR_COMP_ST_COMPLETED,
     SGMII_TR_COMP_ST_RX_DEV_MISMATCH,
     SGMII_TR_COMP_ST_TIMEDOUT,
-    SGMII_TR_COMP_ST_TERMINATED
 };
 
 typedef uint64_t sgmii_transaction_id_t;
@@ -263,8 +247,15 @@ struct sgmii_sync_transaction_context {
     struct sk_buff                          *rx_skb; /* the skb that completed the transaction */
     enum sgmii_transaction_completion_status status;
 };
+struct sgmii_transaction_meta {
+    struct sgmii_transaction_db *tr_db;
+    sgmii_transaction_id_t       tr_id;
+    struct sk_buff              *skb;
+    sxd_transport_type_t         transport_type;
+};
 struct sgmii_transaction_db;
 struct sgmii_transaction_info;
+struct sgmii_transaction_meta;
 
 typedef void (*sgmii_transaction_entry_handler_cb)(int                            err,
                                                    struct sgmii_transaction_info *tr_info,
@@ -306,15 +297,10 @@ int sgmii_transaction_check_completion(struct sgmii_transaction_db *tr_db,
                                        sgmii_transaction_id_t       tr_id,
                                        struct sgmii_dev            *rx_dev);
 
-int sgmii_transaction_terminate(struct sgmii_transaction_db *tr_db,
-                                sgmii_transaction_id_t       tr_id);
-
-int sgmii_send_transaction(struct sgmii_transaction_db *tr_db,
-                           struct sk_buff              *skb,
-                           sgmii_transaction_id_t       tr_id,
-                           struct sgmii_dev            *sgmii_dev,
-                           const struct isx_meta       *meta,
-                           void                        *context);
+int sgmii_send_transaction(struct sgmii_transaction_meta *tr_meta,
+                           struct sgmii_dev              *sgmii_dev,
+                           const struct isx_meta         *isx_meta,
+                           void                          *context);
 
 int sgmii_send_transaction_sync(int                            dev_id,
                                 struct sk_buff                *skb,
@@ -336,7 +322,6 @@ int sgmii_emad_get_transactions_in_progress(void);
 
 int sgmii_emad_access_ppad(int dev_id, const struct ku_ppad_reg *reg_ppad);
 int sgmii_emad_access_hopf(int dev_id, const struct ku_hopf_reg *reg_hopf);
-
 /* *************************************************************************************** */
 /* SGMII MAD                                                                               */
 /* *************************************************************************************** */

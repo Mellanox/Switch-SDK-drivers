@@ -1,151 +1,146 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef SX_CLOCK_H
 #define SX_CLOCK_H
 
-
-/************************************************
- * Includes
- ***********************************************/
+#include <linux/version.h>
 #include <linux/types.h>
-#include <linux/netdevice.h>
-#include <linux/mlx_sx/auto_registers/cmd_auto.h>
+
 #include "sx.h"
+#include "internal_log.h"
 
-/************************************************
- *  Defines
- ***********************************************/
-#define OFFSET_PTP_DOMAIN_NUMBER     4
-#define SPC_PTP_CLOCK_FREQ_KHZ       156257 /* 6.4nSec */
-#define SKB_MTPPTR_LOCAL_PORT_OFFSET 0x1D
+extern int clock_activity_log;
 
-#define PTP_RX_MAX_PPS_PER_PORT (394)
-#define PTP_TX_MAX_PPS_PER_PORT (404)
+/************************************************************************************/
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
+#define SX_CLOCK_SETTIME        settime64
+#define SX_CLOCK_GETTIME        gettime64
+#define SX_CLOCK_TIMESPEC_TO_NS timespec64_to_ns
+#define SX_CLOCK_NS_TO_TIMESPEC ns_to_timespec64
+typedef struct timespec64 sx_clock_timespec_t;
+#else
+#define SX_CLOCK_SETTIME        settime
+#define SX_CLOCK_GETTIME        gettime
+#define SX_CLOCK_TIMESPEC_TO_NS timespec_to_ns
+#define SX_CLOCK_NS_TO_TIMESPEC ns_to_timespec
+typedef struct timespec sx_clock_timespec_t;
+#define SX_CLOCK_USE_TIMESPEC64 (0)
+#endif
+/************************************************************************************/
 
-#define IS_PTP_MODE_POLLING (ptp_working_mode == KU_PTP_MODE_POLLING)
-#define IS_PTP_MODE_EVENTS  (ptp_working_mode == KU_PTP_MODE_EVENTS)
+#define SX_CLOCK_IS_DEV_SPECIFIC_CB_SUPPORTED(dev, func_name)               \
+    ({                                                                      \
+        struct sx_priv *__priv = sx_priv(dev);                              \
+        int __err = 0;                                                      \
+        u8 __is_supported = 0;                                              \
+        do {                                                                \
+            __err = __sx_core_dev_specific_cb_get_reference(dev);           \
+            if (__err) {                                                    \
+                printk(KERN_ERR "failed to get " #func_name " callback\n"); \
+                break;                                                      \
+            }                                                               \
+            if (__priv->dev_specific_cb.func_name) {                        \
+                __is_supported = 1;                                         \
+            }                                                               \
+            __sx_core_dev_specific_cb_release_reference(dev);               \
+        } while (0);                                                        \
+        __is_supported;                                                     \
+    })
 
-/************************************************
- *  Enums
- ***********************************************/
-enum PTP_MESSAGE_TYPE {
-    PTP_MSG_SYNC = 1 << 0,
-    PTP_MSG_DELAY_REQ = 1 << 1,
-    PTP_MSG_PDELAY_REQ = 1 << 2,
-    PTP_MSG_PDELAY_RESP = 1 << 3,
-    PTP_MSG_FOLLOW_UP = 1 << 8,
-    PTP_MSG_DELAY_RESP = 1 << 9,
-    PTP_MSG_PDELAY_RESP_FOLLOW_UP = 1 << 10,
-    PTP_MSG_ANNOUNCE = 1 << 11,
-    PTP_MSG_SIGNALING = 1 << 12,
-    PTP_MSG_MANAGEMENT = 1 << 13,
+#define SX_CLOCK_DEV_SPECIFIC_CB(dev, func_name, ...)                       \
+    ({                                                                      \
+        struct sx_priv *__priv = sx_priv(dev);                              \
+        int __err = 0;                                                      \
+        do {                                                                \
+            __err = __sx_core_dev_specific_cb_get_reference(dev);           \
+            if (__err) {                                                    \
+                printk(KERN_ERR "failed to get " #func_name " callback\n"); \
+                break;                                                      \
+            }                                                               \
+            if (__priv->dev_specific_cb.func_name) {                        \
+                __err = __priv->dev_specific_cb.func_name(__VA_ARGS__);     \
+            }                                                               \
+            __sx_core_dev_specific_cb_release_reference(dev);               \
+        } while (0);                                                        \
+        __err;                                                              \
+    })
 
-    PTP_MSG_TYPE_ALL = (1 << 16) - 1,
+#define SX_CLOCK_ACTIVITY_LOG(priv, sev, fmt, args ...)                        \
+    do {                                                                       \
+        if (clock_activity_log) {                                              \
+            sx_int_log(&(priv)->hw_clock.log_activity, (sev), (fmt), ## args); \
+        }                                                                      \
+    } while (0)
 
-    PTP_MSG_EVENT_ALL = (PTP_MSG_SYNC | PTP_MSG_DELAY_REQ | PTP_MSG_PDELAY_REQ | PTP_MSG_PDELAY_RESP),
-    PTP_MSG_GENERAL_ALL = (PTP_MSG_TYPE_ALL & ~(PTP_MSG_EVENT_ALL))
-};
-enum ptp_counters {
-    PTP_COUNTER_TOTAL,
-    PTP_COUNTER_NEED_TIMESTAMP,
-    PTP_COUNTER_FIFO_TRAP,
-    PTP_COUNTER_GC_EVENTS,
-    PTP_COUNTER_GC_RECORDS,
-    PTP_COUNTER_RATE_LIMIT,
-    PTP_COUNTER_FIFO_OVERFLOW,
-    PTP_COUNTER_OUT_OF_MEMORY,
-    PTP_COUNTER_PENDING_EVENTS,
-    PTP_COUNTER_PENDING_RECORDS,
-    PTP_COUNTER_LATE_MATCH,
-    PTP_COUNTER_EMPTY_TS,
-    PTP_COUNTER_REG_ACCESS_SUCCEEDED,
-    PTP_COUNTER_REG_ACCESS_FAILED,
-    PTP_COUNTER_LAST
-};
+struct sx_priv;
+struct sx_tstamp;
+struct skb_shared_hwtstamps;
+struct ptp_clock_info;
+struct cyclecounter;
+struct sk_buff;
 
-#define PTP_MAX_PORTS (MAX_PHYPORT_NUM + MAX_LAG_NUM)
+/* external functions */
+int sx_core_clock_init(void);
+void sx_core_clock_deinit(void);
+int sx_core_clock_dev_init(struct sx_priv *priv);
+int sx_core_clock_dev_deinit(struct sx_priv *priv);
+int sx_core_clock_cqe_ts_to_utc(struct sx_priv *priv,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                                const struct timespec64 *cqe_ts,
+                                struct timespec64       *utc);
+#else
+                                const struct timespec *cqe_ts,
+                                struct timespec       *utc);
+#endif
 
-struct ptp_common_event_data {
-    struct list_head list;
-    u16              sequence_id;
-    u8               msg_type;
-    u8               domain_num;
-    u8               need_timestamp;
-    unsigned long    since;
-};
-struct ptp_rx_event_data {
-    struct ptp_common_event_data common;
-    struct completion_info      *ci;
-};
-struct ptp_tx_event_data {
-    struct ptp_common_event_data common;
-    struct sk_buff              *skb;
-};
+/* common functions */
+void sx_clock_log_add_settime(struct sx_priv *priv, s64 value);
+void sx_clock_log_add_adjtime(struct sx_priv *priv, s64 value);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
+void sx_clock_log_add_adjphase(struct sx_priv *priv, s64 value);
+#endif
+void sx_clock_log_add_adjfreq(struct sx_priv *priv, s64 value);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0))
+void sx_clock_log_add_adjfine(struct sx_priv *priv, s64 value);
+#endif
+void sx_clock_dbg_add_setter(struct sx_priv *priv);
+int sx_clock_register(struct sx_priv              *priv,
+                      const struct ptp_clock_info *ptp_clock_info);
+int sx_clock_queue_delayed_work(struct delayed_work *dwork,
+                                unsigned long        delay);
+void sx_clock_fill_hwtstamp_nsec(u64 nsec, struct skb_shared_hwtstamps *hwts);
+int sx_dbg_clock_dump_proc_show(struct seq_file *m, void *v, void *context);
+int sx_dbg_clock_and_ptp_log_dump_proc_show(struct seq_file *m, void *v, void *context);
 
-typedef void (*ptp_db_handle_cb_t)(struct ptp_common_event_data *ced, u64 frc);
-typedef void (*ptp_db_gc_cb_t)(struct ptp_common_event_data *ced);
+/* SPC1 functions */
+int sx_clock_dev_init_spc1(struct sx_priv *priv);
+int sx_clock_dev_cleanup_spc1(struct sx_priv *priv);
+void sx_clock_fill_hwtstamp_spc1(struct sx_priv *priv, u64 frc, struct skb_shared_hwtstamps *hwts);
+int sx_clock_dump_spc1(struct sx_priv *priv, struct seq_file *m, void *v, void *context);
 
-struct ptp_db {
-    struct list_head   sysport_events_list[PTP_MAX_PORTS];
-    struct list_head   sysport_records_list[PTP_MAX_PORTS];
-    spinlock_t         sysport_lock[PTP_MAX_PORTS];
-    u8                 direction;
-    ptp_db_handle_cb_t handle_cb;
-    ptp_db_gc_cb_t     gc_cb;
-};
-extern atomic64_t       ptp_counters[][PTP_COUNTER_LAST];
-extern struct ptp_db    ptp_tx_db;
-extern struct ptp_db    ptp_rx_db;
-extern ptp_mode_t       ptp_working_mode;
-extern struct semaphore ptp_polling_sem;
-extern atomic64_t       ptp_rx_budget[PTP_MAX_PORTS];
-extern atomic64_t       ptp_tx_budget[PTP_MAX_PORTS];
-
-/************************************************
- * Functions
- ***********************************************/
-int sx_ptp_init(struct sx_priv *priv, ptp_mode_t ptp_mode);
-int sx_ptp_cleanup(struct sx_priv *priv);
-int sx_ptp_pkt_parse(struct sk_buff *skb, u8 *is_ptp, u16 *evt_seqid, u8 *evt_dom_num, u8 *msg_type);
-void sx_fill_hwstamp(struct sx_tstamp *tstamp, u64 timestamp, struct skb_shared_hwtstamps *hwts);
-
-void ptp_dequeue_general_messages(u8 local_port, struct ptp_db *db);
-void ptp_lookup_event(const u8 *mtpptr_buff, struct ptp_db *db);
-
-struct ptp_rx_event_data * ptp_allocate_rx_event_data(gfp_t gfp);
-void ptp_free_rx_event_data(struct ptp_rx_event_data *rx_event_data);
-
-struct ptp_tx_event_data * ptp_allocate_tx_event_data(gfp_t gfp);
-void ptp_free_tx_event_data(struct ptp_tx_event_data *tx_event_data);
+/* SPC2 functions */
+int sx_clock_dev_init_spc2(struct sx_priv *priv);
+int sx_clock_dev_cleanup_spc2(struct sx_priv *priv);
+int sx_clock_cqe_ts_to_utc_spc2(struct sx_priv *priv,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+                                const struct timespec64 *cqe_ts,
+                                struct timespec64       *utc);
+#else
+                                const struct timespec *cqe_ts,
+                                struct timespec       *utc);
+#endif
+int sx_clock_dump_spc2(struct sx_priv *priv, struct seq_file *m, void *v, void *context);
+void sx_core_ptp_handle_mtppst_event(struct completion_info *ci);
 
 #endif  /* SX_CLOCK_H */
