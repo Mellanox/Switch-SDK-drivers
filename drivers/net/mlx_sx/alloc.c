@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2022 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 /************************************************
@@ -48,6 +29,61 @@
 /************************************************
  * Functions
  ***********************************************/
+
+u32 sx_bitmap_num_bits(struct sx_bitmap *bitmap)
+{
+    u32           bit_num = 0;
+    unsigned long flags;
+
+    spin_lock_irqsave(&bitmap->lock, flags);
+    bit_num = bitmap->max;
+    spin_unlock_irqrestore(&bitmap->lock, flags);
+
+    return bit_num;
+}
+
+void sx_bitmap_clear_all(struct sx_bitmap *bitmap)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&bitmap->lock, flags);
+    memset(bitmap->table, 0, sizeof(bitmap->table));
+    spin_unlock_irqrestore(&bitmap->lock, flags);
+}
+
+void sx_bitmap_copy(struct sx_bitmap *dst, struct sx_bitmap *src)
+{
+    struct sx_bitmap *bm1, *bm2;
+    unsigned long     flags1, flags2;
+
+    if (dst == src) {
+        return;
+    }
+
+    /* in order to avoid deadlock (we need two locks here), lock order will be
+     * determined by comparing bitmap pointers.
+     */
+
+    if (((long)dst) < ((long)src)) {
+        bm1 = dst;
+        bm2 = src;
+    } else {
+        bm1 = src;
+        bm2 = dst;
+    }
+
+    spin_lock_irqsave(&bm1->lock, flags1);
+    /* lockdep classify the type of the lock according the struct that it is embedded in.
+     * so locks from different instances will get the same type.
+     * spin_lock_irqsave_nested used to mark this lock as a different type */
+    spin_lock_irqsave_nested(&bm2->lock, flags2, SINGLE_DEPTH_NESTING);
+
+    dst->max = src->max;
+    memcpy(dst->table, src->table, sizeof(dst->table));
+
+    spin_unlock_irqrestore(&bm2->lock, flags2);
+    spin_unlock_irqrestore(&bm1->lock, flags1);
+}
 
 u32 sx_bitmap_test(struct sx_bitmap *bitmap, u32 obj)
 {
@@ -136,7 +172,9 @@ int sx_buf_alloc(struct sx_dev *dev, int size, int max_direct, struct sx_buf *bu
         if (!dev->pdev) {
             buf->u.direct.buf = kmalloc(size, GFP_KERNEL);
         } else {
-            buf->u.direct.buf = dma_alloc_coherent(&dev->pdev->dev, size, &t, GFP_KERNEL);
+            /* Although we are not in interrupt or atomic context, on arm64-OrinX platform
+             * GFP_KERNEL will bring the CPU to stall. Don't change this. */
+            buf->u.direct.buf = dma_alloc_coherent(&dev->pdev->dev, size, &t, GFP_ATOMIC);
         }
 
         if (!buf->u.direct.buf) {
@@ -163,8 +201,10 @@ int sx_buf_alloc(struct sx_dev *dev, int size, int max_direct, struct sx_buf *bu
                 buf->u.page_list[i].buf =
                     kmalloc(PAGE_SIZE, GFP_KERNEL);
             } else {
+                /* Although we are not in interrupt or atomic context, on arm64-OrinX platform
+                 * GFP_KERNEL will bring the CPU to stall. Don't change this. */
                 buf->u.page_list[i].buf =
-                    dma_alloc_coherent(&dev->pdev->dev, PAGE_SIZE, &t, GFP_KERNEL);
+                    dma_alloc_coherent(&dev->pdev->dev, PAGE_SIZE, &t, GFP_ATOMIC);
             }
 
             if (!buf->u.page_list[i].buf) {

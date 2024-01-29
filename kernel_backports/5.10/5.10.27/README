@@ -1,0 +1,8 @@
+Copy the whole directory which contains this README to some folder on the machine where you plan to build the linux kernel,
+then execute "./apply_patches_example.sh -d <your_linux_kernel_source_folder>".
+
+Patch                                                                      Upstream-Commit                             From-Kernel-Version
+==========================================================================================================================================
+0001-psample-Encapsulate-packet-metadata-in-a-struct.patch                 a03e99d39f1943ec88f6fd3b0b9f34c20663d401    5.13
+0002-psample-Add-additional-metadata-attributes.patch                      07e1a5809b595df6e125504dff6245cb2c8ed3de    5.13
+0003-psample-define-the-macro-PSAMPLE_MD_EXTENDED_ATTR.patch               N/A                                         N/A
