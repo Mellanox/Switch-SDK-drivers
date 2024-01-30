@@ -1,41 +1,22 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/rwlock_types.h>
+#include <linux/mlx_sx/driver.h>
 
-#include "sx_dbg_dump_proc.h"
 #include "counter.h"
 
 /* this lock is used with spin_lock_irqsave/spin_unlock_irqrestore because IB drivers do some operations
@@ -53,6 +34,7 @@ typedef int (*counter_dump_filter_cb)(const struct sx_core_counter *counter, u64
 struct dump_counters_context {
     struct seq_file                 *m;
     void                            *v;
+    void                            *context;
     counter_dump_filter_cb           filter_cb;
     struct sx_core_counter_category *last_category;
 };
@@ -338,11 +320,12 @@ static void __dump_one_counter(struct sx_core_counter *counter, void *context)
 }
 
 
-static void __dump_counters(struct seq_file *m, void *v, counter_dump_filter_cb filter_cb)
+static void __dump_counters(struct seq_file *m, void *v, void *context, counter_dump_filter_cb filter_cb)
 {
-    struct dump_counters_context context = {
+    struct dump_counters_context ctx = {
         .m = m,
         .v = v,
+        .context = context,
         .filter_cb = filter_cb,
         .last_category = NULL
     };
@@ -359,13 +342,13 @@ static void __dump_counters(struct seq_file *m, void *v, counter_dump_filter_cb 
                "==================== "
                "====================\n");
 
-    __iterate_counters(__dump_one_counter, &context);
+    __iterate_counters(__dump_one_counter, &ctx);
 }
 
 
-static int proc_counters(struct seq_file *m, void *v)
+static int proc_counters(struct seq_file *m, void *v, void *context)
 {
-    __dump_counters(m, v, NULL);
+    __dump_counters(m, v, context, NULL);
     return 0;
 }
 
@@ -376,9 +359,9 @@ static int __filter_active_since_startup(const struct sx_core_counter *counter, 
 }
 
 
-static int proc_counters_active_since_startup(struct seq_file *m, void *v)
+static int proc_counters_active_since_startup(struct seq_file *m, void *v, void *context)
 {
-    __dump_counters(m, v, __filter_active_since_startup);
+    __dump_counters(m, v, context, __filter_active_since_startup);
     return 0;
 }
 
@@ -389,9 +372,9 @@ static int __filter_active_since_clear(const struct sx_core_counter *counter, u6
 }
 
 
-static int proc_counters_active_active_since_clear(struct seq_file *m, void *v)
+static int proc_counters_active_active_since_clear(struct seq_file *m, void *v, void *context)
 {
-    __dump_counters(m, v, __filter_active_since_clear);
+    __dump_counters(m, v, context, __filter_active_since_clear);
     return 0;
 }
 
@@ -402,9 +385,9 @@ static int __filter_active_since_show(const struct sx_core_counter *counter, u64
 }
 
 
-static int proc_counters_active_since_show(struct seq_file *m, void *v)
+static int proc_counters_active_since_show(struct seq_file *m, void *v, void *context)
 {
-    __dump_counters(m, v, __filter_active_since_show);
+    __dump_counters(m, v, context, __filter_active_since_show);
     return 0;
 }
 
@@ -415,7 +398,7 @@ static void __clear_counter_cb(struct sx_core_counter *counter, void *context)
 }
 
 
-static int proc_clear_counters(struct seq_file *m, void *v)
+static int proc_clear_counters(struct seq_file *m, void *v, void *context)
 {
     __iterate_counters(__clear_counter_cb, NULL);
     return 0;
@@ -428,32 +411,32 @@ static size_t __counters_seq_file_size(void)
 }
 
 
-int __init sx_core_counters_init(void)
+int __init sx_core_counters_init(struct sx_dev *dev)
 {
-    sx_dbg_dump_proc_fs_register("counters",
-                                 proc_counters,
-                                 __counters_seq_file_size);
-    sx_dbg_dump_proc_fs_register("counters_active_since_startup",
-                                 proc_counters_active_since_startup,
-                                 __counters_seq_file_size);
-    sx_dbg_dump_proc_fs_register("counters_active_since_clear",
-                                 proc_counters_active_active_since_clear,
-                                 __counters_seq_file_size);
-    sx_dbg_dump_proc_fs_register("counters_active_since_show",
-                                 proc_counters_active_since_show,
-                                 __counters_seq_file_size);
-    sx_dbg_dump_proc_fs_register("clear_counters", proc_clear_counters, NULL);
+    sx_dbg_dump_read_handler_register("counters",
+                                      proc_counters,
+                                      __counters_seq_file_size, dev, NULL);
+    sx_dbg_dump_read_handler_register("counters_active_since_startup",
+                                      proc_counters_active_since_startup,
+                                      __counters_seq_file_size, dev, NULL);
+    sx_dbg_dump_read_handler_register("counters_active_since_clear",
+                                      proc_counters_active_active_since_clear,
+                                      __counters_seq_file_size, dev, NULL);
+    sx_dbg_dump_read_handler_register("counters_active_since_show",
+                                      proc_counters_active_since_show,
+                                      __counters_seq_file_size, dev, NULL);
+    sx_dbg_dump_read_handler_register("clear_counters", proc_clear_counters, NULL, dev, NULL);
 
     spin_lock_init(&__sx_core_counter_lock);
     return 0;
 }
 
 
-void sx_core_counters_deinit(void)
+void sx_core_counters_deinit(struct sx_dev *dev)
 {
-    sx_dbg_dump_proc_fs_unregister("counters");
-    sx_dbg_dump_proc_fs_unregister("counters_active_since_startup");
-    sx_dbg_dump_proc_fs_unregister("counters_active_since_clear");
-    sx_dbg_dump_proc_fs_unregister("counters_active_since_show");
-    sx_dbg_dump_proc_fs_unregister("clear_counters");
+    sx_dbg_dump_read_handler_unregister("counters", dev);
+    sx_dbg_dump_read_handler_unregister("counters_active_since_startup", dev);
+    sx_dbg_dump_read_handler_unregister("counters_active_since_clear", dev);
+    sx_dbg_dump_read_handler_unregister("counters_active_since_show", dev);
+    sx_dbg_dump_read_handler_unregister("clear_counters", dev);
 }

@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #include <linux/init.h>
@@ -39,22 +20,13 @@
 #include "icm.h"
 #include "fw.h"
 
-/*
- * We allocate in as big chunks as we can, up to a maximum of 256 KB
- * per chunk.
- */
-enum {
-    SX_ICM_ALLOC_SIZE = 1 << 18,
-    SX_TABLE_CHUNK_SIZE = 1 << 18
-};
-
 static void sx_free_icm_pages(struct sx_dev *dev, struct sx_icm_chunk *chunk)
 {
     int i;
 
     if (chunk->nsg > 0) {
-        pci_unmap_sg(dev->pdev, chunk->mem, chunk->npages,
-                     PCI_DMA_BIDIRECTIONAL);
+        dma_unmap_sg(&dev->pdev->dev, chunk->mem, chunk->npages,
+                     DMA_BIDIRECTIONAL);
     }
 
     for (i = 0; i < chunk->npages; ++i) {
@@ -142,6 +114,7 @@ struct sx_icm * sx_alloc_icm(struct sx_dev *dev, int npages, gfp_t gfp_mask, int
     INIT_LIST_HEAD(&icm->chunk_list);
 
     cur_order = get_order(SX_ICM_ALLOC_SIZE);
+    dma_set_max_seg_size(&dev->pdev->dev, PAGE_SIZE << cur_order);
 
     while (npages > 0) {
         if (!chunk) {
@@ -158,6 +131,7 @@ struct sx_icm * sx_alloc_icm(struct sx_dev *dev, int npages, gfp_t gfp_mask, int
             list_add_tail(&chunk->list, &icm->chunk_list);
         }
 
+        /* coverity[negative_shift] */
         while (1 << cur_order > npages) {
             --cur_order;
         }
@@ -177,9 +151,9 @@ struct sx_icm * sx_alloc_icm(struct sx_dev *dev, int npages, gfp_t gfp_mask, int
             if (coherent) {
                 ++chunk->nsg;
             } else if (chunk->npages == SX_ICM_CHUNK_LEN) {
-                chunk->nsg = pci_map_sg(dev->pdev, chunk->mem,
+                chunk->nsg = dma_map_sg(&dev->pdev->dev, chunk->mem,
                                         chunk->npages,
-                                        PCI_DMA_BIDIRECTIONAL);
+                                        DMA_BIDIRECTIONAL);
 
                 if (chunk->nsg <= 0) {
                     goto fail;
@@ -198,9 +172,9 @@ struct sx_icm * sx_alloc_icm(struct sx_dev *dev, int npages, gfp_t gfp_mask, int
     }
 
     if (!coherent && chunk) {
-        chunk->nsg = pci_map_sg(dev->pdev, chunk->mem,
+        chunk->nsg = dma_map_sg(&dev->pdev->dev, chunk->mem,
                                 chunk->npages,
-                                PCI_DMA_BIDIRECTIONAL);
+                                DMA_BIDIRECTIONAL);
 
         if (chunk->nsg <= 0) {
             goto fail;
