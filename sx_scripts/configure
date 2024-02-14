@@ -73,36 +73,6 @@ check_kerver()
         return 0
 }
 
-apply_mlxfw_patches()
-{
-    local patches_folder_name=drivers/net/local_mlxfw/patches/
-    if ( patch --follow-symlinks < /dev/null 2>&1 1>/dev/null ) ; then
-        mlxfw_extra_patch_configure_parameters="${mlxfw_extra_patch_configure_parameters} --follow-symlinks"
-    fi
-    for patch_file in ${patches_folder_name}/*
-    do
-        ex patch ${mlxfw_extra_patch_configure_parameters} -p1 -l -i ${patch_file}
-    done
-}
-
-apply_mlxfw_changes()
-{
-    cp -v drivers/net/local_mlxfw/mlxfw_main.c drivers/net/mlxfw
-    apply_mlxfw_patches
-}
-
-apply_backporting_patches()
-{
-	local patches_folder_name=sx_scripts/kernel_backports/$1
-	if ( patch --follow-symlinks < /dev/null 2>&1 1>/dev/null ) ; then
-		mlnx_extra_patch_configure_parameters="${mlnx_extra_patch_configure_parameters} --follow-symlinks"
-	fi
-	for patch_file in ${patches_folder_name}/*
-	do
-		ex patch ${mlnx_extra_patch_configure_parameters} -p1 -l -i ${patch_file}
-	done
-}
-
 main()
 {
         # Parsing parameters
@@ -181,8 +151,8 @@ main()
 CONFIG_SX_CORE="m"
 CONFIG_SX_NETDEV="m"
 CONFIG_SX_EMAD_DUMP="m"
+CONFIG_SX_SPICE_DUMP="m"
 CONFIG_SX_BFD="m"
-CONFIG_MLXFW="m"
 KVERSION=${KVERSION:-$(uname -r)}
 MIN_KVERSION="2.6.27"
 MODULES_DIR=${MODULES_DIR:-/lib/modules/${KVERSION}/updates}
@@ -213,26 +183,49 @@ if [ ! -e ${kernel_patching_marker_file} ]; then
         fi
 
 	case ${KVERSION} in
+                3.10.0-693.*)
+			# RedHat EL 7.4
+			MODULES_DIR=/lib/modules/${KVERSION}/update
+			CONFIG_SX_RHEL_7_4=1
+		;;
+                3.10.0-957.*)
+			# RedHat EL 7.6
+			MODULES_DIR=/lib/modules/${KVERSION}/update
+			CONFIG_SX_RHEL_7_6=1
+		;;
                 3.10.* | 3.13.* | 3.14.* | 3.16.*)
 			echo "Kernel version ${KVERSION} - 3.10 kernel - no backporting patches required"
 		;;
 	    	4.9.*)
 			MODULES_DIR=/lib/modules/${KVERSION}/update
-		 	apply_backporting_patches "4.9.0"
 		;;
   	    	4.15.*)
                     	MODULES_DIR=/lib/modules/${KVERSION}/update
-                    	apply_backporting_patches "4.9.0"
-                    	apply_backporting_patches "4.15.15"
             	;;
-	
+  	    	4.18.0-372.*)
+                      # Redhat 8.6
+                    	MODULES_DIR=/lib/modules/${KVERSION}/update
+                      CONFIG_SX_RHEL_8_6=1
+            	;;
+  	    	4.18.0-408.*)
+                      # Centos 8.4
+                    	MODULES_DIR=/lib/modules/${KVERSION}/update
+                      CONFIG_SX_CENTOS_8_4=1
+            	;;
+  	    	4.19.*)
+                    	MODULES_DIR=/lib/modules/${KVERSION}/update
+            	;;
+  	    	5.10.*)
+                    	MODULES_DIR=/lib/modules/${KVERSION}/update
+            	;;
+            6.1.*)
+                        MODULES_DIR=/lib/modules/${KVERSION}/update
+                ;;	
 		*)
-			echo "Kernel version ${KVERSION} is not supported, supported versions are 3.10.*, 3.13.*, 3.14.*, 3.16.* and 4.9.0"
+			echo "Kernel version ${KVERSION} is not supported, supported versions are 3.10.*, 3.13.*, 3.14.*, 3.16.*, 4.9.0, 4.15.*, 4.18.0-372*, 4.19.*, 5.10.* and 6.1.*"
 			exit 1
 		;;
 	esac
-
-	apply_mlxfw_changes
 
 	touch ${kernel_patching_marker_file}
 fi
@@ -260,8 +253,8 @@ CONFIG_SX_CORE=${CONFIG_SX_CORE}
 CONFIG_SX_CORE_DEBUG=${CONFIG_SX_CORE_DEBUG}
 CONFIG_SX_NETDEV=${CONFIG_SX_NETDEV}
 CONFIG_SX_EMAD_DUMP=${CONFIG_SX_EMAD_DUMP}
+CONFIG_SX_SPICE_DUMP=${CONFIG_SX_SPICE_DUMP}
 CONFIG_SX_BFD=${CONFIG_SX_BFD}
-CONFIG_MLXFW=${CONFIG_MLXFW}
 
 EOFCONFIG
         echo "Created ${CONFIG}:"
@@ -298,15 +291,35 @@ if [ "X${CONFIG_SX_EMAD_DUMP}" == "Xm" ]; then
 else
         DEFINE_SX_EMAD_DUMP="#undef CONFIG_SX_EMAD_DUMP"
 fi
+if [ "X${CONFIG_SX_SPICE_DUMP}" == "Xm" ]; then
+        DEFINE_SX_SPICE_DUMP="#define CONFIG_SX_SPICE_DUMP 1"
+else
+        DEFINE_SX_SPICE_DUMP="#undef CONFIG_SX_SPICE_DUMP"
+fi
 if [ "X${CONFIG_SX_BFD}" == "Xm" ]; then
         DEFINE_SX_BFD="#define CONFIG_SX_BFD 1"
 else
         DEFINE_SX_BFD="#undef CONFIG_SX_BFD"
 fi
-if [ "X${CONFIG_MLXFW}" == "Xm" ]; then
-        DEFINE_MLXFW="#define CONFIG_MLXFW 1"
+if [ "X${CONFIG_SX_RHEL_7_4}" == "X1" ]; then
+        DEFINE_SX_RHEL_7_4="#define CONFIG_SX_RHEL_7_4 1"
 else
-        DEFINE_MLXFW="#undef CONFIG_MLXFW"
+        DEFINE_SX_RHEL_7_4="#undef CONFIG_SX_RHEL_7_4"
+fi
+if [ "X${CONFIG_SX_RHEL_7_6}" == "X1" ]; then
+        DEFINE_SX_RHEL_7_6="#define CONFIG_SX_RHEL_7_6 1"
+else
+        DEFINE_SX_RHEL_7_6="#undef CONFIG_SX_RHEL_7_6"
+fi
+if [ "X${CONFIG_SX_RHEL_8_6}" == "X1" ]; then
+        DEFINE_SX_RHEL_8_6="#define CONFIG_SX_RHEL_8_6 1"
+else
+        DEFINE_SX_RHEL_8_6="#undef CONFIG_SX_RHEL_8_6"
+fi
+if [ "X${CONFIG_SX_CENTOS_8_4}" == "X1" ]; then
+        DEFINE_SX_CENTOS_8_4="#define CONFIG_SX_CENTOS_8_4 1"
+else
+        DEFINE_SX_CENTOS_8_4="#undef CONFIG_SX_CENTOS_8_4"
 fi
 
 cat >> ${AUTOCONF_H} << EOFAUTOCONF
@@ -317,18 +330,22 @@ cat >> ${AUTOCONF_H} << EOFAUTOCONF
 #undef SX_CORE_DEBUG
 #undef CONFIG_SX_NETDEV
 #undef CONFIG_SX_EMAD_DUMP
+#undef CONFIG_SX_SPICE_DUMP
 #undef CONFIG_SX_BFD
-#undef CONFIG_MLXFW
+#undef CONFIG_SX_RHEL_7_4
+#undef CONFIG_SX_RHEL_7_6
+#undef CONFIG_SX_RHEL_8_6
+#undef CONFIG_SX_CENTOS_8_4
 
 ${DEFINE_SX_CORE}
-
 ${DEFINE_SX_CORE_DEBUG}
-
 ${DEFINE_SX_NETDEV}
-
 ${DEFINE_DEBUG_INFO}
-
 ${DEFINE_MEMTRACK}
+${DEFINE_SX_RHEL_7_4}
+${DEFINE_SX_RHEL_7_6}
+${DEFINE_SX_RHEL_8_6}
+${DEFINE_SX_CENTOS_8_4}
 
 EOFAUTOCONF
 

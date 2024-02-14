@@ -1,39 +1,21 @@
 /*
- * Copyright (c) 2010-2016,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2023 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
-
-#define C_MEMTRACK_C
 
 #ifdef kmalloc
     #undef kmalloc
+#endif
+#ifdef kstrdup
+    #undef kstrdup
 #endif
 #ifdef kmemdup
     #undef kmemdup
@@ -117,9 +99,14 @@
 #include <linux/moduleparam.h>
 
 
-MODULE_AUTHOR("Mellanox Technologies LTD.");
+MODULE_AUTHOR("NVIDIA");
 MODULE_DESCRIPTION("Memory allocations tracking");
 MODULE_LICENSE("GPL");
+
+#define MEMTRACK_ALLOC_PATTERN        (0x5a)
+#define MEMTRACK_FREE_PATTERN         (0x6b)
+#define MEMTRACK_LEFT_MARGIN_PATTERN  (0x7c)
+#define MEMTRACK_RIGHT_MARGIN_PATTERN (0x8d)
 
 #define MEMTRACK_HASH_SZ ((1 << 15) - 19)   /* prime: http://www.utm.edu/research/primes/lists/2small/0bit.html */
 #define MAX_FILENAME_LEN 31
@@ -127,35 +114,12 @@ MODULE_LICENSE("GPL");
 #define memtrack_spin_lock(spl, flags)   spin_lock_irqsave(spl, flags)
 #define memtrack_spin_unlock(spl, flags) spin_unlock_irqrestore(spl, flags)
 
-/* if a bit is set then the corresponding allocation is tracked.
- *  bit0 corresponds to MEMTRACK_KMALLOC, bit1 corresponds to MEMTRACK_VMALLOC etc. */
-static unsigned long track_mask = -1;   /* effectively everything */
-module_param(track_mask, ulong, 0444);
-MODULE_PARM_DESC(track_mask, "bitmask defining what is tracked");
-
-/* if a bit is set then the corresponding allocation is strictly tracked.
- *  That is, before inserting the whole range is checked to not overlap any
- *  of the allocations already in the database */
-static unsigned long strict_track_mask = 0;     /* no strict tracking */
-module_param(strict_track_mask, ulong, 0444);
-MODULE_PARM_DESC(strict_track_mask, "bitmask which allocation requires strict tracking");
-
-/* Sets the frequency of allocations failures injections
- *  if set to 0 all allocation should succeed */
-static unsigned int inject_freq = 0;
-module_param(inject_freq, uint, 0644);
-MODULE_PARM_DESC(inject_freq, "Error injection frequency, default is 0 (disabled)");
-
-static int random_mem = 1;
-module_param(random_mem, uint, 0644);
-MODULE_PARM_DESC(random_mem, "When set, randomize allocated memory, default is 1 (enabled)");
-
 struct memtrack_meminfo_t {
     unsigned long              addr;
     unsigned long              size;
+    enum memtrack_margins_op   margins_op;
     unsigned long              line_num;
     unsigned long              dev;
-    unsigned long              addr2;
     int                        direction;
     struct memtrack_meminfo_t *next;
     struct list_head           list; /* used to link all items from a certain type together */
@@ -168,11 +132,11 @@ struct tracked_obj_desc_t {
     spinlock_t                 hash_lock;
     unsigned long              count; /* size of memory tracked (*malloc) or number of objects tracked */
     struct list_head           tracked_objs_head; /* head of list of all objects */
-    int                        strict_track; /* if 1 then for each object inserted check if it overlaps any of the objects already in the list */
 };
 static struct tracked_obj_desc_t *tracked_objs_arr[MEMTRACK_NUM_OF_MEMTYPES];
 static const char                *rsc_names[MEMTRACK_NUM_OF_MEMTYPES] = {
     "kmalloc",
+    "kstrdup",
     "vmalloc",
     "kmem_cache_alloc",
     "io_remap",
@@ -187,7 +151,7 @@ static const char                *rsc_free_names[MEMTRACK_NUM_OF_MEMTYPES] = {
     "vfree",
     "kmem_cache_free",
     "io_unmap",
-    "destory_workqueue",
+    "destroy_workqueue",
     "free_pages",
     "ib_dma_unmap_single",
     "ib_dma_unmap_page",
@@ -197,6 +161,7 @@ static inline const char * memtype_alloc_str(enum memtrack_memtype_t memtype)
 {
     switch (memtype) {
     case MEMTRACK_KMALLOC:
+    case MEMTRACK_KSTRDUP:
     case MEMTRACK_VMALLOC:
     case MEMTRACK_KMEM_OBJ:
     case MEMTRACK_IOREMAP:
@@ -216,6 +181,7 @@ static inline const char * memtype_free_str(enum memtrack_memtype_t memtype)
 {
     switch (memtype) {
     case MEMTRACK_KMALLOC:
+    case MEMTRACK_KSTRDUP:
     case MEMTRACK_VMALLOC:
     case MEMTRACK_KMEM_OBJ:
     case MEMTRACK_IOREMAP:
@@ -243,41 +209,13 @@ static inline int overlap_a_b(unsigned long a_start, unsigned long a_end, unsign
     return 1;
 }
 
-/*
- *  check_overlap
- */
-static void check_overlap(enum memtrack_memtype_t    memtype,
-                          struct memtrack_meminfo_t *mem_info_p,
-                          struct tracked_obj_desc_t *obj_desc_p)
-{
-    struct list_head          *pos, *next;
-    struct memtrack_meminfo_t *cur;
-    unsigned long              start_a, end_a, start_b, end_b;
-
-    start_a = mem_info_p->addr;
-    end_a = mem_info_p->addr + mem_info_p->size - 1;
-
-    list_for_each_safe(pos, next, &obj_desc_p->tracked_objs_head) {
-        cur = list_entry(pos, struct memtrack_meminfo_t, list);
-
-        start_b = cur->addr;
-        end_b = cur->addr + cur->size - 1;
-
-        if (overlap_a_b(start_a, end_a, start_b, end_b)) {
-            printk(KERN_ERR "%s overlaps! new_start=0x%lx, new_end=0x%lx, item_start=0x%lx, item_end=0x%lx\n",
-                   memtype_alloc_str(memtype), mem_info_p->addr,
-                   mem_info_p->addr + mem_info_p->size - 1, cur->addr,
-                   cur->addr + cur->size - 1);
-        }
-    }
-}
-
 /* Invoke on memory allocation */
 void memtrack_alloc(enum memtrack_memtype_t memtype,
                     unsigned long           dev,
                     unsigned long           addr,
                     unsigned long           size,
-                    unsigned long           addr2,
+                    enum memtrack_margins_op margins_op,
+                    enum memtrack_pattern_op pattern_op,
                     int                     direction,
                     const char             *filename,
                     const unsigned long     line_num,
@@ -297,6 +235,17 @@ void memtrack_alloc(enum memtrack_memtype_t memtype,
         /* object is not tracked */
         return;
     }
+
+    if (margins_op == MEMTRACK_MARGINS_OP_DO) {
+        memset((void*) addr, MEMTRACK_LEFT_MARGIN_PATTERN, MEMTRACK_MARGIN_SIZE);
+        addr = (unsigned long) MEMTRACK_MARGIN_TO_USER_PTR(addr);
+        memset((void*) (addr + size), MEMTRACK_RIGHT_MARGIN_PATTERN, MEMTRACK_MARGIN_SIZE);
+    }
+
+    if (pattern_op == MEMTRACK_PATTERN_OP_DO) {
+        memset((void*) addr, MEMTRACK_ALLOC_PATTERN, size);
+    }
+
     obj_desc_p = tracked_objs_arr[memtype];
 
     hash_val = addr % MEMTRACK_HASH_SZ;
@@ -311,8 +260,8 @@ void memtrack_alloc(enum memtrack_memtype_t memtype,
     /* save allocation properties */
     new_mem_info_p->addr = addr;
     new_mem_info_p->size = size;
+    new_mem_info_p->margins_op = margins_op;
     new_mem_info_p->dev = dev;
-    new_mem_info_p->addr2 = addr2;
     new_mem_info_p->direction = direction;
 
     new_mem_info_p->line_num = line_num;
@@ -358,9 +307,6 @@ void memtrack_alloc(enum memtrack_memtype_t memtype,
     /* link as first */
     new_mem_info_p->next = obj_desc_p->mem_hash[hash_val];
     obj_desc_p->mem_hash[hash_val] = new_mem_info_p;
-    if (obj_desc_p->strict_track) {
-        check_overlap(memtype, new_mem_info_p, obj_desc_p);
-    }
     obj_desc_p->count += size;
     list_add(&new_mem_info_p->list, &obj_desc_p->tracked_objs_head);
 
@@ -369,11 +315,41 @@ void memtrack_alloc(enum memtrack_memtype_t memtype,
 }
 EXPORT_SYMBOL(memtrack_alloc);
 
+static void __check_margin(enum memtrack_memtype_t memtype,
+                           const char* dealloc_filename,
+                           unsigned long dealloc_line_num,
+                           const char *margin_side,
+                           const unsigned char *margin,
+                           unsigned char pattern,
+                           const struct memtrack_meminfo_t *cur_mem_info)
+{
+    int i;
+
+    for (i = 0; i < MEMTRACK_MARGIN_SIZE; i++) {
+        if (margin[i] != pattern) {
+            printk(KERN_ERR "%s margin at offset %d is corrupted [expected: 0x%02x, actual: 0x%02x]! "
+                            "%s:%lu: %s for addr 0x%lX: size:%lu, (allocated in %s:%lu)\n",
+                   margin_side,
+                   i,
+                   pattern,
+                   margin[i],
+                   dealloc_filename,
+                   dealloc_line_num,
+                   memtype_free_str(memtype),
+                   cur_mem_info->addr,
+                   cur_mem_info->size,
+                   cur_mem_info->filename,
+                   cur_mem_info->line_num);
+        }
+    }
+}
+
 /* Invoke on memory free */
-void memtrack_free(enum memtrack_memtype_t memtype,
+bool memtrack_free(enum memtrack_memtype_t memtype,
                    unsigned long           dev,
                    unsigned long           addr,
                    unsigned long           size,
+                   enum memtrack_pattern_op pattern_op,
                    int                     direction,
                    const char             *filename,
                    const unsigned long     line_num)
@@ -382,15 +358,17 @@ void memtrack_free(enum memtrack_memtype_t memtype,
     struct memtrack_meminfo_t *cur_mem_info_p, *prev_mem_info_p;
     struct tracked_obj_desc_t *obj_desc_p;
     unsigned long              flags;
+    const unsigned char *left_margin, *right_margin;
+    bool used_margins = false;
 
     if (memtype >= MEMTRACK_NUM_OF_MEMTYPES) {
         printk(KERN_ERR "%s: Invalid memory type (%d)\n", __func__, memtype);
-        return;
+        return false;
     }
 
     if (!tracked_objs_arr[memtype]) {
         /* object is not tracked */
-        return;
+        return false;
     }
     obj_desc_p = tracked_objs_arr[memtype];
 
@@ -434,6 +412,33 @@ void memtrack_free(enum memtrack_memtype_t memtype,
                 }
             }
 
+            if (cur_mem_info_p->margins_op == MEMTRACK_MARGINS_OP_DO) {
+                left_margin = (char*) (cur_mem_info_p->addr - MEMTRACK_MARGIN_SIZE);
+                right_margin = (char*) (cur_mem_info_p->addr + cur_mem_info_p->size);
+
+                __check_margin(memtype,
+                               filename,
+                               line_num,
+                               "left",
+                               left_margin,
+                               MEMTRACK_LEFT_MARGIN_PATTERN,
+                               cur_mem_info_p);
+
+                __check_margin(memtype,
+                               filename,
+                               line_num,
+                               "right",
+                               right_margin,
+                               MEMTRACK_RIGHT_MARGIN_PATTERN,
+                               cur_mem_info_p);
+
+                used_margins = true;
+            }
+
+            if (pattern_op == MEMTRACK_PATTERN_OP_DO) {
+                memset((void*) cur_mem_info_p->addr, MEMTRACK_FREE_PATTERN, cur_mem_info_p->size);
+            }
+
             /* Remove from the bucket/list */
             if (prev_mem_info_p == NULL) {
                 obj_desc_p->mem_hash[hash_val] = cur_mem_info_p->next;  /* removing first */
@@ -445,7 +450,7 @@ void memtrack_free(enum memtrack_memtype_t memtype,
             obj_desc_p->count -= cur_mem_info_p->size;
             memtrack_spin_unlock(&obj_desc_p->hash_lock, flags);
             kmem_cache_free(meminfo_cache, cur_mem_info_p);
-            return;
+            return used_margins;
         }
         prev_mem_info_p = cur_mem_info_p;
         cur_mem_info_p = cur_mem_info_p->next;
@@ -455,7 +460,7 @@ void memtrack_free(enum memtrack_memtype_t memtype,
     printk(KERN_ERR "mtl rsc inconsistency: %s: %s::%lu: %s for unknown address=0x%lX, device=0x%lX\n",
            __func__, filename, line_num, memtype_free_str(memtype), addr, dev);
     memtrack_spin_unlock(&obj_desc_p->hash_lock, flags);
-    return;
+    return false;
 }
 EXPORT_SYMBOL(memtrack_free);
 
@@ -725,6 +730,7 @@ static void memtrack_report(void)
     enum memtrack_memtype_t    memtype;
     unsigned long              cur_bucket;
     struct memtrack_meminfo_t *cur_mem_info_p;
+    const unsigned char       *left_margin, *right_margin;
     int                        serial = 1;
     struct tracked_obj_desc_t *obj_desc_p;
     unsigned long              flags;
@@ -749,6 +755,28 @@ static void memtrack_report(void)
                            cur_mem_info_p->addr,
                            cur_mem_info_p->dev,
                            cur_mem_info_p->ext_info);
+
+                    if (cur_mem_info_p->margins_op == MEMTRACK_MARGINS_OP_DO) {
+                        left_margin = (char*) (cur_mem_info_p->addr - MEMTRACK_MARGIN_SIZE);
+                        right_margin = (char*) (cur_mem_info_p->addr + cur_mem_info_p->size);
+
+                        __check_margin(memtype,
+                                       "N/A",
+                                       0,
+                                       "left",
+                                       left_margin,
+                                       MEMTRACK_LEFT_MARGIN_PATTERN,
+                                       cur_mem_info_p);
+
+                        __check_margin(memtype,
+                                       "N/A",
+                                       0,
+                                       "right",
+                                       right_margin,
+                                       MEMTRACK_RIGHT_MARGIN_PATTERN,
+                                       cur_mem_info_p);
+                    }
+
                     cur_mem_info_p = cur_mem_info_p->next;
                     ++detected_leaks;
                 }       /* while cur_mem_info_p */
@@ -820,9 +848,16 @@ static ssize_t memtrack_read(struct file *filp, char __user *buf, size_t size, l
     }
 }
 
-static const struct file_operations memtrack_proc_fops = {
-    .read = memtrack_read,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static const struct proc_ops memtrack_proc_fops = {
+    .proc_read = memtrack_read
 };
+#else
+static const struct file_operations memtrack_proc_fops = {
+    .read = memtrack_read
+};
+#endif
+
 static const char                  *memtrack_proc_entry_name = "mt_memtrack";
 static int create_procfs_tree(void)
 {
@@ -839,13 +874,11 @@ static int create_procfs_tree(void)
     memtrack_tree = dir_ent;
 
     for (i = 0, bit_mask = 1; i < MEMTRACK_NUM_OF_MEMTYPES; ++i, bit_mask <<= 1) {
-        if (bit_mask & track_mask) {
-            proc_ent = proc_create_data(rsc_names[i], S_IRUGO, memtrack_tree, &memtrack_proc_fops, NULL);
-            if (!proc_ent) {
-                printk(KERN_INFO "Warning: Cannot create /proc/%s/%s\n",
-                       memtrack_proc_entry_name, rsc_names[i]);
-                goto undo_create_root;
-            }
+        proc_ent = proc_create_data(rsc_names[i], S_IRUGO, memtrack_tree, &memtrack_proc_fops, NULL);
+        if (!proc_ent) {
+            printk(KERN_INFO "Warning: Cannot create /proc/%s/%s\n",
+                   memtrack_proc_entry_name, rsc_names[i]);
+            goto undo_create_root;
         }
     }
 
@@ -853,9 +886,7 @@ static int create_procfs_tree(void)
 
 undo_create_root:
     for (j = 0, bit_mask = 1; j < i; ++j, bit_mask <<= 1) {
-        if (bit_mask & track_mask) {
-            remove_proc_entry(rsc_names[j], memtrack_tree);
-        }
+        remove_proc_entry(rsc_names[j], memtrack_tree);
     }
     remove_proc_entry(memtrack_proc_entry_name, NULL);
     return -1;
@@ -871,32 +902,10 @@ static void destroy_procfs_tree(void)
     unsigned long bit_mask;
 
     for (i = 0, bit_mask = 1; i < MEMTRACK_NUM_OF_MEMTYPES; ++i, bit_mask <<= 1) {
-        if (bit_mask & track_mask) {
-            remove_proc_entry(rsc_names[i], memtrack_tree);
-        }
+        remove_proc_entry(rsc_names[i], memtrack_tree);
     }
     remove_proc_entry(memtrack_proc_entry_name, NULL);
 }
-
-int memtrack_inject_error(void)
-{
-    int val = 0;
-
-    if (inject_freq) {
-        if (!(prandom_u32() % inject_freq)) {
-            val = 1;
-        }
-    }
-
-    return val;
-}
-EXPORT_SYMBOL(memtrack_inject_error);
-
-int memtrack_randomize_mem(void)
-{
-    return random_mem;
-}
-EXPORT_SYMBOL(memtrack_randomize_mem);
 
 /* module entry points */
 
@@ -921,24 +930,16 @@ int init_module(void)
 
     /* create a tracking object descriptor for all required objects */
     for (i = 0, bit_mask = 1; i < MEMTRACK_NUM_OF_MEMTYPES; ++i, bit_mask <<= 1) {
-        if (bit_mask & track_mask) {
-            tracked_objs_arr[i] = vmalloc(sizeof(struct tracked_obj_desc_t));
-            if (!tracked_objs_arr[i]) {
-                printk(KERN_ERR "memtrack: failed to allocate tracking object\n");
-                goto undo_cache_create;
-            }
-
-            memset(tracked_objs_arr[i], 0, sizeof(struct tracked_obj_desc_t));
-            spin_lock_init(&tracked_objs_arr[i]->hash_lock);
-            INIT_LIST_HEAD(&tracked_objs_arr[i]->tracked_objs_head);
-            if (bit_mask & strict_track_mask) {
-                tracked_objs_arr[i]->strict_track = 1;
-            } else {
-                tracked_objs_arr[i]->strict_track = 0;
-            }
+        tracked_objs_arr[i] = vmalloc(sizeof(struct tracked_obj_desc_t));
+        if (!tracked_objs_arr[i]) {
+            printk(KERN_ERR "memtrack: failed to allocate tracking object\n");
+            goto undo_cache_create;
         }
-    }
 
+        memset(tracked_objs_arr[i], 0, sizeof(struct tracked_obj_desc_t));
+        spin_lock_init(&tracked_objs_arr[i]->hash_lock);
+        INIT_LIST_HEAD(&tracked_objs_arr[i]->tracked_objs_head);
+    }
 
     if (create_procfs_tree()) {
         printk(KERN_ERR "%s: create_procfs_tree() failed\n", __FILE__);
@@ -956,13 +957,7 @@ undo_cache_create:
         }
     }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-    if (kmem_cache_destroy(meminfo_cache) != 0) {
-        printk(KERN_ERR "Failed on kmem_cache_destroy!\n");
-    }
-#else
     kmem_cache_destroy(meminfo_cache);
-#endif
     return -1;
 }
 
@@ -1001,12 +996,6 @@ void cleanup_module(void)
         }
     }                       /* for memtype */
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
-    if (kmem_cache_destroy(meminfo_cache) != 0) {
-        printk(KERN_ERR "memtrack::cleanup_module: Failed on kmem_cache_destroy!\n");
-    }
-#else
     kmem_cache_destroy(meminfo_cache);
-#endif
     printk(KERN_INFO "memtrack::cleanup_module done.\n");
 }
