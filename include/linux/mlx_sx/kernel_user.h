@@ -1,33 +1,14 @@
 /*
- * Copyright (c) 2010-2019,  Mellanox Technologies. All rights reserved.
+ * Copyright (C) 2010-2024 NVIDIA CORPORATION & AFFILIATES, Ltd. ALL RIGHTS RESERVED.
  *
- * This software is available to you under a choice of one of two
- * licenses.  You may choose to be licensed under the terms of the GNU
- * General Public License (GPL) Version 2, available from the file
- * COPYING in the main directory of this source tree, or the
- * OpenIB.org BSD license below:
+ * This software product is a proprietary product of NVIDIA CORPORATION & AFFILIATES, Ltd.
+ * (the "Company") and all right, title, and interest in and to the software product,
+ * including all associated intellectual property rights, are and shall
+ * remain exclusively with the Company.
  *
- *     Redistribution and use in source and binary forms, with or
- *     without modification, are permitted provided that the following
- *     conditions are met:
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
- *      - Redistributions of source code must retain the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer.
- *
- *      - Redistributions in binary form must reproduce the above
- *        copyright notice, this list of conditions and the following
- *        disclaimer in the documentation and/or other materials
- *        provided with the distribution.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
  */
 
 #ifndef KERNEL_USER_H_
@@ -35,24 +16,59 @@
 
 #ifdef __KERNEL__
 #include <linux/uio.h>
+#include <linux/version.h>
+#if !defined(PAGE_SIZE)
+#include <linux/vmalloc.h>
+#endif /* PAGE_SIZE */
 #else
 #include <sys/uio.h>
 #include <stdint.h>
 #include <time.h>
+#include <assert.h>
 #endif
-
+#if !defined(__cplusplus)
+#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+#endif
+#pragma GCC diagnostic push
+#if defined(__GNUC__) && __GNUC__ >= 7 && defined(__KERNEL__)
+#define FALL_THROUGH __attribute__ ((__fallthrough__))
+#else
+#define FALL_THROUGH ((void)0)
+#endif /* defined(__GNUC__) && __GNUC__ >= 7 && defined(__KERNEL__) */
+#pragma GCC diagnostic pop
 /************************************************
  *  Define
  ***********************************************/
+#define     SXD_GENERATE_ENUM(ENUM, VAL, STR)   ENUM VAL, /* VAL is optional, should be =<number> */
+#define     SXD_GENERATE_STRING(ENUM, VAL, STR) [ENUM] = STR,
+#define     DBG_ALL_IRISCS (255)
+
+/* Based on tests on blackbird, FW crs_dump actually costs ~110us per 1KB on average, and the first several transactions may cost less time (60~80us/KB).
+ *  Therefore we use 80us/KB as a base, together with mem-blk size, we can get the minimum sleeping time.
+ *  We use 3 x minimum as a Layer1 timeout value. If it is expired, we will not wait any longer, and will return to user space caller to release the system
+ *  call. User space caller can do other checks, before calling back to wait/check FW status again. */
+#define  SX_CR_DUMP_FW_LEAST_US_PER_KB (80)
+/* Based on tests on blackbird, GDB dump triggered by FW is 800us/KB */
+#define  SX_GDB_DUMP_FW_LEAST_US_PER_KB (800)
+#define  SX_SECURE_DUMP_MIN_WAIT_FW_DUMP_MS(blk_size, is_gdb_mode)               \
+    (is_gdb_mode ? (((blk_size) / 1024) * SX_GDB_DUMP_FW_LEAST_US_PER_KB / 1000) \
+                 : (((blk_size) / 1024) * SX_CR_DUMP_FW_LEAST_US_PER_KB / 1000))
+
+#define  SX_SECURE_DUMP_MAX_WAIT_FW_DUMP_MS(blk_size, is_gdb_mode) \
+    (SX_SECURE_DUMP_MIN_WAIT_FW_DUMP_MS(blk_size, is_gdb_mode) * 3)
+
+#define SXD_STATEFUL_RAW_KEY_MAX  56  /*Key is 54B byte, add 2 B for alignment */
+#define SXD_ACL_MAX_FIELDS_IN_KEY 48
+#define SXD_HTACG_STATUS_DONE     2
 
 /**
  * MPCIR enum is used for opcode in the MPCIR register parameters
  */
 typedef enum sxd_mpcir_op {
-    SXD_MPCIR_OP_NOP_E = 0x0,
-    SXD_MPCIR_OP_ENABLE_E = 0x1,
+    SXD_MPCIR_OP_NOP_E     = 0x0,
+    SXD_MPCIR_OP_ENABLE_E  = 0x1,
     SXD_MPCIR_OP_DISABLE_E = 0x2,
-    SXD_MPCIR_OP_STATUS_E = 0x3,
+    SXD_MPCIR_OP_STATUS_E  = 0x3,
 } sxd_mpcir_op_t;
 
 /**
@@ -70,6 +86,10 @@ typedef enum sxd_mpcir_op {
  * when registering a listener.
  */
 #define SWID_NUM_DONT_CARE 255
+
+/* SWID_NUM_DONT_CARE defines the don't care value for target-process-id. */
+#define TARGET_PID_DONT_CARE 0
+
 /**
  * NUMBER_OF_SWIDS define the number of possible swids
  * in the system.
@@ -100,13 +120,18 @@ typedef enum sxd_mpcir_op {
  */
 #define NUMBER_OF_SDQS 24
 
+/**
+ * RDQ_INVALID_ID define the invalid rdq number
+ */
+#define RDQ_INVALID_ID 0xFF
+
 enum {
-    SX_SEND_DQ_DB_BASE = 0,
-    SX_RECV_DQ_DB_BASE = 0x200,
-    SX_MAX_LOG_DQ_SIZE = 10,
-    SX_MAX_LOG_CQ_SIZE = 10,
-    SX_CQE_VER_OFFSET = 4,
-    SX_DBELL_CQ_CI_OFFSET = 0x400,
+    SX_SEND_DQ_DB_BASE     = 0,
+    SX_RECV_DQ_DB_BASE     = 0x200,
+    SX_MAX_LOG_DQ_SIZE     = 10,
+    SX_MAX_LOG_CQ_SIZE     = 10,
+    SX_CQE_VER_OFFSET      = 4,
+    SX_DBELL_CQ_CI_OFFSET  = 0x400,
     SX_DBELL_CQ_ARM_OFFSET = 0x800
 };
 
@@ -120,6 +145,11 @@ enum {
  * string.
  */
 #define SX_BOARD_ID_LEN 64
+/**
+ * SX_XM_MAX_LOCAL_PORTS_LEN define the length of XM local ports
+ * array.
+ */
+#define SX_XM_MAX_LOCAL_PORTS_LEN 4
 
 /**
  * SX_IB_NODE_DESCRIPTION_LEN define the length of the IB node description string
@@ -140,7 +170,7 @@ enum {
 #define MTBR_MAX_TEMPERATURE_RECORDS 47
 
 #define NUM_SW_SYNDROMES 64
-#define NUM_HW_SYNDROMES (512 + NUM_SW_SYNDROMES)
+#define NUM_HW_SYNDROMES (1024 + NUM_SW_SYNDROMES)
 
 #define NUM_OF_TRAP_GROUPS 34
 
@@ -162,6 +192,24 @@ enum {
  * when registering a listener.
  */
 #define SYND_NUM_DONT_CARE NUM_HW_SYNDROMES
+
+/**
+ * SXD_VENDOR_SN_LEN define the length of the vendor serial number
+ * string.
+ */
+#define SXD_VENDOR_SN_LEN 4
+/**
+ * SXD_VENDOR_PN_LEN define the length of the vendor part number
+ * string.
+ */
+
+#define SXD_VENDOR_PN_LEN 4
+/**
+ * SXD_VENDOR_NAME_LEN define the length of the vendor name
+ * string.
+ */
+
+#define SXD_VENDOR_NAME_LEN 4
 
 
 #define SXD_ACL_INFO_SIZE_BYTES               16
@@ -206,6 +254,11 @@ enum {
  * MAX num of records to retrieve from ratrad
  * */
 #define SXD_RATRAD_MAX_REC_NUM 4096
+
+/*
+ * Max dir length
+ * */
+#define SXD_DIR_NAME_MAX_LEN 128
 
 /**
  * Shared buffers statistics and pools
@@ -268,49 +321,84 @@ enum {
 #define SXD_ACL_KEY_BLOCK_PACKETTYPE             0xB0
 #define SXD_ACL_KEY_BLOCK_RX_LIST                0xB1
 
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_0        0x10
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_1        0x11
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_2        0x12
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_3        0x13
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_4        0x14
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_5        0x15
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_6        0x16
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_7        0x17
-#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_8        0x18
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_0  0x20
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_1  0x21
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_2  0x22
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_3  0x23
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_4  0x24
-#define SXD_ACL_KEY_BLOCK_IPV4_EX3           0x2D
-#define SXD_ACL_KEY_BLOCK_FLEX2_IP_0         0x30
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_0       0x38
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_1       0x39
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_2       0x3A
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_3       0x3B
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_4       0x3C
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_5       0x3D
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_0       0x40
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_1       0x41
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_2       0x42
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_3       0x43
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_4       0x44
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_5       0x45
-#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_6       0x46
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_0 0x50
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_1 0x51
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_2 0x52
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_0 0x58
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_1 0x59
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_2 0x5A
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_3 0x5B
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_4 0x5C
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_5 0x5D
-#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_6 0x5E
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_0             0x10
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_1             0x11
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_2             0x12
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_3             0x13
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_4             0x14
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_5             0x15
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_5B            0x1A
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_6             0x16
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_6B            0x1B
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_7             0x17
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_8             0x18
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_8B            0x1C
+#define SXD_ACL_KEY_BLOCK_FLEX2_MAC_9             0x19
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_0       0x20
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_1       0x21
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_2       0x22
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_3       0x23
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_MAC_4       0x24
+#define SXD_ACL_KEY_BLOCK_IPV4_EX2                0x2C
+#define SXD_ACL_KEY_BLOCK_IPV4_EX3                0x2D
+#define SXD_ACL_KEY_BLOCK_FLEX2_IP_0              0x30
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_0            0x38
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_0_SYMM       0x38
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_1            0x39
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_1B           0x3F
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_1B_SYMM      0x3F
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_1_OPT        0x3E
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_2            0x3A
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_3            0x3B
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_4            0x3C
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_4B           0x35
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_5            0x3D
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_5B           0x36
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV4_6B           0x37
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_0            0x40
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_1            0x41
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_2            0x42
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_2B           0x47
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_3            0x43
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_4            0x44
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_5            0x45
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_6            0x46
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_0_SYMM       0x40
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_1_SYMM       0x41
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_2_SYMM       0x42
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_2B_SYMM      0x47
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_3_SYMM       0x43
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_4_SYMM       0x44
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_5_SYMM       0x45
+#define SXD_ACL_KEY_BLOCK_FLEX2_IPV6_6_SYMM       0x46
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_0      0x50
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_1      0x51
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_2      0x52
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_0      0x58
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_1      0x59
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_2      0x5A
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_3      0x5B
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_4      0x5C
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_5      0x5D
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_6      0x5E
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_0_SYMM 0x50
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_1_SYMM 0x51
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV4_2_SYMM 0x52
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_0_SYMM 0x58
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_1_SYMM 0x59
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_2_SYMM 0x5A
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_3_SYMM 0x5B
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_4_SYMM 0x5C
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_5_SYMM 0x5D
+#define SXD_ACL_KEY_BLOCK_FLEX2_INNER_IPV6_6_SYMM 0x5E
+
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_0       0x60
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_1       0x61
+#define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_1B      0x67
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_2       0x62
+#define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_2B      0x6C
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_3       0x63
+#define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_3B      0x6D
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_4       0x64
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_5       0x65
 #define SXD_ACL_KEY_BLOCK_FLEX2_MPLS_6       0x66
@@ -327,6 +415,8 @@ enum {
 #define SXD_ACL_KEY_BLOCK_FLEX2_L3_4         0x84
 #define SXD_ACL_KEY_BLOCK_FLEX2_L3_5         0x85
 #define SXD_ACL_KEY_BLOCK_FLEX2_L4_0         0x90
+#define SXD_ACL_KEY_BLOCK_FLEX2_L4_0_OPT     0x95
+#define SXD_ACL_KEY_BLOCK_FLEX2_L4_0_SWAP    0x96
 #define SXD_ACL_KEY_BLOCK_FLEX2_L4_1         0x91
 #define SXD_ACL_KEY_BLOCK_FLEX2_L4_2         0x92
 #define SXD_ACL_KEY_BLOCK_FLEX2_L4_3         0x93
@@ -340,9 +430,13 @@ enum {
 #define SXD_ACL_KEY_BLOCK_FLEX2_MISC_0       0xB0
 #define SXD_ACL_KEY_BLOCK_FLEX2_MISC_1       0xB1
 #define SXD_ACL_KEY_BLOCK_FLEX2_MISC_2       0xB2
+#define SXD_ACL_KEY_BLOCK_FLEX2_MISC_2B      0xB5
 #define SXD_ACL_KEY_BLOCK_FLEX2_MISC_3       0xB3
 #define SXD_ACL_KEY_BLOCK_FLEX2_MISC_4       0xB4
+#define SXD_ACL_KEY_BLOCK_FLEX2_MISC_4B      0xB6
 #define SXD_ACL_KEY_BLOCK_FLEX2_STATEFUL_0   0xB8
+#define SXD_ACL_KEY_BLOCK_FLEX2_STATEFUL_0B  0xB9
+#define SXD_ACL_KEY_BLOCK_FLEX2_STATEFUL_1B  0xBA
 #define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_0  0xC0
 #define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_1  0xC1
 #define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_2  0xC2
@@ -351,6 +445,14 @@ enum {
 #define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_5  0xC5
 #define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_6  0xC6
 #define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_7  0xC7
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_8  0xC8
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_9  0xC9
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_10 0xCA
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_11 0xCB
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_12 0xCC
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_13 0xCD
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_14 0xCE
+#define SXD_ACL_KEY_BLOCK_FLEX2_PORT_LIST_15 0xCF
 #define SXD_ACL_KEY_BLOCK_FLEX2_QOS_0        0xD0
 #define SXD_ACL_KEY_BLOCK_FLEX2_QOS_1        0xD1
 #define SXD_ACL_KEY_BLOCK_FLEX2_CUSTOM_0     0xE0
@@ -359,6 +461,22 @@ enum {
 #define SXD_ACL_KEY_BLOCK_FLEX2_CUSTOM_3     0xE3
 #define SXD_ACL_KEY_BLOCK_FLEX2_CUSTOM_4     0xE4
 #define SXD_ACL_KEY_BLOCK_FLEX2_CUSTOM_5     0xE5
+#define SXD_ACL_KEY_BLOCK_FLEX2_CUSTOM_6     0xE6
+
+#define SXD_ACL_KEY_BLOCK_MACSEC_MAC_0       0x10
+#define SXD_ACL_KEY_BLOCK_MACSEC_MAC_1       0x11
+#define SXD_ACL_KEY_BLOCK_MACSEC_MAC_2       0x12
+#define SXD_ACL_KEY_BLOCK_MACSEC_MAC_3       0x13
+#define SXD_ACL_KEY_BLOCK_MACSEC_ETHERTYPE_0 0x14
+#define SXD_ACL_KEY_BLOCK_MACSEC_VLAN_0      0x15
+#define SXD_ACL_KEY_BLOCK_MACSEC_TUNNELS_0   0x60
+#define SXD_ACL_KEY_BLOCK_MACSEC_MACSEC_0    0x80
+#define SXD_ACL_KEY_BLOCK_MACSEC_MACSEC_1    0x81
+#define SXD_ACL_KEY_BLOCK_MACSEC_MACSEC_2    0x82
+#define SXD_ACL_KEY_BLOCK_MACSEC_MACSEC_3    0x83
+#define SXD_ACL_KEY_BLOCK_MACSEC_MACSEC_4    0x84
+
+typedef  union utce_action utce_action_t;
 
 /**
  * MTUTC register operation
@@ -367,32 +485,88 @@ enum {
 #define SXD_MTUTC_OP_SET_TIME_IMMEDIATE 0x01
 #define SXD_MTUTC_OP_ADJUST_TIME        0x02
 #define SXD_MTUTC_OP_ADJUST_FREQ        0x03
+
 /**
  * SX_DBG_DUMP_PROC_DIR defines the directory for driver debug proc files
  */
-#define SX_DBG_DUMP_PROC_DIR "dbg_dump"
+#define SX_DBG_DUMP_PROC_DIR         "dbg_dump"
+#define DEVICE_ID_STRING_MAX_LEN     16
+#define DBG_PROC_FOLDER_MAX_NAME_LEN (DEVICE_ID_STRING_MAX_LEN + 32)
 
 #define SXD_RMFTAD_ACTIVITIES_VECTOR_SIZE 128
 #define SXD_PTCEAD_ACTIVITIES_VECTOR_SIZE 128
 
-#define NUMBER_OF_BITS_IN_BITMAP   256
 #define MAX_NUM_OF_REMOTE_SWITCHES 256
+#define DEV_ID_IS_VALID(dev_id) ((dev_id) > 0 && ((int)(dev_id)) < MAX_NUM_OF_REMOTE_SWITCHES)
+
 #define MAX_SYSTEM_PORTS_IN_FILTER 256
 #define MAX_LAG_PORTS_IN_FILTER    256
 #define MAX_SYSPORT_NUM            65536
-#define MAX_LAG_NUM                128
-#define MAX_PHYPORT_NUM            128
+#define MAX_PHYPORT_NUM            258
+#define MAX_LAG_NUM                256
+#define MAX_LAG_MEMBERS_NUM        128
 #define SXD_MAX_VLAN_NUM           4096
 #define MAX_PRIO_NUM               15
 #define MAX_IBPORT_NUM             MAX_PHYPORT_NUM
-#define MAX_LAG_MEMBERS_NUM        64
 #define MAX_NUM_TRAPS_TO_REGISTER  256
 
+#define INVALID_LOCAL_PORT  0xFFFF
 #define INVALID_HW_FID_ID   0xFFFF
-#define MAX_HW_FIDS_NUM     0x4000 /* 16k */
-#define MAX_FIDS_NUM        MAX_HW_FIDS_NUM
-#define MAX_RIFS_NUM        4000
+#define MAX_FIDS_NUM        0x5000 /* 20K (CAP_FID+VLANs) ==> it is the maximum allowed among all
+                                   *  spectrum devices but not on the specific spectrum device.
+                                   *  the actual chip-specific value is fid_manager_g.max_fid. */
+#define MAX_RIFS_NUM        8000
 #define MAX_MONITOR_RDQ_NUM 5
+
+#define KU_CAP_MAX_MTU_SPECTRUM  (10240)
+#define KU_CAP_MAX_MTU_SWITCH_IB (4222)
+
+#define SXD_BULK_CNTR_SB_TYPE_INVALID (0xFF)
+#define SXD_BULK_CNTR_POOL_ID_INVALID (0xFFFFFFFF)
+
+#define SXD_BULK_CNTR_PORT_NUM                 (MAX_PHYPORT_NUM)
+#define SXD_BULK_CNTR_PHY_PORT_MIN             (1)
+#define SXD_BULK_CNTR_PG_NUM                   (10)
+#define SXD_BULK_CNTR_TC_NUM                   (17)
+#define SXD_BULK_CNTR_POOL_NUM                 (16)
+#define SXD_BULK_CNTR_SP_NUM                   (16)
+#define SXD_BULK_CNTR_CPU_TC_NUM               (32)
+#define SXD_BULK_CNTR_SHARED_HEADROOM_POOL_NUM (1)
+#define SXD_BULK_CNTR_LOCAL_PORT_MASK_BIT_POSITTION(local_port) (local_port - 1)
+#define SXD_BULK_CNTR_LOCAL_PORT_VALID(local_port) \
+    SX_CHECK_RANGE(SXD_BULK_CNTR_PHY_PORT_MIN,     \
+                   local_port,                     \
+                   SXD_BULK_CNTR_PORT_NUM)
+
+#define SXD_BULK_CNTR_TOTAL_POOL_MAX_NUM (SXD_BULK_CNTR_POOL_NUM * 4 + SXD_BULK_CNTR_SHARED_HEADROOM_POOL_NUM)
+
+#define SXD_BULK_CNTR_PORT_MASK_NUM ((SXD_BULK_CNTR_PORT_NUM / 32) + 1)
+
+#define SXD_CR_DUMP_HOST_MEM_ALIGN (4 * 1024)
+
+/**
+ * Elephant detection
+ */
+#define SXD_COS_ELEPHANT_FLOW_ID_NUM_MAX     (128)
+#define SXD_COS_ELEPHANT_MPLS_LABELS_MAX_CNT (5)
+#define SXD_COS_ELEPHANT_PORT_NUM_MAX        MAX_PHYPORT_NUM
+#define SXD_COS_ELEPHANT_PORT_MASK_NUM       ((SXD_COS_ELEPHANT_PORT_NUM_MAX / 32) + 1)
+
+/**
+ * Builds physical port id from lsb and msb parts
+ * To be used to handle the registers fields 'local_port' and 'lp_msb'
+ */
+#define SX_PORT_BUILD_PHY_ID_FROM_LSB_MSB(phy_id, lsb, msb) \
+    (phy_id) = ((lsb) & 0xFF);                              \
+    (phy_id) |= (((msb) & 0x3) << 8)
+
+/**
+ * Extracts lsb and msb parts from physical port id
+ * To be used to handle the registers fields 'local_port' and 'lp_msb'
+ */
+#define SX_PORT_EXTRACT_LSB_MSB_FROM_PHY_ID(lsb, msb, phy_id) \
+    (lsb) = ((phy_id) & 0x0FF);                               \
+    (msb) = (((phy_id) & 0x300) >> 8)
 
 /************************************************
  *  Enum
@@ -407,6 +581,10 @@ enum sx_core_nl_groups {
     SX_NL_GRP_MAX = (__SX_NL_GRP_MAX - 1)
 };
 
+struct sx_emad_dump_nl_msghdr {
+    uint32_t devindex;
+    uint32_t reserved;
+};
 
 /**
  * ku_pkt_type enumerated type is used to note the possible
@@ -429,8 +607,10 @@ enum ku_pkt_type {
     SX_PKT_TYPE_EOIB_CTL, /**< Eth over IB control */
     SX_PKT_TYPE_FCOIB_CTL, /**< FC over IB control */
     SX_PKT_TYPE_LOOPBACK_CTL, /**< Loopback control */
+    SX_PKT_TYPE_IB_CTL_2, /**< IBGen2 control */
+    SX_PKT_TYPE_IB_NVLINK, /**< IB NVLink packet */
     SX_PKT_TYPE_MIN = SX_PKT_TYPE_ETH_CTL_UC, /**< Minimum enum value */
-    SX_PKT_TYPE_MAX = SX_PKT_TYPE_LOOPBACK_CTL /**< Maximum enum value */
+    SX_PKT_TYPE_MAX = SX_PKT_TYPE_IB_NVLINK /**< Maximum enum value */
 };
 
 /**
@@ -453,7 +633,11 @@ enum ku_ctrl_cmd {
     CTRL_CMD_RAISE_EVENT, /**< Raise an event */
     CTRL_CMD_ENABLE_SWID, /**< Enable a swid */
     CTRL_CMD_DISABLE_SWID, /**< Disable a swid */
+
+    /* looks like CTRL_CMD_GET_SYNDROME_STATUS is not used anywhere but
+     * we keep its enumeration not to break binary compatibility  */
     CTRL_CMD_GET_SYNDROME_STATUS, /**< Get syndrome statue */
+
     CTRL_CMD_QUERY_FW, /**< Run query FW command */
     CTRL_CMD_MAD_DEMUX, /**< MAD Demux command */
     CTRL_CMD_QUERY_RSRC, /**< Run query FW command */
@@ -471,12 +655,6 @@ enum ku_ctrl_cmd {
     CTRL_CMD_GET_PCI_PROFILE, /**< Get the PCI profile */
     CTRL_CMD_GET_SWID_2_RDQ, /**< Get swid to RDQ mapping */
     CTRL_CMD_SET_DEFAULT_VID, /**< Update default vid of a port or lag */
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-    /* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
-     * - should be removed before Phoenix bring up;
-     */
-    CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
-#endif
     CTRL_CMD_SET_VID_MEMBERSHIP, /**< Update vid membership of a port or lag */
     CTRL_CMD_SET_PRIO_TAGGING, /**< Update prio tagging mode of a port or lag */
     CTRL_CMD_SET_PRIO_TO_TC, /**< Update prio tagging mode of a port or lag */
@@ -487,6 +665,7 @@ enum ku_ctrl_cmd {
     CTRL_CMD_SET_TRUNCATE_PARAMS, /**< Enable/Disable truncate on one of the RDQs */
     CTRL_CMD_CR_SPACE_READ, /**< Read a buffer from CR space */
     CTRL_CMD_CR_SPACE_WRITE, /**< Write a buffer to CR space */
+    CTRL_CMD_CR_DUMP, /**< trigger FW to dump CR space */
     CTRL_CMD_SET_LOCAL_PORT_TO_SWID, /**< Set local port to swid db */
     CTRL_CMD_SET_IB_TO_LOCAL_PORT, /**< Set local port to swid db */
     CTRL_CMD_SET_SYSTEM_TO_LOCAL_PORT, /**< Set local port to swid db */
@@ -518,8 +697,43 @@ enum ku_ctrl_cmd {
     CTRL_CMD_SET_PCI_PROFILE_DRIVER_ONLY, /**< Set the PCI profile driver only */
     CTRL_CMD_FLUSH_EVLIST, /**< Flush the evlist associated with a file descriptor */
     CTRL_CMD_SET_SW_IB_NODE_DESC, /**< set SW IB node description */
+    CTRL_CMD_SET_RDQ_FILTER_EBPF_PROG, /**< Attach/detach the filter eBPF program to/from an RDQ */
+    CTRL_CMD_SET_RDQ_AGG_EBPF_PROG, /**< Attach/detach the aggregation eBPF program to/from an RDQ */
+    CTRL_CMD_PSAMPLE_PORT_SAMPLE_RATE_UPDATE, /**< update psample-port-sample-rate info to sx-netdev module */
+    CTRL_CMD_SET_SW_IB_SWID_UP_DOWN, /**< IB swid went up or down */
+    CTRL_CMD_SET_WARM_BOOT_MODE, /**< set sdk boot mode : normal, issu , ... */
+    CTRL_CMD_SET_FD_ATTRIBUTES, /**< set FD attributes: head drop, tail drop */
+    CTRL_CMD_GET_FD_ATTRIBUTES, /**< set FD attributes: head drop, tail drop */
+    CTRL_CMD_BULK_CNTR_TR_ADD, /**< add bulk-counter transaction */
+    CTRL_CMD_BULK_CNTR_TR_DEL, /**< delete bulk-counter transaction */
+    CTRL_CMD_BULK_CNTR_TR_CANCEL, /**< cancel bulk-counter transaction */
+    CTRL_CMD_BULK_CNTR_TR_ACK, /**< SDK acknowledgement to complete a transaction */
+    CTRL_CMD_BULK_CNTR_TR_CONTINUE_ACK, /**< SDK acknowledgement for partial-complete transaction */
+    CTRL_CMD_BULK_CNTR_TR_IN_PROGRESS, /**< get bulk-counter transaction in progress status */
+    CTRL_CMD_BULK_CNTR_PER_PRIO_CACHE_SET, /**< Notify driver about the shared memory used by per prio counter cache */
+    CTRL_CMD_BULK_STATEFUL_DB_KEYS_WRITE,  /**< Write translated acl keys to shared memory */
+    CTRL_CMD_BUFFER_DROP_PARAMS, /**< Set the WJH buffer drop parameters */
+    CTRL_CMD_CLIENT_PID_GET, /**< Get client's process ID */
+    CTRL_CMD_SDK_HEALTH_SET, /**< Enable/disable sdk health event */
+    CTRL_CMD_SDK_HEALTH_GET, /**< Get sdk health event enablement status */
+    CTRL_CMD_SEND_ISSU_NOTIFICATION, /**< send notification to HW-Mng that FW is accessible/inaccessible */
+    CTRL_CMD_FW_MEMORY_TO_CPU_MAP, /**< Map CPU memory to FW (used for port profiles) */
+    CTRL_CMD_SET_KVH_CACHE_PARAMS, /**< set KVH cache configuration parameters */
+    CTRL_CMD_GET_KVH_CACHE_PARAMS, /**< get KVH cache configuration parameters */
+    CTRL_CMD_ACCUFLOW_COUNTERS_SET,
+    CTRL_CMD_SEND_FATAL_FAILURE_DETECT_INFO_SET,/**< Set health check sample params and update trap_groups status */
+    CTRL_CMD_PORT_MODULE_UPDATE,
+    CTRL_CMD_PORT_MODULE_MAP_SET,
+    CTRL_CMD_GET_DEV_INFO,
+    CTRL_CMD_SET_DEV_INFO,
+    CTRL_CMD_REARM_MODULE_EVENT,
+    CTRL_CMD_READ_HOST_MEM_PAGE,  /**< Read a page from host memory*/
+    CTRL_CMD_CR_DUMP_NOTIFY_DUMP_COMPLETE,
     CTRL_CMD_MIN_VAL = CTRL_CMD_GET_CAPABILITIES, /**< Minimum enum value */
-    CTRL_CMD_MAX_VAL = CTRL_CMD_SET_SW_IB_NODE_DESC /**< Maximum enum value */
+    CTRL_CMD_MAX_VAL = CTRL_CMD_CR_DUMP_NOTIFY_DUMP_COMPLETE, /**< Maximum enum value */
+#ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
+    CTRL_CMD_SET_PORT_ADMIN_STATUS, /**< Update port admin status */
+#endif /* SW_PUDE_EMULATION */
 };
 
 /**
@@ -537,24 +751,16 @@ enum ku_ctrl_cmd_access_reg {
 #include "auto_registers/kernel_cmd_access_auto.h"
 #endif
 
-    CTRL_CMD_ACCESS_REG_QSPTC, /**< Run access register QSPTC command */
-    CTRL_CMD_ACCESS_REG_QSTCT, /**< Run access register QSTCT command */
-    CTRL_CMD_ACCESS_REG_PTYS, /**< Run access register PTYS command */
     CTRL_CMD_ACCESS_REG_PMLP, /**< Run access register PMLP command */
     CTRL_CMD_ACCESS_REG_PLIB, /**< Run access register PLIB command */
-    CTRL_CMD_ACCESS_REG_SPZR, /**< Run access register SPZR command */
     CTRL_CMD_ACCESS_REG_PPLM, /**< Run access register PPLM command */
     CTRL_CMD_ACCESS_REG_PLPC, /**< Run access register PLPC command */
     CTRL_CMD_ACCESS_REG_PMPC, /**< Run access register PMPC command */
     CTRL_CMD_ACCESS_REG_PMPR, /**< Run access register PMPR command */
-    CTRL_CMD_ACCESS_REG_PMTU, /**< Run access register PMTU command */
-    CTRL_CMD_ACCESS_REG_PPLR, /**< Run access register PPLR command */
     CTRL_CMD_ACCESS_REG_PELC, /**< Run access register PELC command */
     CTRL_CMD_ACCESS_REG_PFCA, /**< Run access register PFCA command */
     CTRL_CMD_ACCESS_REG_PFCNT, /**< Run access register PFCNT command */
-    CTRL_CMD_ACCESS_REG_PMCR, /**< Run access register PMCR command */
     CTRL_CMD_ACCESS_REG_PFSC, /**< Run access register PFSC command */
-    CTRL_CMD_ACCESS_REG_PMMP, /**< Run access register PMMP command */
     CTRL_CMD_ACCESS_REG_HTGT, /**< Run access register HTGT command */
     CTRL_CMD_ACCESS_REG_MFSC, /**< Run access register MFSC command */
     CTRL_CMD_ACCESS_REG_MFSM, /**< Run access register MFSM command */
@@ -567,59 +773,38 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_HCAP, /**< Run access register HCAP command */
     CTRL_CMD_ACCESS_REG_HDRT, /**< Run access register HDRT command */
     CTRL_CMD_ACCESS_REG_HCTR, /**< Run access register HCTR command */
-    CTRL_CMD_ACCESS_REG_QPRT, /**< Run access register QPRT command */
     CTRL_CMD_ACCESS_REG_MFCR, /**< Run access register MFCR command */
     CTRL_CMD_ACCESS_REG_FORE, /**< Run access register FORE command */
-    CTRL_CMD_ACCESS_REG_MTCAP, /**< Run access register MTCAP command */
     CTRL_CMD_ACCESS_REG_MTBR, /**< Run access register MTBR command */
-    CTRL_CMD_ACCESS_REG_MTWE, /**< Run access register MTWE command */
-    CTRL_CMD_ACCESS_REG_PMAOS, /**< Run access register PMAOS command */
     CTRL_CMD_ACCESS_REG_MMDIO, /**< Run access register MMDIO command */
     CTRL_CMD_ACCESS_REG_MMIA, /**< Run access register MMIA command */
     CTRL_CMD_ACCESS_REG_MFPA, /**< Run access register MFPA command */
     CTRL_CMD_ACCESS_REG_MFBE, /**< Run access register MFBE command */
     CTRL_CMD_ACCESS_REG_MFBA, /**< Run access register MFBA command */
-    CTRL_CMD_ACCESS_REG_QCAP, /**< Run access register QCAP command */
     CTRL_CMD_ACCESS_REG_RAW, /**< Run access register command for a RAW register */
     CTRL_CMD_ACCESS_REG_RAW_BUFF, /**< Run access register command with a RAW buffer */
     CTRL_CMD_ACCESS_REG_MFM, /**< Run access register MFM command */
-    CTRL_CMD_ACCESS_REG_SPAD, /**< Run access register SPAD command */
     CTRL_CMD_ACCESS_REG_SSPR, /**< Run access register SSPR command */
     CTRL_CMD_ACCESS_REG_SLCR_V2, /**< Run access register SLCR_V2 command */
-    CTRL_CMD_ACCESS_REG_PPAD, /**< Run access register PPAD command */
     CTRL_CMD_ACCESS_REG_SPMCR, /**< Run access register SPMCR command */
-    CTRL_CMD_ACCESS_REG_PBMC, /**< Run access register PBMC command */
-    CTRL_CMD_ACCESS_REG_PPTB, /**< Run access register PPTB command */
     CTRL_CMD_ACCESS_REG_SMID, /**< Run access register SMID command */
     CTRL_CMD_ACCESS_REG_SPMS, /**< Run access register SPMS command */
-    CTRL_CMD_ACCESS_REG_SPVID, /**< Run access register SPVID command */
     CTRL_CMD_ACCESS_REG_SPVC, /**< Run access register SPVC command */
     CTRL_CMD_ACCESS_REG_SVER, /**< Run access register SVER command */
-    CTRL_CMD_ACCESS_REG_SFD, /**< Run access register SFD command */
     CTRL_CMD_ACCESS_REG_QPBR, /**< Run access register QPBR command */
     CTRL_CMD_ACCESS_REG_PLBF, /**< Run access register PLBF command */
-    CTRL_CMD_ACCESS_REG_MGIR, /**< Run access register MGIR command */
     CTRL_CMD_ACCESS_REG_MHSR, /**< Run access register MHSR command */
-    CTRL_CMD_ACCESS_REG_SGCR, /**< Run access register SGCR command */
     CTRL_CMD_ACCESS_REG_MSCI, /**< Run access register MSCI command */
     CTRL_CMD_ACCESS_REG_MRSR, /**< Run access register MRSR command */
-    CTRL_CMD_ACCESS_REG_SBPR, /**< Run access register SBPR command */
-    CTRL_CMD_ACCESS_REG_SBSR, /**< Run access register SBSR command */
-    CTRL_CMD_ACCESS_REG_SBCM, /**< Run access register SBCM command */
     CTRL_CMD_ACCESS_REG_SBPM, /**< Run access register SBPM command */
     CTRL_CMD_ACCESS_REG_SBMM, /**< Run access register SBMM command */
-    CTRL_CMD_ACCESS_REG_CWGCR, /**< Run access register CWGCR command */
     CTRL_CMD_ACCESS_REG_CWTP, /**< Run access register CWTP command */
-    CTRL_CMD_ACCESS_REG_CWTPM, /**< Run access register CWTPM command */
     CTRL_CMD_ACCESS_REG_CWPP, /**< Run access register CWPP command */
     CTRL_CMD_ACCESS_REG_CWPPM, /**< Run access register CWPPM command */
-    CTRL_CMD_ACCESS_REG_CPQE, /**< Run access register CPQE command */
     CTRL_CMD_ACCESS_REG_MPSC, /**< Run access register MPSC command */
-    CTRL_CMD_ACCESS_REG_MPRS, /**< Run access register MPSC command */
     CTRL_CMD_ACCESS_REG_MLCR, /**< Run access register MLCR command */
     CTRL_CMD_ACCESS_REG_MPGCR, /**< Run access register MPGCR command */
     CTRL_CMD_ACCESS_REG_MPILM, /**< Run access register MPILM command */
-    CTRL_CMD_ACCESS_REG_MPNHLFE, /**< Run access register MPNHLFE command */
     CTRL_CMD_ACCESS_REG_MRRR, /**< Run access register MRRR command */
     CTRL_CMD_ACCESS_REG_MDRI, /**< Run access register MDRI command */
     CTRL_CMD_ACCESS_REG_HTAC, /**< Run access register HTAC command */
@@ -628,40 +813,40 @@ enum ku_ctrl_cmd_access_reg {
     CTRL_CMD_ACCESS_REG_SBDCC, /**< Run access register SBDCC command */
     CTRL_CMD_ACCESS_REG_SBDCM, /**< Run access register SBDCM command */
     CTRL_CMD_ACCESS_REG_SBCTC, /**< Run access register SBCTC command */
-    CTRL_CMD_ACCESS_REG_SBCTR, /**< Run access register SBCTR command */
-    CTRL_CMD_ACCESS_REG_SBGCR, /**< Run access register SBGCR command */
     CTRL_CMD_ACCESS_REG_PPBMI, /**< Run access register PPBMI command */
-    CTRL_CMD_ACCESS_REG_PDDR, /**< Run access register PDDR command */
     CTRL_CMD_ACCESS_REG_RGCR, /**< RGCR - tmp patch since FW needs it in Baz IB Router*/
     CTRL_CMD_ACCESS_REG_RTCA, /**< RTCA - for IB Router*/
     CTRL_CMD_ACCESS_REG_RTPS, /**< RTPS - for IB Router*/
-    CTRL_CMD_ACCESS_REG_RITR, /**< RITR - for IB Router*/
     CTRL_CMD_ACCESS_REG_RUFT, /**< RUFT - for IB Router*/
-    CTRL_CMD_ACCESS_REG_PPTT, /**< Run access register PPTT command */
-    CTRL_CMD_ACCESS_REG_PPRT, /**< Run access register PPRT command */
     CTRL_CMD_ACCESS_REG_PPAOS, /**< Run access register PPAOS command */
     CTRL_CMD_ACCESS_REG_PCMR, /**< Run access register PCMR command */
     CTRL_CMD_ACCESS_REG_PCNR, /**< Run access register PCNR command */
     CTRL_CMD_ACCESS_REG_PPBMP, /**< Run access register PPBMP command */
     CTRL_CMD_ACCESS_REG_PPBMC, /**< Run access register PPBMC command */
     CTRL_CMD_ACCESS_REG_PPBME, /**< Run access register PPBME command */
-    CTRL_CMD_ACCESS_REG_PBSR, /**< Run access register PBSR command */
     CTRL_CMD_ACCESS_REG_PTCE3, /**< Run access register PTCE_V3 command */
     CTRL_CMD_ACCESS_REG_PERPT, /**< Run access register PERPT command */
-    CTRL_CMD_ACCESS_REG_PERAR, /**< Run access register PERAR command */
     CTRL_CMD_ACCESS_REG_PERCR, /**< Run access register PERCR command */
     CTRL_CMD_ACCESS_REG_PERERP, /**< Run access register PERCR command */
     CTRL_CMD_ACCESS_REG_PEABFE, /**< Run access register PEABFE command */
-    CTRL_CMD_ACCESS_REG_QSLL, /**< Run access register QSLL command */
     CTRL_CMD_ACCESS_REG_QHLL, /**< Run access register QHLL command */
     CTRL_CMD_ACCESS_REG_MTPPTR, /**< Run access register MTPPTR command */
     CTRL_CMD_ACCESS_REG_QPSC, /**< Run access register QPSC command */
     CTRL_CMD_ACCESS_REG_MTPPPC, /**< Run access register MTPPPC command */
-    CTRL_CMD_ACCESS_REG_MCION, /**< Run access register MCION command */
-    CTRL_CMD_ACCESS_REG_MONI,  /**< Run access register MONI command */
     CTRL_CMD_ACCESS_REG_QPCR, /**< Run access register QPCR command */
+    CTRL_CMD_ACCESS_REG_IBSNI, /**< Run access register IBSNI command */
+    CTRL_CMD_ACCESS_REG_SLCR,  /**< Run access register SLCR command */
+    CTRL_CMD_ACCESS_REG_SFN, /**< Run access register SFN command */
+    CTRL_CMD_ACCESS_REG_SPVTR,  /**< Run access register SPVTR command */
+    CTRL_CMD_ACCESS_REG_QPEM, /**< Run access register QPEM command */
+    CTRL_CMD_ACCESS_REG_PFCC, /**< Run access register PFCC command */
+    CTRL_CMD_ACCESS_REG_QPPM, /**< Run access register QPPM command */
+    CTRL_CMD_ACCESS_REG_SLECR, /**< Run access register SLECR command */
+    CTRL_CMD_ACCESS_REG_MONI, /**< Run access register MONI command */
+    CTRL_CMD_ACCESS_REG_RDPM, /**< Run access register RDPM command */
+    CTRL_CMD_ACCESS_REG_MNVDA_NV_SWITCH_CONF, /**< Run access register MNVDA_NV_SWITCH_CONF command */
     CTRL_CMD_ACCESS_REG_MIN = CTRL_CMD_ACCESS_REG_PSPA, /**< Minimum enum value */
-    CTRL_CMD_ACCESS_REG_MAX = CTRL_CMD_ACCESS_REG_QPCR  /**< Maximum enum value */
+    CTRL_CMD_ACCESS_REG_MAX = CTRL_CMD_ACCESS_REG_MNVDA_NV_SWITCH_CONF  /**< Maximum enum value */
 };
 
 /**
@@ -693,12 +878,12 @@ enum ku_l2_type {
  * swid types.
  */
 enum ku_swid_type {
-    KU_SWID_TYPE_DISABLED = 0, /**< Disabled */
-    KU_SWID_TYPE_INFINIBAND = 1, /**< IB */
-    KU_SWID_TYPE_ETHERNET = 2, /**< Eth */
+    KU_SWID_TYPE_DISABLED    = 0, /**< Disabled */
+    KU_SWID_TYPE_INFINIBAND  = 1, /**< IB */
+    KU_SWID_TYPE_ETHERNET    = 2, /**< Eth */
     KU_SWID_TYPE_ROUTER_PORT = 8, /**< RP */
-    KU_SWID_TYPE_MIN = KU_SWID_TYPE_DISABLED, /**< Minimum enum value */
-    KU_SWID_TYPE_MAX = KU_SWID_TYPE_ROUTER_PORT /**< Maximum enum value */
+    KU_SWID_TYPE_MIN         = KU_SWID_TYPE_DISABLED, /**< Minimum enum value */
+    KU_SWID_TYPE_MAX         = KU_SWID_TYPE_ROUTER_PORT /**< Maximum enum value */
 };
 
 /**
@@ -706,20 +891,20 @@ enum ku_swid_type {
  * return values from command IFC.
  */
 enum ku_command_ifc_ret_status {
-    COMMAND_IFC_RET_STATUS_OK = 0X00,             /**< OK */
+    COMMAND_IFC_RET_STATUS_OK             = 0X00, /**< OK */
     COMMAND_IFC_RET_STATUS_INTERNAL_ERROR = 0X01, /**< Internal error */
-    COMMAND_IFC_RET_STATUS_BAD_OP = 0X02,         /**< Bad operation */
-    COMMAND_IFC_RET_STATUS_BAD_PARAM = 0X03,      /**< Bad parameter */
-    COMMAND_IFC_RET_STATUS_BAD_SYS_STATE = 0X04,  /**< Bad system state */
-    COMMAND_IFC_RET_STATUS_BAD_RESOURCE = 0X05,   /**< Bad resource */
-    COMMAND_IFC_RET_STATUS_RESOURCE_BUSY = 0X06,  /**< Resource busy */
-    COMMAND_IFC_RET_STATUS_EXCEED_LIM = 0X08,     /**< Exceeds limitation */
-    COMMAND_IFC_RET_STATUS_BAD_RES_STATE = 0X09,  /**< Bad res state */
-    COMMAND_IFC_RET_STATUS_BAD_INDEX = 0X0A,      /**< Bad index */
-    COMMAND_IFC_RET_STATUS_BAD_NVMEM = 0X0B,      /**< Bad NVMEM */
-    COMMAND_IFC_RET_STATUS_BAD_PKT = 0X30,        /**< Bad packet */
-    COMMAND_IFC_RET_STATUS_MIN = COMMAND_IFC_RET_STATUS_OK, /**< Minimum enum value */
-    COMMAND_IFC_RET_STATUS_MAX = COMMAND_IFC_RET_STATUS_BAD_PKT /**< Maximum enum value */
+    COMMAND_IFC_RET_STATUS_BAD_OP         = 0X02, /**< Bad operation */
+    COMMAND_IFC_RET_STATUS_BAD_PARAM      = 0X03, /**< Bad parameter */
+    COMMAND_IFC_RET_STATUS_BAD_SYS_STATE  = 0X04, /**< Bad system state */
+    COMMAND_IFC_RET_STATUS_BAD_RESOURCE   = 0X05, /**< Bad resource */
+    COMMAND_IFC_RET_STATUS_RESOURCE_BUSY  = 0X06, /**< Resource busy */
+    COMMAND_IFC_RET_STATUS_EXCEED_LIM     = 0X08, /**< Exceeds limitation */
+    COMMAND_IFC_RET_STATUS_BAD_RES_STATE  = 0X09, /**< Bad res state */
+    COMMAND_IFC_RET_STATUS_BAD_INDEX      = 0X0A, /**< Bad index */
+    COMMAND_IFC_RET_STATUS_BAD_NVMEM      = 0X0B, /**< Bad NVMEM */
+    COMMAND_IFC_RET_STATUS_BAD_PKT        = 0X30, /**< Bad packet */
+    COMMAND_IFC_RET_STATUS_MIN            = COMMAND_IFC_RET_STATUS_OK, /**< Minimum enum value */
+    COMMAND_IFC_RET_STATUS_MAX            = COMMAND_IFC_RET_STATUS_BAD_PKT /**< Maximum enum value */
 };
 
 /**
@@ -731,8 +916,9 @@ enum ku_dpt_path_type {
     DPT_PATH_I2C, /**< I2C */
     DPT_PATH_SGMII, /**< SGMII */
     DPT_PATH_PCI_E, /**< PCI express */
+    DPT_PATH_MST, /**< MST */
     DPT_PATH_MIN = DPT_PATH_INVALID, /**< Minimum enum value */
-    DPT_PATH_MAX = DPT_PATH_PCI_E /**< Maximum enum value */
+    DPT_PATH_MAX = DPT_PATH_MST /**< Maximum enum value */
 };
 
 /**
@@ -765,11 +951,11 @@ enum hpkt_action {
  * paths in HTGT register.
  */
 enum htgt_path {
-    HTGT_LOCAL_PATH = 0, /**< Local path */
+    HTGT_LOCAL_PATH    = 0, /**< Local path */
     HTGT_STACKING_PATH = 1, /**< Stacking path */
-    HTGT_DR_PATH = 2, /**< Directed route path */
-    HTGT_ETH_PATH = 3, /**< Ethernet path */
-    HTGT_NULL_PATH = 0xF /**< NULL path */
+    HTGT_DR_PATH       = 2, /**< Directed route path */
+    HTGT_ETH_PATH      = 3, /**< Ethernet path */
+    HTGT_NULL_PATH     = 0xF /**< NULL path */
 };
 
 typedef uint8_t sxd_boolean_t;
@@ -778,10 +964,10 @@ typedef uint8_t sxd_boolean_t;
  * sxd_port_ib_link_width_t enumerated type is used to store IB link width
  */
 typedef enum sxd_port_ib_link_width {
-    SXD_PORT_IB_LINK_WIDTH_1X = (1 << 0),
-    SXD_PORT_IB_LINK_WIDTH_2X = (1 << 1),
-    SXD_PORT_IB_LINK_WIDTH_4X = (1 << 2),
-    SXD_PORT_IB_LINK_WIDTH_8X = (1 << 3),
+    SXD_PORT_IB_LINK_WIDTH_1X  = (1 << 0),
+    SXD_PORT_IB_LINK_WIDTH_2X  = (1 << 1),
+    SXD_PORT_IB_LINK_WIDTH_4X  = (1 << 2),
+    SXD_PORT_IB_LINK_WIDTH_8X  = (1 << 3),
     SXD_PORT_IB_LINK_WIDTH_12X = (1 << 4),
 } sxd_port_ib_link_width_t;
 
@@ -808,6 +994,14 @@ typedef enum sxd_port_an_disable_admin {
     SXD_PORT_AN_DISABLE_ADMIN_NORMAL_OPERATION = 0,
     SXD_PORT_AN_DISABLE_ADMIN_DISABLE_AN,
 } sxd_port_an_disable_admin_t;
+
+/**
+ * sxd_port_an_disable_admin enumerated type is used to store Auto-Negotiate admin status
+ */
+typedef enum sxd_port_eth_proto_lp_valid {
+    SXD_PORT_ETH_PROTO_LP_VALID_DISABLE = 0,
+    SXD_PORT_ETH_PROTO_LP_VALID_ENABLE
+} sxd_port_eth_proto_lp_valid_t;
 
 /**
  * sxd_port_an_status enumerated type is used to store Auto-Negotiation status
@@ -841,15 +1035,15 @@ typedef enum sxd_port_connector_type {
  */
 typedef enum sxd_port_eth_proto {
     SXD_PORT_ETH_PROTOCOL_1000_BASE_CX_SGMII = (1 << 0),
-    SXD_PORT_ETH_PROTOCOL_1000_BASE_KX = (1 << 1),
-    SXD_PORT_ETH_PROTOCOL_10G_BASE_CX4_XAUI = (1 << 2),
-    SXD_PORT_ETH_PROTOCOL_10G_BASE_KX4 = (1 << 3),
-    SXD_PORT_ETH_PROTOCOL_10G_BASE_KR4 = (1 << 4),
-    SXD_PORT_ETH_PROTOCOL_20G_BASE_KR2 = (1 << 5),
-    SXD_PORT_ETH_PROTOCOL_40G_BASE_CR4 = (1 << 6),
-    SXD_PORT_ETH_PROTOCOL_40G_BASE_KR4 = (1 << 7),
-    SXD_PORT_ETH_PROTOCOL_56G_BASE_KR4 = (1 << 8),
-    SXD_PORT_ETH_PROTOCOL_56G_BASE_KX4 = (1 << 9),
+    SXD_PORT_ETH_PROTOCOL_1000_BASE_KX       = (1 << 1),
+    SXD_PORT_ETH_PROTOCOL_10G_BASE_CX4_XAUI  = (1 << 2),
+    SXD_PORT_ETH_PROTOCOL_10G_BASE_KX4       = (1 << 3),
+    SXD_PORT_ETH_PROTOCOL_10G_BASE_KR4       = (1 << 4),
+    SXD_PORT_ETH_PROTOCOL_20G_BASE_KR2       = (1 << 5),
+    SXD_PORT_ETH_PROTOCOL_40G_BASE_CR4       = (1 << 6),
+    SXD_PORT_ETH_PROTOCOL_40G_BASE_KR4       = (1 << 7),
+    SXD_PORT_ETH_PROTOCOL_56G_BASE_KR4       = (1 << 8),
+    SXD_PORT_ETH_PROTOCOL_56G_BASE_KX4       = (1 << 9),
 } sxd_port_eth_proto_t;
 
 /**
@@ -868,14 +1062,14 @@ typedef enum sxd_port_fc_proto {
  * InfiniBand protocol.
  */
 typedef enum sxd_port_ib_proto {
-    SXD_PORT_IB_PROTOCOL_SDR = (1 << 0),
-    SXD_PORT_IB_PROTOCOL_DDR = (1 << 1),
-    SXD_PORT_IB_PROTOCOL_QDR = (1 << 2),
-    SXD_PORT_IB_PROTOCOL_FDR10 = (1 << 3),
-    SXD_PORT_IB_PROTOCOL_FDR = (1 << 4),
-    SXD_PORT_IB_PROTOCOL_EDR = (1 << 5),
-    SXD_PORT_IB_PROTOCOL_HDR = (1 << 6),
-    SXD_PORT_IB_PROTOCOL_NDR = (1 << 7),
+    SXD_PORT_IB_PROTOCOL_SDR      = (1 << 0),
+    SXD_PORT_IB_PROTOCOL_DDR      = (1 << 1),
+    SXD_PORT_IB_PROTOCOL_QDR      = (1 << 2),
+    SXD_PORT_IB_PROTOCOL_FDR10    = (1 << 3),
+    SXD_PORT_IB_PROTOCOL_FDR      = (1 << 4),
+    SXD_PORT_IB_PROTOCOL_EDR      = (1 << 5),
+    SXD_PORT_IB_PROTOCOL_HDR      = (1 << 6),
+    SXD_PORT_IB_PROTOCOL_NDR      = (1 << 7),
     SXD_PORT_IB_PROTOCOL_FDR_8_10 = (1 << 8)
 } sxd_port_ib_proto_t;
 
@@ -893,40 +1087,58 @@ typedef enum sxd_prcr_op_type {
  * Counter set type
  */
 typedef enum sxd_counter_set_type {
-    SXD_COUNTER_SET_TYPE_NO_COUNT = 0x0,
-    SXD_COUNTER_SET_TYPE_PACKET = 0x1,
-    SXD_COUNTER_SET_TYPE_BYTE = 0x2,
-    SXD_COUNTER_SET_TYPE_PACKET_AND_BYTE = 0x3,
-    SXD_COUNTER_SET_TYPE_BYTE_STATISTICAL = 0x4,
+    SXD_COUNTER_SET_TYPE_NO_COUNT                    = 0x0,
+    SXD_COUNTER_SET_TYPE_PACKET                      = 0x1,
+    SXD_COUNTER_SET_TYPE_BYTE                        = 0x2,
+    SXD_COUNTER_SET_TYPE_PACKET_AND_BYTE             = 0x3,
+    SXD_COUNTER_SET_TYPE_BYTE_STATISTICAL            = 0x4,
     SXD_COUNTER_SET_TYPE_PACKET_AND_BYTE_STATISTICAL = 0x5,
-    SXD_COUNTER_SET_TYPE_RIF = 0x8,
-    SXD_COUNTER_SET_TYPE_RIF_BASIC = 0x9,
-    SXD_COUNTER_SET_TYPE_RIF_ENHANCED = 0xA,
-    SXD_COUNTER_SET_TYPE_RIF_MIXED_1 = 0xB,
-    SXD_COUNTER_SET_TYPE_RIF_MIXED_2 = 0xC,
+    SXD_COUNTER_SET_TYPE_RIF                         = 0x8,
+    SXD_COUNTER_SET_TYPE_RIF_BASIC                   = 0x9,
+    SXD_COUNTER_SET_TYPE_RIF_ENHANCED                = 0xA,
+    SXD_COUNTER_SET_TYPE_RIF_MIXED_1                 = 0xB,
+    SXD_COUNTER_SET_TYPE_RIF_MIXED_2                 = 0xC,
+    SXD_COUNTER_SET_TYPE_RIF_BASIC_REDUCED           = 0x19,
+    SXD_COUNTER_SET_TYPE_RIF_ENHANCED_REDUCED        = 0x1A,
+    SXD_COUNTER_SET_TYPE_RIF_MIXED_1_REDUCED         = 0x1B,
+    SXD_COUNTER_SET_TYPE_RIF_MIXED_2_REDUCED         = 0x1C,
 } sxd_counter_set_type_t;
 
 /**
  * sxd_tunnel_type enumerated type is used to match tunnel type.
  */
 typedef enum sxd_tunnel_type {
-    SXD_TUNNEL_TYPE_NVGRE = 0,
-    SXD_TUNNEL_TYPE_VXLAN = 1,
-    SXD_TUNNEL_TYPE_MPLS = 2,
+    SXD_TUNNEL_TYPE_NVGRE  = 0,
+    SXD_TUNNEL_TYPE_VXLAN  = 1,
+    SXD_TUNNEL_TYPE_MPLS   = 2,
     SXD_TUNNEL_TYPE_IPINIP = 3,
-    SXD_TUNNEL_TYPE_GRE = 4,
-    SXD_TUNNEL_TYPE_NONE = 5,
+    SXD_TUNNEL_TYPE_GRE    = 4,
+    SXD_TUNNEL_TYPE_FLEX   = 5,
 } sxd_tunnel_type_t;
 
 /**
  * sxd_nve_tubbel_type enumerated type is used to match tunnel type.
  */
 typedef enum sxd_nve_tunnel_type {
-    SXD_NVE_TUNNEL_TYPE_VXLAN = (1 << 0),
-    SXD_NVE_TUNNEL_TYPE_GENEVE = (1 << 1),
-    SXD_NVE_TUNNEL_TYPE_GRE = (1 << 2),
-    SXD_NVE_TUNNEL_TYPE_NVGRE = (1 << 3),
+    SXD_NVE_TUNNEL_TYPE_VXLAN     = (1 << 0),
+    SXD_NVE_TUNNEL_TYPE_GENEVE    = (1 << 1),
+    SXD_NVE_TUNNEL_TYPE_VXLAN_GPE = (1 << 2),
+    SXD_NVE_TUNNEL_TYPE_NVGRE     = (1 << 3),
 } sxd_nve_tunnel_type_t;
+
+enum ku_queue_type {
+    KU_QUEUE_TYPE_TAIL_DROP = 0,    /**< Head Drop */
+    KU_QUEUE_TYPE_HEAD_DROP = 1,  /**< Tail Drop */
+    KU_QUEUE_TYPE_MIN       = KU_QUEUE_TYPE_TAIL_DROP,   /**< Minimum enum value */
+    KU_QUEUE_TYPE_MAX       = KU_QUEUE_TYPE_HEAD_DROP   /**< Maximum enum value */
+};
+
+/**
+ * ku_fd_attributes is used to store the data of the fd_attributes_set ioctl
+ */
+struct ku_fd_attributes_data {
+    enum ku_queue_type queue_type;
+};
 
 /**
  * Counter Set.
@@ -935,14 +1147,16 @@ typedef struct sxd_counter_set {
     sxd_counter_set_type_t type;
     uint32_t               index;
 } sxd_counter_set_t;
+
 /**
  * ku_port_vlan_params_type enumerated type is used to match port_vlan types.
  */
 typedef enum ku_port_vlan_params_type {
     KU_PORT_VLAN_PARAMS_TYPE_GLOBAL = 0,
-    KU_PORT_VLAN_PARAMS_TYPE_PORT = 1,
-    KU_PORT_VLAN_PARAMS_TYPE_LAG = 2,
-    KU_PORT_VLAN_PARAMS_TYPE_VLAN = 3,
+    KU_PORT_VLAN_PARAMS_TYPE_PORT   = 1,
+    KU_PORT_VLAN_PARAMS_TYPE_LAG    = 2,
+    KU_PORT_VLAN_PARAMS_TYPE_VLAN   = 3,
+    KU_PORT_VLAN_PARAMS_TYPE_NONE   = 4,
 } ku_port_vlan_params_type_t;
 
 /**
@@ -961,33 +1175,36 @@ enum {
  * ku_res_id_t is used to match the resource id type.
  */
 typedef enum mlxsw_res_id {
-    KU_RES_ID_KVD_SIZE = 0x1001,
-    KU_RES_ID_KVD_SINGLE_MIN_SIZE = 0x1002,
-    KU_RES_ID_KVD_DOUBLE_MIN_SIZE = 0x1003,
-    KU_RES_ID_CAP_MAX_SWIDS = 0x2001,
-    KU_RES_ID_CAP_MAX_SWITCH_PORTS = 0x2002,
-    KU_RES_ID_MAX_TRAP_GROUPS = 0x2201,
-    KU_RES_ID_COUNTER_POOL_SIZE = 0x2410,
-    KU_RES_ID_MAX_SPAN = 0x2420,
+    KU_RES_ID_KVD_SIZE                   = 0x1001,
+    KU_RES_ID_KVD_SINGLE_MIN_SIZE        = 0x1002,
+    KU_RES_ID_KVD_DOUBLE_MIN_SIZE        = 0x1003,
+    KU_RES_ID_CAP_MAX_SWIDS              = 0x2001,
+    KU_RES_ID_CAP_MAX_SWITCH_PORTS       = 0x2002,
+    KU_RES_ID_MAX_TRAP_GROUPS            = 0x2201,
+    KU_RES_ID_TAC_PG_BUFF_SIZE           = 0x2214,
+    KU_RES_ID_COUNTER_POOL_SIZE          = 0x2410,
+    KU_RES_ID_MAX_SPAN                   = 0x2420,
     KU_RES_ID_COUNTER_SIZE_PACKETS_BYTES = 0x2443,
-    KU_RES_ID_COUNTER_SIZE_ROUTER_BASIC = 0x2449,
-    KU_RES_ID_MAX_SYSTEM_PORT = 0x2502,
-    KU_RES_ID_MAX_LAG = 0x2520,
-    KU_RES_ID_MAX_LAG_MEMBERS = 0x2521,
-    KU_RES_ID_MAX_BUFFER_SIZE = 0x2802,
-    KU_RES_ID_CELL_SIZE = 0x2803,
-    KU_RES_ID_ACL_MAX_TCAM_REGIONS = 0x2901,
-    KU_RES_ID_ACL_MAX_TCAM_RULES = 0x2902,
-    KU_RES_ID_ACL_MAX_REGIONS = 0x2903,
-    KU_RES_ID_ACL_MAX_GROUPS = 0x2904,
-    KU_RES_ID_ACL_MAX_GROUP_SIZE = 0x2905,
-    KU_RES_ID_ACL_FLEX_KEYS = 0x2910,
-    KU_RES_ID_ACL_MAX_ACTION_PER_RULE = 0x2911,
-    KU_RES_ID_ACL_ACTIONS_PER_SET = 0x2912,
-    KU_RES_ID_MAX_CPU_POLICERS = 0x2A13,
-    KU_RES_ID_MAX_VRS = 0x2C01,
-    KU_RES_ID_MAX_RIFS = 0x2C02,
-    KU_RES_ID_MAX_LPM_TREES = 0x2C30,
+    KU_RES_ID_COUNTER_SIZE_ROUTER_BASIC  = 0x2449,
+    KU_RES_ID_CAP_PTP_FRC_RATE           = 0x2460,
+    KU_RES_ID_MAX_SYSTEM_PORT            = 0x2502,
+    KU_RES_ID_MAX_LAG                    = 0x2520,
+    KU_RES_ID_MAX_LAG_MEMBERS            = 0x2521,
+    KU_RES_ID_MAX_BUFFER_SIZE            = 0x2802,
+    KU_RES_ID_CELL_SIZE                  = 0x2803,
+    KU_RES_ID_ACL_MAX_TCAM_REGIONS       = 0x2901,
+    KU_RES_ID_ACL_MAX_TCAM_RULES         = 0x2902,
+    KU_RES_ID_ACL_MAX_REGIONS            = 0x2903,
+    KU_RES_ID_ACL_MAX_GROUPS             = 0x2904,
+    KU_RES_ID_ACL_MAX_GROUP_SIZE         = 0x2905,
+    KU_RES_ID_ACL_FLEX_KEYS              = 0x2910,
+    KU_RES_ID_ACL_MAX_ACTION_PER_RULE    = 0x2911,
+    KU_RES_ID_ACL_ACTIONS_PER_SET        = 0x2912,
+    KU_RES_ID_MAX_CPU_POLICERS           = 0x2A13,
+    KU_RES_ID_MAX_VRS                    = 0x2C01,
+    KU_RES_ID_MAX_RIFS                   = 0x2C02,
+    KU_RES_ID_MAX_LPM_TREES              = 0x2C30,
+    KU_RES_ID_FW_ROUTER_SUP              = 0x2C51,
 
     /* Internal resources.
      *   * Determined by the SW, not queried from the HW.
@@ -1009,12 +1226,69 @@ typedef enum {
 } ku_mgmt_board_t;
 
 enum sx_netdev_user_channel_type {
-    USER_CHANNEL_L3_NETDEV = 0,
+    USER_CHANNEL_L3_NETDEV       = 0,
     USER_CHANNEL_LOG_PORT_NETDEV = 1,
     USER_CHANNEL_PHY_PORT_NETDEV = 2,
     NUM_OF_NET_DEV_TYPE
 };
 
+typedef enum {
+    SXD_PARSER_HEADER_SOP          = 0x0,
+    SXD_PARSER_HEADER_MAC          = 0x1,
+    SXD_PARSER_HEADER_IPV4         = 0x10,
+    SXD_PARSER_HEADER_IPV6         = 0x14,
+    SXD_PARSER_HEADER_UDP          = 0x20,
+    SXD_PARSER_HEADER_TCP          = 0x21,
+    SXD_PARSER_HEADER_GRE          = 0x30,
+    SXD_PARSER_HEADER_VXLAN_GPE    = 0x41,
+    SXD_PARSER_HEADER_GENEVE       = 0x42,
+    SXD_PARSER_HEADER_MPLS         = 0x50,
+    SXD_PARSER_HEADER_FPH0         = 0x80,
+    SXD_PARSER_HEADER_FPH1         = 0x81,
+    SXD_PARSER_HEADER_FPH2         = 0x82,
+    SXD_PARSER_HEADER_FPH3         = 0x83,
+    SXD_PARSER_HEADER_FPH4         = 0x84,
+    SXD_PARSER_HEADER_FPH5         = 0x85,
+    SXD_PARSER_HEADER_FPH6         = 0x86,
+    SXD_PARSER_HEADER_FPH7         = 0x87,
+    SXD_PARSER_HEADER_IPV6_HBH_EXT = 0xE0,
+    SXD_PARSER_HEADER_IPV6_EXT     = 0xF0,
+} sxd_parser_header_e;
+
+typedef enum {
+    SXD_EMT_COMMAND_IMMEDIATE_E                      = 0x0,
+    SXD_EMT_COMMAND_SPAN_MIRROR_INGRESS_PORT_LABEL_E = 0x4,
+    SXD_EMT_COMMAND_SPAN_MIRROR_EGRESS_PORT_LABEL_E  = 0x5,
+    SXD_EMT_COMMAND_INGRESS_TIMESTAMP_SEC_MSB_E      = 0x10,
+    SXD_EMT_COMMAND_INGRESS_TIMESTAMP_SEC_LSB_E      = 0x11,
+    SXD_EMT_COMMAND_INGRESS_TIMESTAMP_NSEC_MSB_E     = 0x12,
+    SXD_EMT_COMMAND_INGRESS_TIMESTAMP_NSEC_LSB_E     = 0x13,
+    SXD_EMT_COMMAND_EGRESS_TIMESTAMP_SEC_MSB_E       = 0x14,
+    SXD_EMT_COMMAND_EGRESS_TIMESTAMP_SEC_LSB_E       = 0x15,
+    SXD_EMT_COMMAND_EGRESS_TIMESTAMP_NSEC_MSB_E      = 0x16,
+    SXD_EMT_COMMAND_EGRESS_TIMESTAMP_NSEC_LSB_E      = 0x17,
+    SXD_EMT_COMMAND_TCLASS_E                         = 0x20,
+    SXD_EMT_COMMAND_EGRESS_BUFFER_FILL_LEVEL_MSB_E   = 0x30,
+    SXD_EMT_COMMAND_EGRESS_BUFFER_FILL_LEVEL_LSB_E   = 0x31,
+    SXD_EMT_COMMAND_LATENCY_MSB_E                    = 0x40,
+    SXD_EMT_COMMAND_LATENCY_LSB_E                    = 0x41,
+    SXD_EMT_COMMAND_GP_REGISTER_0_E                  = 0x80,
+    SXD_EMT_COMMAND_GP_REGISTER_1_E                  = 0x81,
+    SXD_EMT_COMMAND_GP_REGISTER_2_E                  = 0x82,
+    SXD_EMT_COMMAND_GP_REGISTER_3_E                  = 0x83,
+    SXD_EMT_COMMAND_GP_REGISTER_4_E                  = 0x84,
+    SXD_EMT_COMMAND_GP_REGISTER_5_E                  = 0x85,
+    SXD_EMT_COMMAND_GP_REGISTER_6_E                  = 0x86,
+    SXD_EMT_COMMAND_GP_REGISTER_7_E                  = 0x87,
+    SXD_EMT_COMMAND_SRAM_0_D0_E                      = 0x90,
+    SXD_EMT_COMMAND_SRAM_0_D1_E                      = 0x91,
+    SXD_EMT_COMMAND_SRAM_0_D2_E                      = 0x92,
+    SXD_EMT_COMMAND_SRAM_0_D3_E                      = 0x93,
+    SXD_EMT_COMMAND_SRAM_1_D0_E                      = 0x94,
+    SXD_EMT_COMMAND_SRAM_1_D1_E                      = 0x95,
+    SXD_EMT_COMMAND_SRAM_1_D2_E                      = 0x96,
+    SXD_EMT_COMMAND_SRAM_1_D3_E                      = 0x97,
+} sxd_emt_command_e;
 
 /************************************************
  *  Structs
@@ -1037,18 +1311,23 @@ struct ku_dpt_i2c_info {
 };
 
 typedef enum sxd_chip_types {
-    SXD_CHIP_TYPE_UNKNOWN = 0,
-    SXD_CHIP_TYPE_SWITCHX_A2 = 1,
-    SXD_CHIP_TYPE_SWITCHX_A1 = 3,
-    SXD_CHIP_TYPE_SWITCHX_A0 = 4,
-    SXD_CHIP_TYPE_SWITCH_IB = 5,
-    SXD_CHIP_TYPE_SPECTRUM = 6,
-    SXD_CHIP_TYPE_SWITCH_IB2 = 7,
+    SXD_CHIP_TYPE_UNKNOWN     = 0,
+    SXD_CHIP_TYPE_SWITCHX_A2  = 1,
+    SXD_CHIP_TYPE_SWITCHX_A1  = 3,
+    SXD_CHIP_TYPE_SWITCHX_A0  = 4,
+    SXD_CHIP_TYPE_SWITCH_IB   = 5,
+    SXD_CHIP_TYPE_SPECTRUM    = 6,
+    SXD_CHIP_TYPE_SWITCH_IB2  = 7,
     SXD_CHIP_TYPE_SPECTRUM_A1 = 8,
-    SXD_CHIP_TYPE_SPECTRUM2 = 9,
-    SXD_CHIP_TYPE_QUANTUM = 10,
-    SXD_CHIP_TYPE_SPECTRUM3 = 11,
-    SXD_CHIP_TYPES_MAX
+    SXD_CHIP_TYPE_SPECTRUM2   = 9,
+    SXD_CHIP_TYPE_QUANTUM     = 10,
+    SXD_CHIP_TYPE_SPECTRUM3   = 11,
+    SXD_CHIP_TYPE_QUANTUM2    = 12,
+    SXD_CHIP_TYPE_SPECTRUM4   = 13,
+    SXD_CHIP_TYPE_QUANTUM3    = 14,
+    SXD_CHIP_TYPES_MAX        = SXD_CHIP_TYPE_QUANTUM3,
+    /* Do not change this value, it can break ISSU !*/
+    SXD_CHIP_TYPES_MAX_ISSU = SXD_CHIP_TYPE_SPECTRUM3 /* need to check this !!! */
 } sxd_chip_types_t;
 
 /**
@@ -1076,8 +1355,15 @@ struct ku_dpt_sgmii_info {
  * info in the DPT.
  */
 struct ku_dpt_pcie_info {
-    unsigned int                      pci_id; /**< pci_id - PCI ID */
-    void __attribute__((aligned(8))) *sx_dev; /**< sx_dev - SX device pointer */
+    unsigned int                       pci_id; /* redundant! field is kept here for backward compatibility */
+    void __attribute__((aligned(8))) * sx_dev; /* redundant! field is kept here for backward compatibility */
+};
+
+/**
+ * ku_dpt_mst_info structure is used to store MST info in the DPT.
+ */
+struct ku_dpt_mst_info {
+    /* right now, no information */
 };
 
 /**
@@ -1088,6 +1374,7 @@ union ku_dpt_path_info {
     struct ku_dpt_i2c_info   sx_i2c_info; /**< sx_i2c_info - I2C info */
     struct ku_dpt_pcie_info  sx_pcie_info; /**< sx_pcie_info - PCI info */
     struct ku_dpt_sgmii_info sx_sgmii_info; /**< sx_sgmii_info - PCI info */
+    struct ku_dpt_mst_info   sx_mst_info; /**< sx_mst_info - MST info */
 };
 
 /**
@@ -1147,6 +1434,26 @@ struct ku_timespec {
     int32_t tv_nsec;
 };
 
+enum {
+    /* following values are taken from PRM: */
+    SXD_TS_TYPE_CQE_NONE       = 0,
+    SXD_TS_TYPE_CQE_FRC        = 1,
+    SXD_TS_TYPE_CQE_UTC        = 2,
+    SXD_TS_TYPE_CQE_MIRROR_UTC = 3,
+    SXD_TS_TYPE_CQE_MAX        = SXD_TS_TYPE_CQE_MIRROR_UTC,
+
+    /* internal driver values */
+    SXD_TS_TYPE_NONE  = SXD_TS_TYPE_CQE_NONE,
+    SXD_TS_TYPE_LINUX = SXD_TS_TYPE_CQE_MAX + 1
+};
+
+enum sxd_mirror_elph {
+    /* Following values are taken from PRM: */
+    SXD_MIRROR_ELPH_NO_INDICATION_E = 0,
+    SXD_MIRROR_ELPH_NOT_ELEPHANT_E  = 1,
+    SXD_MIRROR_ELPH_ELEPHANT_E      = 3,
+};
+
 /**
  * ku_read structure is used to store the read
  * info.
@@ -1155,7 +1462,7 @@ struct ku_read {
     uint16_t system_port; /**< system_port - system port on which the packet was received */
     uint16_t trap_id;  /**< trap_id - TrapID(=syndrome id) that captured the packet */
     uint8_t  is_lag; /**< is_lag - was the packet received from a port which is a LAG */
-    uint8_t  lag_subport; /**< lag_subport - For LAGs this field describe the port index within the LAG */
+    uint16_t lag_subport;   /**< lag_subport - For LAGs this field describe the port index within the LAG */
     uint8_t  swid; /**< swid - swid */
     uint32_t original_packet_size; /**<the original size of packet,
                                     *        if packet wasn't truncated packet_size=original_packet_size*/
@@ -1163,9 +1470,17 @@ struct ku_read {
     uint32_t                                         user_def_val; /**< for ACL trap id describe acl user ID */
     uint16_t                                         dest_sysport; /**< Destination sysport (for mirrored packets) */
     uint8_t                                          dest_is_lag; /**< Destination is LAG port */
-    uint8_t                                          dest_lag_subport; /**< For LAG destination port: index within LAG */
+    uint16_t                                         dest_lag_subport;   /**< For LAG destination port: index within LAG */
     uint64_t __attribute__((aligned(8)))             length; /**< length - packet size (if 0 - no more packets) */
     struct   ku_timespec __attribute__((aligned(8))) timestamp; /**< timestamp of packet */
+    uint8_t                                          mirror_reason;
+    uint8_t                                          mirror_tclass;
+    uint16_t                                         mirror_cong;
+    uint32_t                                         mirror_lantency;
+    uint8_t                                          mirror_elephant;
+    uint8_t                                          timestamp_type;
+    uint8_t                                          dev_id; /**< device id from which this was received */
+    uint8_t                                          channel_experienced_drop; /**< The channel experienced a drop due to overflow */
 };
 
 /**
@@ -1174,8 +1489,23 @@ struct ku_read {
 struct loopback_data {
     uint16_t trap_id;    /**< trap_id - the trap ID in case of a loopback packet */
     uint8_t  is_lag;    /**< is the system port member of a lag. */
-    uint8_t  lag_subport;    /**< lag sub-port when applicable */
+    uint16_t lag_subport;      /**< lag sub-port when applicable */
 };
+
+enum ku_ext_fwd_mode {
+    SX_EXT_FWD_MODE_REGULAR_AND_MIRROR_AGENT = 1,
+    SX_EXT_FWD_MODE_MIRROR_AGENT             = 2
+};
+
+/**
+ * Defines SPAN oob destination attributes
+ */
+struct span_oob_data {
+    uint8_t ext_fwd_mode;
+    uint8_t mirror_reason_id;     /** HOST_BASED_MIRROR_REASON_ID_1/2/3 */
+    uint8_t span_session_id;
+};
+
 
 /**
  * isx_meta structure is used to store the ISX meta
@@ -1194,19 +1524,22 @@ struct isx_meta {
     uint8_t              rx_is_router;
     uint8_t              fid_valid;
     uint16_t             fid;
+    uint8_t              rx_is_tunnel;
+    uint8_t              span_oob_data_valid;
+    struct span_oob_data span_oob_data;     /**< span_oob_data - packets data for sending packets to SPAN session*/
 };
 
 /**
  * ku_raise_trap structure is used to store the raise trap ioctl info
  */
 struct ku_raise_trap {
-    uint16_t                          trap_id; /**< trap_id - the trap ID */
-    uint32_t                          buffer_size; /**< buffer_size - the buffer size */
-    uint8_t                           swid; /**< swid - switch partition ID */
-    uint16_t                          sysport; /**< sysport - system port or LAG ID */
-    uint8_t                           is_lag; /**< is the source logical port member of a lag. */
-    uint8_t                           lag_subport; /**< source lag port when applicable */
-    void __attribute__((aligned(8))) *buffer_p;    /**< buffer_p - a pointer to the buffer */
+    uint16_t                           trap_id; /**< trap_id - the trap ID */
+    uint32_t                           buffer_size; /**< buffer_size - the buffer size */
+    uint8_t                            swid; /**< swid - switch partition ID */
+    uint16_t                           sysport; /**< sysport - system port or LAG ID */
+    uint8_t                            is_lag; /**< is the source logical port member of a lag. */
+    uint16_t                           lag_subport;   /**< source lag port when applicable */
+    void __attribute__((aligned(8))) * buffer_p;    /**< buffer_p - a pointer to the buffer */
 };
 
 /**
@@ -1273,6 +1606,13 @@ struct ku_l2_tunnel_params {
 };
 
 /**
+ * ku_psample_params structure is used to store PSAMPLE channel parameters.
+ */
+struct ku_psample_params {
+    uint32_t group_id;
+};
+
+/**
  * ku_user_channel_type enumerated type is used to note the possible user channels types.
  */
 enum ku_user_channel_type {
@@ -1280,7 +1620,9 @@ enum ku_user_channel_type {
     SX_KU_USER_CHANNEL_TYPE_L3_NETDEV,
     SX_KU_USER_CHANNEL_TYPE_L2_NETDEV,
     SX_KU_USER_CHANNEL_TYPE_PHY_NETDEV,
-    SX_KU_USER_CHANNEL_TYPE_L2_TUNNEL
+    SX_KU_USER_CHANNEL_TYPE_L2_TUNNEL,
+    SX_KU_USER_CHANNEL_TYPE_PSAMPLE,
+    SX_KU_USER_CHANNEL_TYPE_DROP_MONITOR
 };
 
 /**
@@ -1292,10 +1634,12 @@ struct ku_synd_ioctl {
     uint8_t                    swid; /**< swid - swid (0-7, or 255=Don't care) */
     enum  ku_l2_type           type; /**< type - L2 type (ib, eth, fc, dont-care */
     uint8_t                    is_default; /**< is_default - is default listener (0=false, 1=true) */
+    uint8_t                    is_register; /**< is_register - te action requested is register or filter (0=filter, 1=register) */
     union ku_filter_critireas  critireas;  /**< critireas - additional filter critireas  */
     enum ku_user_channel_type  channel_type;  /**< channel_type - channel type */
     struct ku_l2_tunnel_params l2_tunnel_params;  /**< l2_tunnel_params - L2 tunnel parameters when channel type is L2 tunnel */
     struct ku_port_vlan_params port_vlan_params;  /**< port / vlan parameters for per port registration*/
+    struct ku_psample_params   psample_params; /**< psample_params - PSAMPLE parameters when channel type is PSAMPLE */
 };
 struct ku_monitor_synd_ioctl {
     uint8_t                    swid;                  /**< swid - swid (0-7, or 255=Don't care) */
@@ -1332,9 +1676,9 @@ struct rdq_properties {
 };
 enum sxd_chip_rev {
     SXD_CHIP_REV_UNKNOWN = 0,
-    SXD_CHIP_REV_A0 = 1 << 1,
-    SXD_CHIP_REV_A1 = 1 << 2,
-    SXD_CHIP_REV_A2 = 1 << 3,
+    SXD_CHIP_REV_A0      = 1 << 1,
+    SXD_CHIP_REV_A1      = 1 << 2,
+    SXD_CHIP_REV_A2      = 1 << 3,
 };
 struct sxd_chip_ver {
     enum sxd_chip_types chip_type;
@@ -1357,6 +1701,7 @@ struct sx_pci_profile {
     struct rdq_properties rdq_properties[NUMBER_OF_RDQS];   /**< rdq_properties - properties of each RDQ */
     uint8_t               cpu_egress_tclass[NUMBER_OF_SDQS];   /**< cpu_egress_tclass - CPU egress tclass per SDQ */
     uint8_t               dev_id;   /**< dev_id - device ID */
+    uint8_t               dont_register_to_ib_router_traps;   /**< dont_register_to_ib_router_traps - IB router traps registration */
 };
 
 /**
@@ -1374,14 +1719,17 @@ struct ku_set_rdq_rate_limiter {
  * ku_rdq_timestamp_state structure is used to enable/disable time stamp per RDQ
  */
 struct ku_rdq_timestamp_state {
+    uint8_t dev_id;
     int     rdq;    /**< rdq - RDQ */
     uint8_t enable; /**< enable - 0-disable, 1-enable */
+    uint8_t hw_utc_enable; /**< hw_utc_enable - 0-disable, 1-enable */
 };
 
 /**
  * ku_rdq_cpu_priority structure is used to set priority to LOW/HIGH depends on HW policer existence
  */
 struct ku_rdq_cpu_priority {
+    uint8_t dev_id;
     int     rdq;    /**< rdq - RDQ */
     uint8_t high_prio; /**< 1=high priority, 0=low priority */
 };
@@ -1390,6 +1738,7 @@ struct ku_rdq_cpu_priority {
  * ku_set_truncate_params structure is used to store the per RDQ truncate parameters
  */
 struct ku_set_truncate_params {
+    uint8_t  dev_id;
     int      rdq;    /**< rdq - the RDQ */
     uint8_t  truncate_enable;    /**< truncate_enable - Should packets received on this RDQ be truncated */
     uint16_t truncate_size;    /**< truncate_size - The Maximum size of the truncated packets */
@@ -1399,9 +1748,30 @@ struct ku_set_truncate_params {
  * ku_set_truncate_params structure is used to set RDQ is_monitor mode
  */
 struct ku_set_monitor_rdq_params {
+    uint8_t dev_id;
     int     rdq;            /**< rdq - the RDQ */
     uint8_t is_monitor;     /**< is_monitor: 1 - RDQ is Monitor RDQ , 0 - RDQ is generic RDQ */
     uint8_t cpu_tclass;
+    uint8_t del_all_fd_listeners; /**< if set to 1, will delete all monitoring RDQ owner FD listeners */
+};
+
+/**
+ * ku_set_rdq_filter_ebpf_prog_params is used to attach/detach the ebpf program to/from an RDQ
+ */
+struct ku_set_rdq_filter_ebpf_prog_params {
+    int     rdq; /**< rdq - the RDQ */
+    int     ebpf_prog_fd; /**< ebpf_prog_fd - The filter eBPF program file descriptor */
+    uint8_t is_attach; /** is_attach: 1 - attach the program to RDQ, 0 - detach the program from RDQ */
+};
+
+/**
+ * ku_set_rdq_agg_ebpf_prog_params is used to attach/detach the aggregation ebpf program to/from an RDQ
+ */
+struct ku_set_rdq_agg_ebpf_prog_params {
+    int     rdq; /**< rdq - the RDQ */
+    int     index; /**< index - the ebpf program index */
+    int     ebpf_prog_fd; /**< ebpf_prog_fd - The aggregation eBPF program file descriptor */
+    uint8_t is_attach; /** is_attach: 1 - attach the program to RDQ, 0 - detach the program from RDQ */
 };
 
 #define READ_MULTI_BUFFS_MAX 1024
@@ -1416,31 +1786,147 @@ enum SX_FILE_OP {
  * ku_set_truncate_params structure is used to set RDQ is_monitor mode
  */
 struct ku_read_multi_params {
-    int             buffer_count;                               /**< INOUT: number of provided buffers, if 0 - count of ready buffers requested*/
+    uint32_t        buffer_count;                               /**< INOUT: number of provided buffers, if 0 - count of ready buffers requested*/
     enum SX_FILE_OP file_op;
     uint8_t       * buffer_list[READ_MULTI_BUFFS_MAX];          /**< IN: list of buffers for a packets */
-    size_t          buffer_size_list[READ_MULTI_BUFFS_MAX];     /**< INOUT: size of buffers for a packets */
+    uint32_t        buffer_size_list[READ_MULTI_BUFFS_MAX];     /**< INOUT: size of buffers for a packets */
 };
 
 /**
  * ku_cr_space_read structure is used to store the CR space read parameters
  */
 struct ku_cr_space_read {
-    uint8_t                              dev_id; /**< dev_id - Device ID */
-    unsigned int                         address; /**< address - Address to read from */
-    int                                  size; /**< size - size in bytes to read */
-    uint8_t __attribute__((aligned(8))) *data;   /**< data - Buffer to read into */
+    uint8_t                               dev_id; /**< dev_id - Device ID */
+    unsigned int                          address; /**< address - Address to read from */
+    int                                   size; /**< size - size in bytes to read */
+    uint8_t __attribute__((aligned(8))) * data;   /**< data - Buffer to read into */
 };
 
 /**
  * ku_cr_space_write structure is used to store the CR space write parameters
  */
 struct ku_cr_space_write {
-    uint8_t                              dev_id; /**< dev_id - Device ID */
-    unsigned int                         address; /**< address - Address to write to */
-    int                                  size; /**< size - size in bytes to write */
-    uint8_t __attribute__((aligned(8))) *data;   /**< data - Data to write */
+    uint8_t                               dev_id; /**< dev_id - Device ID */
+    unsigned int                          address; /**< address - Address to write to */
+    int                                   size; /**< size - size in bytes to write */
+    uint8_t __attribute__((aligned(8))) * data;   /**< data - Data to write */
 };
+
+#define SX_CR_DUMP_MEMBLK_SIZE       (512 * 1024)
+#define SX_CR_DUMP_MIN_MEMBLK_SIZE   (128 * 1024)
+#define SX_CR_DUMP_CANARY_MAGIC_WORD (0xCAFECAFE)
+#define SX_CR_DUMP_CANARY_BYTE_NUM   (8)
+
+enum {
+    SX_CR_DUMP_RET_NOT_SUPPORTED             = 100,
+    SX_CR_DUMP_RET_CANCEL_GENERAL            = 101,
+    SX_CR_DUMP_RET_CANCEL_OLD_DUMP           = 102,
+    SX_CR_DUMP_RET_CANCEL_MESS_FW            = 103,
+    SX_CR_DUMP_RET_CANCEL_FW_PARAM_MISALIGN  = 104,
+    SX_CR_DUMP_RET_CANCEL_DUMP_SIZE_OVERFLOW = 105,
+    SX_CR_DUMP_RET_CANCEL_DUMPSN_ERR         = 106,
+    SX_CR_DUMP_RET_CANCEL_TRANSSN_ERR        = 107,
+    SX_CR_DUMP_RET_CANCEL_FW_WRITE_OVERWRITE = 108,
+    SX_CR_DUMP_RET_CANCEL_CANARY_ERR         = 109,
+    SX_CR_DUMP_RET_FATAL_FW_ERR              = 110,
+    SX_CR_DUMP_RET_LAYER1_TIMEOUT            = 111,
+    SX_CR_DUMP_RET_FINISH                    = 112,
+    SX_CR_DUMP_RET_TO_BE_CONT                = 113,
+};
+
+enum {
+    /* PRM values */
+    SX_CR_DUMP_OP_NOP                = 0,
+    SX_CR_DUMP_OP_START_FLAT         = 1,
+    SX_CR_DUMP_OP_START_GW           = 2,
+    SX_CR_DUMP_OP_START_GDB          = 3,
+    SX_CR_DUMP_OP_CONT               = 4,
+    SX_CR_DUMP_OP_START_REDUCED_FLAT = 5,
+    SX_CR_DUMP_OP_CANCEL             = 15,
+
+    /* Non PRM values */
+    SX_CR_DUMP_OP_START_WAIT         = 100,
+    SX_CR_DUMP_OP_CONT_WAIT          = 101,
+    SX_CR_DUMP_OP_GET_GDB_DUMP_LIMIT = 102,
+    SX_CR_DUMP_OP_INVALID            = 0xFF,
+};
+
+/**
+ * sx_cr_dump_cmd_mem structure is used to store the CR dump parameters
+ */
+struct sx_cr_dump_cmd_mem {
+    uint8_t                              opcode;
+    uint16_t                             trans_sn;
+    uint8_t                              dump_sn;
+    uint8_t                              status;
+    uint64_t __attribute__((aligned(8))) host_base_addr;
+    uint64_t __attribute__((aligned(8))) host_size_allocated;
+    uint64_t __attribute__((aligned(8))) host_size_used;
+};
+
+/**
+ * sx_cr_dump_ret structure is used to store the CR dump return code and cr_dump_cmd memory
+ */
+struct sx_cr_dump_ret {
+    int                       ret_code;
+    struct sx_cr_dump_cmd_mem ret_cmd_mem;
+};
+
+/**
+ * ku_cr_dump structure is used to store the CR dump parameters
+ */
+struct ku_cr_dump {
+    uint8_t                               dev_id; /**< dev_id - Device ID */
+    uint8_t                               opcode; /**< opcode - Opcode of Cr_dump command */
+    pid_t                                 pid; /**< pid - Caller PID */
+    unsigned int                          dumped_size; /**< dumped_size - Mark dumped number in a dump session */
+    unsigned int                          size; /**< size - size in bytes to read */
+    uint8_t __attribute__((aligned(8))) * data;   /**< data - Buffer to read into */
+    struct sx_cr_dump_ret                 ret; /**< ret - fw cr_dump return values */
+};
+
+
+typedef enum fw_dump_completion_state {
+    FW_DUMP_COMPLETION_STATE_IDLE = 0,
+    FW_DUMP_COMPLETION_STATE_REQUEST_SENT,
+    FW_DUMP_COMPLETION_STATE_DONE,
+} fw_dump_completion_state_t;
+
+/**
+ * ku_cr_dump_completion_state structure is used query and configure the fw_dump_completion_state
+ */
+struct ku_cr_dump_completion_state {
+    uint8_t                    dev_id;            /**< dev_id - Device ID */
+    sxd_boolean_t              query; /**< query - Should query value or configure */
+    fw_dump_completion_state_t state; /**< state - actual state value or value to configure */
+};
+
+/**
+ * ku_rearm_module_event_ret structure is used to return result of re-arm module event
+ */
+struct ku_rearm_module_event_ret {
+    uint8_t oper_status;         /**< pmaos.oper_status */
+    uint8_t error_type;          /**< pmaos.error_type */
+};
+
+/**
+ * ku_rearm_module_event structure is used to re-arm module event
+ */
+struct ku_rearm_module_event {
+    uint8_t                          dev_id; /**< dev_id - Device ID */
+    uint8_t                          slot;
+    uint8_t                          module;
+    uint8_t                          gen_mode;
+    struct ku_rearm_module_event_ret ret;
+};
+
+typedef enum sxd_module_master_mode {
+    SXD_MODULE_MASTER_MODE_FW_CONTROL_E                     = 0,
+    SXD_MODULE_MASTER_MODE_SW_CONTROL_E                     = 1,
+    SXD_MODULE_MASTER_MODE_SW_CONTROL_NO_I2C_CONNECTIVITY_E = 2,
+    SXD_MODULE_MASTER_MODE_MIN_E                            = SXD_MODULE_MASTER_MODE_FW_CONTROL_E,
+    SXD_MODULE_MASTER_MODE_MAX_E                            = SXD_MODULE_MASTER_MODE_SW_CONTROL_NO_I2C_CONNECTIVITY_E,
+} sxd_module_master_mode_e;
 
 /**
  * ku_port_netdev structure is used to store the port netdevice parameters
@@ -1459,6 +1945,12 @@ struct ku_get_pci_profile {
     uint8_t               dev_id; /**< dev_id - device ID */
     enum pci_profile_e    pci_profile; /**< pci_profile - the PCI profile */
     struct sx_pci_profile profile;
+};
+
+enum sxd_fw_boot_status_e {
+    SXD_FW_BOOT_STATUS_OK_E,
+    SXD_FW_BOOT_STATUS_IN_FLASH_RECOVERY_E,
+    SXD_FW_BOOT_STATUS_RMA_E
 };
 
 /**
@@ -1483,9 +1975,20 @@ struct ku_query_fw {
     uint16_t                             fw_year; /**< fw_year - Firmware timestamp - year (displayed as a hexadecimal number) */
     uint8_t                              fw_month; /**< fw_month - Firmware timestamp - month (displayed as a hexadecimal number) */
     uint8_t                              fw_day; /**< fw_day - Firmware timestamp - day (displayed as a hexadecimal number) */
+    sxd_module_master_mode_e             fw_cap_mod_support; /* fw module support capability (dependent, independent or standalone) */
     uint8_t                              dev_id; /**< dev_id - device id */
     uint64_t __attribute__((aligned(8))) frc_offset;
     uint8_t                              frc_bar;
+    uint64_t __attribute__((aligned(8))) utc_sec_offset;
+    uint8_t                              utc_sec_bar;
+    uint64_t __attribute__((aligned(8))) utc_nsec_offset;
+    uint8_t                              utc_nsec_bar;
+    uint64_t __attribute__((aligned(8))) cr_dump_offset;
+    uint8_t                              cr_dump_bar;
+    uint32_t                             cap_dump_host_size_flat;
+    uint32_t                             cap_dump_host_size_reduced_flat;
+    uint32_t                             cap_dump_host_size_gw;
+    uint32_t                             cap_dump_host_size_gdb;
 };
 struct ku_query_cq {
     uint8_t  eq_num;     /* 0 or 1 */
@@ -1518,12 +2021,26 @@ struct ku_ib_node_description {
 };
 
 /**
+ * ku_ib_swid_up_down structure is used to set IB swid up down events
+ */
+struct ku_ib_swid_up_down {
+    uint8_t dev_id; /**< dev_id - device id */
+    uint8_t swid; /**< swid - Switch partition ID */
+    uint8_t up; /**<  True if swid went up, false if went down */
+};
+
+
+/**
  * ku_query_board_info structure is used to store the query board info parameters
  */
 struct ku_query_board_info {
-    uint16_t vsd_vendor_id;    /**< vsd_vendor_id - PCISIG Vendor ID */
-    char     board_id[SX_BOARD_ID_LEN];    /**< board_id - The board id string */
-    uint8_t  dev_id;    /**< dev_id - device id */
+    sxd_boolean_t xm_exists;                      /**< Is XM connected */
+    uint8_t       xm_num_local_ports;              /**< Number of ports connected to the XM */
+    uint8_t       xm_local_ports[SX_XM_MAX_LOCAL_PORTS_LEN];     /**< List of ports connected to XM */
+    uint16_t      vsd_vendor_id;                  /**< vsd_vendor_id - PCISIG Vendor ID */
+    char          board_id[SX_BOARD_ID_LEN];      /**< board_id - The board id string */
+    uint8_t       dev_id;                         /**< dev_id - device id */
+    uint8_t       inta_pin;                       /**< Interrupt ack pin */
 };
 
 /**
@@ -1541,6 +2058,7 @@ struct ku_system_m_key {
 struct ku_query_rsrc {
     ku_res_id_t                          rsrc_id; /* Resource ID */
     uint64_t __attribute__((aligned(8))) rsrc_val; /* Resource ID val */
+    uint8_t                              dev_id; /**< dev_id - device id */
 };
 
 /**
@@ -1559,42 +2077,15 @@ struct ku_operation_tlv {
 };
 
 /**
- * ku_ptys_reg structure is used to store the PTYS register parameters
- */
-struct ku_ptys_reg {
-    sxd_port_an_disable_cap_t     an_disable_cap;       /** an_disable_cap - Auto Negotiation disable capability (device supports/does not support) */
-    sxd_port_an_disable_admin_t   an_disable_admin;       /** an_disable_admin - Auto Negotiation disable */
-    sxd_port_force_tx_aba_param_t force_tx_aba_param;       /** force_tx_aba_param - When set, use ABA parameters on TX when in force operation */
-    uint8_t                       local_port;       /**< local_port - local port number */
-    uint8_t                       proto_mask;       /**< proto_mask - protocol mask */
-    sxd_port_an_status_t          an_status;       /** an_status - Auto Negotiation status */
-    uint16_t                      data_rate_oper;       /** Port data rate in resolution of 100 Mb/s (0x0 = field unsupported) */
-    sxd_port_eth_proto_t          eth_proto_capability;       /**< eth_proto_capability - Ethernet port speed/protocols supported (bitmask) */
-    uint32_t                      ext_eth_proto_capability;       /**< ext_eth_proto_capability - Extended Ethernet port speed/protocols supported (bitmask) */
-    sxd_port_ib_link_width_t      ib_link_width_capability;       /** ib_link width - IB port link width (bitmask) */
-    sxd_port_ib_proto_t           ib_proto_capability;       /**< ib_proto_capability - IB port speed/protocols supported (bitmask) */
-    uint32_t                      eth_proto_admin;       /**< eth_proto_admin - Ethernet port speed/protocols bitmask */
-    uint32_t                      ext_eth_proto_admin;       /**< ext_eth_proto_admin - Extended Ethernet port speed/protocols bitmask */
-    uint16_t                      ib_link_width_admin;       /** ib_link_width_admin - InfiniBand port link width bitmask */
-    uint16_t                      ib_proto_admin;       /**< ib_proto_admin - IB port speed/protocols bitmask */
-    uint32_t                      eth_proto_oper;       /**< eth_proto_oper - Ethernet port speed/protocols bitmask */
-    uint32_t                      ext_eth_proto_oper;       /**< ext_eth_proto_oper - Extended Ethernet port speed/protocols bitmask */
-    uint16_t                      ib_link_width_oper;       /** ib_link_width_oper - InfiniBand port link width bitmask */
-    uint16_t                      ib_proto_oper;       /**< ib_proto_oper - IB port speed/protocols bitmask */
-    sxd_port_connector_type_t     connector_type;       /** connector_type - connector type */
-    uint32_t                      eth_proto_lp_advertise;       /** eth_proto_lp_advertise - Ethernet port's link partner advertised protocols */
-};
-
-/**
  * mhsr_health_mode enumerated type is used to note the MHSR health state.
  */
 enum mhsr_health_mode {
-    MHSR_HEALTH_MODE_FAILURE = 0,
-    MHSR_HEALTH_MODE_RESERVED = 1,
+    MHSR_HEALTH_MODE_FAILURE          = 0,
+    MHSR_HEALTH_MODE_RESERVED         = 1,
     MHSR_HEALTH_MODE_NORMAL_OPERATION = 2,
-    MHSR_HEALTH_MODE_DEFAULT_STATE = 3,      /*boot/init*/
-    MHSR_HEALTH_MODE_MIN = MHSR_HEALTH_MODE_FAILURE,
-    MHSR_HEALTH_MODE_MAX = MHSR_HEALTH_MODE_DEFAULT_STATE,
+    MHSR_HEALTH_MODE_DEFAULT_STATE    = 3,   /*boot/init*/
+    MHSR_HEALTH_MODE_MIN              = MHSR_HEALTH_MODE_FAILURE,
+    MHSR_HEALTH_MODE_MAX              = MHSR_HEALTH_MODE_DEFAULT_STATE,
 };
 
 /**
@@ -1609,17 +2100,23 @@ struct ku_mhsr_reg {
  */
 enum profile_flood_mode_type {
     PROFILE_FLOOD_MODE_TYPE_SINGLE_ENTRY = 0,
-    PROFILE_FLOOD_MODE_TYPE_USE_FID = 1,
-    PROFILE_FLOOD_MODE_TYPE_USE_VID = 2,
-    PROFILE_FLOOD_MODE_TYPE_MIXED_MODE = 3,
+    PROFILE_FLOOD_MODE_TYPE_USE_FID      = 1,
+    PROFILE_FLOOD_MODE_TYPE_USE_VID      = 2,
+    PROFILE_FLOOD_MODE_TYPE_MIXED_MODE   = 3,
     PROFILE_FLOOD_MODE_TYPE_CONTROL_MODE = 4,
+    PROFILE_FLOOD_MODE_TYPE_CFF_MODE     = 5,
     PROFILE_FLOOD_MODE_TYPE_MAX,
 };
 
 typedef enum sxd_sftr_table_type {
     SXD_SFTR_TABLE_TYPE_ANY_TYPE_E = 0x0,
-    SXD_SFTR_TABLE_TYPE_FID_E = 0x4
+    SXD_SFTR_TABLE_TYPE_FID_E      = 0x4
 } sxd_sftr_table_type_t;
+
+/**
+ * SFTR_MAX_PORTS define maximum ports supported by one SFTR reg access
+ */
+#define SFTR_MAX_PORTS 256
 
 /**
  * ku_sftr_reg structure is used to store the SFTR register
@@ -1632,8 +2129,8 @@ struct ku_sftr_reg {
     uint16_t                 index;
     enum sxd_sftr_table_type table_type;
     uint16_t                 range; /**Range of entries to update*/
-    uint16_t                 ports_bitmap[0x000000FF + 1];
-    uint16_t                 mask_bitmap[0x000000FF + 1];
+    uint16_t                 ports_bitmap[SFTR_MAX_PORTS];
+    uint16_t                 mask_bitmap[SFTR_MAX_PORTS];
 };
 
 /**
@@ -1641,6 +2138,7 @@ struct ku_sftr_reg {
  */
 struct ku_svpe_reg {
     uint8_t local_port; /** local_port - Local port number */
+    uint8_t lp_msb; /**< lp_msb - local port MSBs */
     uint8_t vp_en;      /** vp_en - Virtual Port Enable */
 };
 
@@ -1651,34 +2149,6 @@ struct ku_svpe_reg {
 enum svpe_virtual_port_enable {
     SVPE_VIRTUAL_PORT_802_1Q = 0,
     SVPE_VIRTUAL_PORT_802_1D = 1,
-};
-
-/**
- * sx_fdb_flush_type enumerated type is used to note FDB
- * flush type.
- */
-enum fdb_flush_type {
-    FDB_FLUSH_TYPE_SWID = 0,
-    FDB_FLUSH_TYPE_FID = 1,
-    FDB_FLUSH_TYPE_PORT = 2,
-    FDB_FLUSH_TYPE_PORT_FID = 3,
-    FDB_FLUSH_TYPE_LAG = 4,
-    FDB_FLUSH_TYPE_LAG_FID = 5,
-    FDB_FLUSH_TYPE_NVE = 6,
-    FDB_FLUSH_TYPE_NVE_FID = 7
-};
-
-/**
- * ku_sfdf_reg structure is used to store the SFDF register parameters
- */
-struct ku_sfdf_reg {
-    uint8_t             swid; /** swid - Switch partition ID */
-    enum fdb_flush_type flush_type; /** flush_type - Flush type */
-    uint16_t            fid; /** fid - FDB ID */
-    union {
-        uint16_t system_port;
-        uint16_t lag_id;
-    } lag_port; /** lag_port - System port or lag id*/
 };
 
 /**
@@ -1695,17 +2165,23 @@ struct ku_slecr_reg {
  */
 struct ku_spmlr_reg {
     uint8_t local_port; /**< local_port - local port number */
-    uint8_t sub_port; /** sub_port - Virtual port within the physical port */
+    uint8_t lp_msb; /**< lp_msb - local port MSBs */
     uint8_t learn_enable; /** learn_enable - Enable learning on this port */
 };
 
 /**
- * ku_spfsr_reg structure is used to store the SPFSR register parameters
+ * ku_smid_reg_op enumerated type is used to note the
+ * SMID operation.
  */
-struct ku_spfsr_reg {
-    uint8_t local_port; /** local_port - local port number */
-    uint8_t security;   /** security   - Enable security checks on this port */
+enum ku_smid_reg_op {
+    SXD_SMID_OP_UPDATE = 0,
+    SXD_SMID_OP_WRITE  = 1,
 };
+
+/**
+ * SMID_MAX_PORTS define maximum ports supported by one SMID reg access
+ */
+#define SMID_MAX_PORTS 256
 
 /**
  * ku_smid_reg structure is used to store the SMID register parameters
@@ -1713,8 +2189,8 @@ struct ku_spfsr_reg {
 struct ku_smid_reg {
     uint8_t  swid; /** swid - Switch partition ID */
     uint16_t mid; /** mid - Multicast Identifier */
-    uint16_t ports_bitmap[0x000000FF + 1]; /** ports_bitmap - Local port <i> sub port <j> membership */
-    uint16_t mask_bitmap[0x000000FF + 1]; /** mask_bitmap - Local port <i> sub port <j> mask */
+    uint16_t ports_bitmap[SMID_MAX_PORTS]; /** ports_bitmap - Local port <i> sub port <j> membership */
+    uint16_t mask_bitmap[SMID_MAX_PORTS]; /** mask_bitmap - Local port <i> sub port <j> mask */
     uint8_t  op; /** op - op == 0 legacy (SET), op == 1 CLEAR ALL*/
     uint8_t  smpe_valid; /** smpe_valid - SMPE validity bit */
     uint16_t smpe; /** smpe - Switch Multicast Port Egress */
@@ -1744,6 +2220,7 @@ typedef struct spvmlr_vlan_data {
 
 struct ku_spvmlr_reg {
     uint8_t            local_port; /** local_port - Local port to send the packet */
+    uint8_t            lp_msb; /**< lp_msb - local port MSBs */
     uint8_t            num_rec; /** number of VLAN learm_mode records    */
     spvmlr_vlan_data_t vlan_data[SPVMLR_MAX_RECORDS];
 };
@@ -1753,10 +2230,10 @@ struct ku_spvmlr_reg {
  * PFCA operation.
  */
 enum sxd_flow_counter_op {
-    SXD_PFCA_OP_NOP = 0,
+    SXD_PFCA_OP_NOP      = 0,
     SXD_PFCA_OP_ALLOCATE = 1,
-    SXD_PFCA_OP_TEST = 2,
-    SXD_PFCA_OP_FREE = 3,
+    SXD_PFCA_OP_TEST     = 2,
+    SXD_PFCA_OP_FREE     = 3,
 };
 
 
@@ -1764,10 +2241,15 @@ enum sxd_flow_counter_op {
  * spgt_operation enumerated type is used to note the SPGT operation.
  */
 enum spgt_operation {
-    SPGT_OPERATION_ADD = 0,
+    SPGT_OPERATION_ADD    = 0,
     SPGT_OPERATION_DELETE = 1,
-    SPGT_OPERATION_EDIT = 2,
+    SPGT_OPERATION_EDIT   = 2,
 };
+
+/**
+ * SPGT_MAX_PORTS define maximum ports supported by one SPGT reg access
+ */
+#define SPGT_MAX_PORTS 256
 
 /**
  * ku_spgt_reg structure is used to store the SPGT register parameters
@@ -1775,20 +2257,20 @@ enum spgt_operation {
 struct ku_spgt_reg {
     enum spgt_operation operation;
     uint16_t            pgi;
-    uint16_t            ports_bitmap[0x000000FF + 1];
-    uint16_t            mask_bitmap[0x000000FF + 1];
+    uint16_t            ports_bitmap[SPGT_MAX_PORTS];
+    uint16_t            mask_bitmap[SPGT_MAX_PORTS];
 };
 
 /**
  * sfn_type enumerated type is used to note the SFN data type.
  */
 enum sfn_type {
-    SFN_TYPE_LEARNT_MAC = 5,
-    SFN_TYPE_LEARNT_MAC_LAG = 6,
+    SFN_TYPE_LEARNT_MAC            = 5,
+    SFN_TYPE_LEARNT_MAC_LAG        = 6,
     SFN_TYPE_LEARNT_UNICAST_TUNNEL = 0xD,
-    SFN_TYPE_AGED_MAC = 7,
-    SFN_TYPE_AGED_MAC_LAG = 8,
-    SFN_TYPE_AGED_UNICAST_TUNNEL = 0xE,
+    SFN_TYPE_AGED_MAC              = 7,
+    SFN_TYPE_AGED_MAC_LAG          = 8,
+    SFN_TYPE_AGED_UNICAST_TUNNEL   = 0xE,
 };
 
 /**
@@ -1910,40 +2392,43 @@ enum sfd_rec_type {
  * sfd_type_t enumerated type is used to note the SFD data type.
  */
 enum sfd_type {
-    SFD_TYPE_UNICAST = 0,
-    SFD_TYPE_UNICAST_LAG = 1,
-    SFD_TYPE_MULTICAST = 2,
-    SFD_TYPE_LEARNT_MAC_E = 5,
-    SFD_TYPE_LEARNT_MAC_LAG_E = 6,
-    SFD_TYPE_AGED_MAC_E = 7,
-    SFD_TYPE_AGED_MAC_LAG_E = 8,
-    SFD_TYPE_UNICAST_TUNNEL = 0xC,
+    SFD_TYPE_UNICAST             = 0,
+    SFD_TYPE_UNICAST_LAG         = 1,
+    SFD_TYPE_MULTICAST           = 2,
+    SFD_TYPE_LEARNT_MAC_E        = 5,
+    SFD_TYPE_LEARNT_MAC_LAG_E    = 6,
+    SFD_TYPE_AGED_MAC_E          = 7,
+    SFD_TYPE_AGED_MAC_LAG_E      = 8,
+    SFD_TYPE_UNICAST_TUNNEL      = 0xC,
     SFD_TYPE_LEARNT_MAC_TUNNEL_E = 0xD,
-    SFD_TYPE_AGED_MAC_TUNNEL_E = 0xE,
-    SFD_TYPE_MULTICAST_TUNNEL = 0xF,
+    SFD_TYPE_AGED_MAC_TUNNEL_E   = 0xE,
+    SFD_TYPE_MULTICAST_TUNNEL    = 0xF,
 };
 
 /**
  * sfd_operation enumerated type is used to note the SFD operation.
  */
 enum sfd_operation {
-    SFD_OPERATION_DUMP_FDB = 0,
-    SFD_OPERATION_QUERY = 1,
+    SFD_OPERATION_DUMP_FDB                 = 0,
+    SFD_OPERATION_QUERY                    = 1,
     SXD_OPERATION_QUERY_AND_CLEAR_ACTIVITY = 2,
-    SFD_OPERATION_TEST = 0,
-    SFD_OPERATION_ADD = 1,
-    SFD_OPERATION_DELETE = 2,
-    SXD_OPERATION_REMOVE_NOTIFICATION = 3,
+    SFD_OPERATION_TEST                     = 0,
+    SFD_OPERATION_ADD                      = 1,
+    SFD_OPERATION_DELETE                   = 2,
+    SXD_OPERATION_REMOVE_NOTIFICATION      = 3,
 };
 
 /**
  * sfd_policy enumerated type is used to note the SFD data replace policy.
  */
 enum sfd_policy {
-    SFD_POLICY_STATIC = 0,
-    SFD_POLICY_DYNAMIC_REMOTE = 1,
+    SFD_POLICY_STATIC          = 0,
+    SFD_POLICY_DYNAMIC_REMOTE  = 1,
+    SFD_POLICY_DYNAMIC_LEARN   = 1, /**< Applicable for MC and MC tunnel records only, while it is equal to
+                                     *    SFD_POLICY_DYNAMIC_REMOTE, applibs does not require updates,
+                                     *    and POLICY_TO_MAC_TYPE can be used */
     SFD_POLICY_DYNAMIC_AGEABLE = 3,
-    SFD_POLICY_INVALID = -1,
+    SFD_POLICY_INVALID         = -1,
 };
 
 /**
@@ -1951,13 +2436,13 @@ enum sfd_policy {
  * action.
  */
 enum sfd_action {
-    SFD_ACTION_FORWARD_ONLY = 0,
-    SFD_ACTION_FORWARD_AND_TRAP = 1,
-    SFD_ACTION_TRAP_ONLY = 2,
+    SFD_ACTION_FORWARD_ONLY         = 0,
+    SFD_ACTION_FORWARD_AND_TRAP     = 1,
+    SFD_ACTION_TRAP_ONLY            = 2,
     SFD_ACTION_FORWARD_TO_IP_ROUTER = 3,
-    SFD_ACTION_FORWARD_TO_FCF = 4,
-    SFD_ACTION_DISCARD = 15,
-    SFD_ACTION_INVALID = -1,
+    SFD_ACTION_FORWARD_TO_FCF       = 4,
+    SFD_ACTION_DISCARD              = 15,
+    SFD_ACTION_INVALID              = -1,
 };
 
 /**
@@ -2004,6 +2489,7 @@ struct sfd_unicast_lag_data {
  * sfd_multicast_data structure is used to store multicast data.
  */
 struct sfd_multicast_data {
+    enum sfd_policy      policy;
     struct sx_ether_addr mac;      /**< mac - Base MAC address */
     uint8_t              activity;
     uint16_t             pgi;
@@ -2024,6 +2510,9 @@ struct sfd_uc_tunnel_data {
     uint16_t             fid;
     uint8_t              action;
     uint8_t              protocol;
+    uint8_t              gen_enc;
+    uint16_t             tunnel_port_lbf_bitmap;
+    uint16_t             ecmp_size;
     uint32_t             udip_lsb; /* if protocol is IPv4 - lsb of dest IP; if IPv6 - pointer to dest IP */
     sxd_counter_set_t    counter_set;
 };
@@ -2040,12 +2529,15 @@ enum sfd_uc_tunnel_protocol {
  * sfd_mc_tunnel_data structure is used to store multicast data.
  */
 struct sfd_mc_tunnel_data {
+    enum sfd_policy      policy;
     struct sx_ether_addr mac; /**< mac - Base MAC address */
     uint8_t              activity;
     uint16_t             mid;
     uint16_t             fid;
     uint8_t              action;
     uint32_t             underlay_mc_ptr;
+    uint16_t             tunnel_port_lbf_bitmap;
+    uint16_t             ecmp_size;
     sxd_counter_set_t    counter_set;
 };
 
@@ -2060,7 +2552,7 @@ struct ku_sfd_reg {
     uint32_t           record_locator;
     enum sfd_type      sfd_type[SFD_MAX_RECORDS];
     uint8_t            num_records;
-    union {
+    union sfd_data {
         struct sfd_unicast_data     uc;
         struct sfd_unicast_lag_data uc_lag;
         struct sfd_multicast_data   mc;
@@ -2070,44 +2562,25 @@ struct ku_sfd_reg {
 };
 
 /**
- * ku_sfdat_reg structure is used to store the SFDAT register parameters
- */
-struct ku_sfdat_reg {
-    uint8_t  swid; /**< swid - Switch partition ID */
-    uint32_t age_time; /**< age_time - Aging time in seconds */
-};
-
-/**
- * ku_spaft_reg structure is used to store the SPAFT register parameters
- */
-struct ku_spaft_reg {
-    uint8_t local_port; /**< local_port - Chip local port ID */
-    uint8_t sub_port; /**< sub_port - VEPA channel on Local Port */
-    uint8_t allow_untagged; /**< allow_untagged - When set, untagged frames on the ingress are admitted */
-    uint8_t allow_priotagged; /**< allow_priotagged - When set, priority tagged frames on the ingress are admitted */
-    uint8_t allow_tagged; /**< allow_tagged - When set, tagged frames on the ingress are admitted */
-};
-
-/**
  * spvm_vlan_data structure is used to store SPVM vlan data
  * vlan data.
  */
-struct spvm_vlan_data {
+typedef struct spvm_vlan_data {
     uint8_t  ingress_membership; /**< ingress_membership - Ingress membership in VLAN ID vid<i> */
     uint8_t  egress_membership; /**< egress_membership - Egress membership in VLAN ID vid<i> */
     uint8_t  untagged_membership; /**< untagged_membership - Untagged - port is an untagged member - egress transmission uses untagged frames on VID<i> */
     uint16_t vid; /** VLAN ID to be added/removed from port or for querying */
-};
+} spvm_vlan_data_t;
 
 /**
  * ku_spvm_reg structure is used to store the SPVM register parameters
  */
 struct ku_spvm_reg {
-    uint8_t               prio_tagged; /** untagged packets are being transmitted untagged OR priority-tagged */
-    uint8_t               local_port; /**< local_port - Chip local port ID */
-    uint8_t               sub_port; /**< sub_port - VEPA channel on Local Port */
-    uint8_t               num_vlans; /**< num_vlans - Number of records to update. Each record contains: i, e, u, vid */
-    struct spvm_vlan_data vlan_data[256]; /**< vlan_data - VLAN data */
+    uint8_t          prio_tagged;      /** untagged packets are being transmitted untagged OR priority-tagged */
+    uint8_t          local_port;      /**< local_port - Chip local port ID */
+    uint8_t          lp_msb;      /**< lp_msb - local port MSBs */
+    uint8_t          num_vlans;      /**< num_vlans - Number of records to update. Each record contains: i, e, u, vid */
+    spvm_vlan_data_t vlan_data[256];      /**< vlan_data - VLAN data */
 };
 
 /**
@@ -2116,8 +2589,8 @@ struct ku_spvm_reg {
 struct ku_spvid_reg {
     uint8_t  tport;
     uint8_t  local_port; /**< local_port - Chip local port ID */
+    uint8_t  lp_msb; /**< lp_msb - local port MSBs */
     uint8_t  egr_et_set;
-    uint8_t  sub_port; /**< sub_port - VEPA channel on Local Port */
     uint8_t  et_vlan;  /**< EtherType used for when VLAN is pushed at ingress - 0 - Ethertype0 (default), 1 - Ethertype1 */
     uint16_t port_default_vid; /**< port_default_vid - Port default VID (default PVID is 001h) */
 };
@@ -2129,6 +2602,7 @@ struct ku_spvid_reg {
  */
 struct ku_spvc_reg {
     uint8_t local_port;      /**< local_port - Chip local port ID */
+    uint8_t lp_msb; /**< lp_msb - local port MSBs */
     uint8_t inner_et[SXD_ETHERTYPE_MAX_COUNT];     /**< Inner Ethertype enabled*/
     uint8_t et[SXD_ETHERTYPE_MAX_COUNT];     /**< Ethertype enabled*/
 };
@@ -2143,14 +2617,15 @@ struct ku_sver_reg {
 
 /* Ethertype 0 is always 0x8100 */
 #define SXD_VLAN_ETHERTYPE_0 0x8100
-
+/* Default Ethertype 1 is 0x88a8  */
+#define SXD_VLAN_ETHERTYPE_1 0x88a8
 
 /**
  * ku_spvtr_reg structure is used to store the SPVTR register parameters
  */
 struct ku_spvtr_reg {
     uint8_t tport;
-    uint8_t sub_port; /**< sub_port - VEPA channel on Local Port. */
+    uint8_t lp_msb; /**< lp_msb - local port MSBs */
     uint8_t local_port; /**< local_port - Chip local port ID */
     uint8_t ipprio_enable; /**< ipprio_enable - set to 1 to configure ipprio_mode */
     uint8_t ipvid_enable;  /**< ipvid_enable - set to 1 to configure ipvid_mode */
@@ -2161,12 +2636,19 @@ struct ku_spvtr_reg {
 };
 
 /**
+ * PIFR_MAX_PORTS define maximum ports supported by one PIFR reg access
+ */
+#define PIFR_MAX_PORTS 256
+
+/**
  * ku_pifr_reg structure is used to store the PIFR register parameters
  */
 struct ku_pifr_reg {
+    uint8_t table_id;   /**< table_id - 1 = BRIDGE_ONLY (L2) filter table, 0 = GLOBAL(L2/L3) filter table */
     uint8_t local_port; /**< local_port - Chip local port ID */
-    uint8_t ports_bitmap[0x000000FF + 1]; /**< 1 = filter packets coming from port[i], 0 = don't filter */
-    uint8_t mask_bitmap[0x000000FF + 1];  /**< 1 = set port[i], 0 = don't set */
+    uint8_t lp_msb;     /**< local_port msb */
+    uint8_t ports_bitmap[PIFR_MAX_PORTS]; /**< 1 = filter packets coming from port[i], 0 = don't filter */
+    uint8_t mask_bitmap[PIFR_MAX_PORTS];  /**< 1 = set port[i], 0 = don't set */
 };
 
 /**
@@ -2175,6 +2657,7 @@ struct ku_pifr_reg {
 struct ku_sspr_reg {
     uint8_t  is_master; /**< is_master - if set then this record describes the Master System Port */
     uint8_t  local_port; /**< local_port - Chip local port ID */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint8_t  sub_port; /**< sub_port - VEPA channel on Local Port */
     uint16_t system_port; /**< system_port - Multi SwitchX environment port ID */
 };
@@ -2186,113 +2669,24 @@ struct ku_scar_reg {
     uint8_t log2_fdb_size; /**< log2_fdb_size - Capability: Log (base2) of the maximum FDB entries that are supported by the device */
 };
 
-/**
- * ku_sgcr_reg structure is used to store the SGCR register parameters
- */
-struct ku_sgcr_reg {
-    uint8_t llb; /**< llb - Link Local Broadcast  */
-};
-enum spms_mstp_state {
+typedef enum spms_mstp_state {
     SPMS_MSTP_STATE_DISCARDING = 1,
-    SPMS_MSTP_STATE_LEARNING = 2,
+    SPMS_MSTP_STATE_LEARNING   = 2,
     SPMS_MSTP_STATE_FORWARDING = 3,
-};
+} spms_mstp_state_t;
 
 /**
  * ku_spms_reg structure is used to store the SPMS register parameters
  */
 struct ku_spms_reg {
-    uint8_t              local_port; /**< local_port - local port number */
-    enum spms_mstp_state state[4096]; /**< state - MSTP/RSTP State on VID<i> */
-};
-struct mpat_encap_local_eth {
-    uint8_t tclass;
-};
-struct mpat_encap_remote_eth_vlan {
-    uint8_t  tclass;
-    uint16_t vid;
-    uint8_t  pcp;
-    uint8_t  dei;
-    uint8_t  vlan_ethertype_id;
-};
-struct mpat_encap_remote_eth_l2 {
-    uint8_t  swid;
-    uint8_t  tclass;
-    uint16_t vid;
-    uint8_t  pcp;
-    uint8_t  tp;
-    uint8_t  mac[6];
-    uint8_t  dei;
-    uint8_t  vlan_ethertype_id;
-    uint8_t  version;
-    uint8_t  dpa;
-};
-struct mpat_encap_local_ib {
-    uint8_t vl;
-};
-struct mpat_encap_remote_ib {
-    uint8_t vl;
-    uint8_t slid;
-    uint8_t dlid;
-    uint8_t sl;
-};
-struct mpat_encap_remote_eth_l3 {
-    uint8_t  swid;
-    uint8_t  tclass;
-    uint16_t vid;
-    uint8_t  pcp;
-    uint8_t  tp;
-    uint8_t  mac[6];
-    uint8_t  dei;
-    uint8_t  vlan_ethertype_id;
-    uint8_t  version;
-    uint8_t  dpa;
-    uint8_t  protocol;
-    uint8_t  smac[6];
-    uint32_t dip[4];
-    uint32_t sip[4];
-    uint8_t  dscp;
-    uint8_t  ecn;
-    uint8_t  ttl;
-};
-
-/**
- * SPAN session type format
- */
-union mpat_encapsulation {
-    struct mpat_encap_local_eth       local_eth;
-    struct mpat_encap_remote_eth_vlan remote_eth_vlan;
-    struct mpat_encap_remote_eth_l2   remote_eth_l2;
-    struct mpat_encap_local_ib        local_ib;
-    struct mpat_encap_remote_ib       remote_ib;
-    struct mpat_encap_remote_eth_l3   remote_eth_l3;
-};
-
-/**
- * ku_mpat_reg structure is used to store the MPAT register
- * parameters
- */
-struct ku_mpat_reg {
-    uint8_t                              pa_id; /**< pa_id - port analyzer id */
-    uint8_t                              mngr_type; /**<  mngr_type - Manager Type*/
-    uint16_t                             system_port; /**< system_port  */
-    uint8_t                              e; /**<  e - indicating the Port Analyzer it enabled */
-    uint8_t                              c; /**<  c - clear counters */
-    uint8_t                              qos; /**< qos - quality of service mode */
-    uint8_t                              be; /**< be- Best Effort traffic handling */
-    uint8_t                              tr; /**<  tr - truncate the packet to truncate size */
-    uint8_t                              stclass; /**< stclass - Stacking TClass */
-    uint8_t                              span_type; /**<  SPAN Type */
-    uint16_t                             truncation_size; /**< truncation_size - granularity 4 */
-    union mpat_encapsulation             encap; /**<  Remote SPAN encapsulation */
-    uint64_t __attribute__((aligned(8))) buffer_drop; /**< packet drops due to buffer size */
-    uint64_t __attribute__((aligned(8))) be_drop; /**< packet drops due to best effort */
-    uint64_t __attribute__((aligned(8))) wred_drop; /**< packet drops due to WRED */
+    uint8_t           local_port;    /**< local_port - local port number */
+    uint8_t           lp_msb;    /**< lp_msb - local port MSBs */
+    spms_mstp_state_t state[4096];    /**< state - MSTP/RSTP State on VID<i> */
 };
 
 typedef enum sxd_span_sbib_buff_status {
     SXD_SBIB_MIRROR_BUFF_STATUS_NOT_REACH_SIZE_E = 0,
-    SXD_SBIB_MIRROR_BUFF_STATUS_REACH_SIZE_E = 1
+    SXD_SBIB_MIRROR_BUFF_STATUS_REACH_SIZE_E     = 1
 } sxd_span_sbib_buff_status_t;
 
 /**
@@ -2301,6 +2695,7 @@ typedef enum sxd_span_sbib_buff_status {
 struct ku_sbib_reg {
     uint8_t  type;      /**< type 0- Internal buffer allocated (Other values not supported) */
     uint8_t  local_port;    /**< local_port  */
+    uint8_t  lp_msb;        /**< local_port msb */
     uint8_t  int_buff_index; /**< int_buff_index - Spectrum support only value = 0   */
     uint8_t  status;        /**< 0-buff status was NOT reach the requested size / 1-buff status reach target size */
     uint32_t buff_size;  /**< buffer size */
@@ -2314,7 +2709,7 @@ struct ku_sbib_reg {
 struct ku_mpar_reg {
     uint8_t  mngr_type; /**<  mngr_type - Manager Type*/
     uint8_t  local_port; /**< local_port   */
-    uint8_t  sub_port; /**< sub_port   */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint8_t  i_e;    /**<  Ingress / Egress */
     uint8_t  enable; /**<  indicating the Port Analyzer enable*/
     uint8_t  pa_id;  /**< pa_id - port analyzer id */
@@ -2327,6 +2722,7 @@ struct ku_mpar_reg {
 struct ku_slcor_reg {
     uint8_t  collector; /**< collector - Collector configuration */
     uint8_t  local_port; /**< local_port - local port number */
+    uint8_t  lp_msb; /**< lp_msb - local port MSBs */
     uint16_t lag_id; /**< lag_id - LAG Identifier. Index into the LAG Descriptor table */
     uint8_t  port_index; /**< port index - port index in the LAG list.*/
 };
@@ -2335,6 +2731,9 @@ struct ku_slcor_reg {
  * ku_slcr_reg structure is used to store the SLCR register parameters
  */
 struct ku_slcr_reg {
+    uint8_t  pp;
+    uint8_t  local_port; /**< local_port - local port number */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint8_t  sh; /**< sh - Symmetric Hash */
     uint8_t  hash_type; /**< hash_type - Hash Type */
     uint32_t hash_configuration; /**< hash_configuration - LAG Hashing Configuration */
@@ -2346,15 +2745,16 @@ struct ku_slcr_reg {
  */
 
 typedef enum slcr_v2_hash_type {
-    SXD_SLCR_V2_HASH_TYPE_CRC = 0,
-    SXD_SLCR_V2_HASH_TYPE_XOR = 1,
+    SXD_SLCR_V2_HASH_TYPE_CRC    = 0,
+    SXD_SLCR_V2_HASH_TYPE_XOR    = 1,
     SXD_SLCR_V2_HASH_TYPE_RANDOM = 2,
-    SXD_SLCR_V2_HASH_TYPE_CRC2 = 3,   /* For Spectrum-2 and on */
+    SXD_SLCR_V2_HASH_TYPE_CRC2   = 3, /* For Spectrum-2 and on */
 } slcr_v2_hash_type_e;
 
 typedef struct ku_slcr_v2_reg {
     uint8_t             pp; /**< pp - Per Port Configuration */
     uint8_t             local_port; /**< local_port - local port number */
+    uint8_t             lp_msb; /**< lp_msb - local port MSBs */
     uint8_t             sh; /**< sh - Symmetric Hash */
     slcr_v2_hash_type_e type;        /**< type - Hash Type */
     uint32_t            seed; /**< seed - LAG seed value */
@@ -2366,12 +2766,12 @@ typedef struct ku_slcr_v2_reg {
 } ku_slcr_v2_reg_t;
 
 enum sldr_operation {
-    SLDR_OPERATION_CREATE_LAG = 0,
-    SLDR_OPERATION_DESTROY_LAG = 1,
-    SLDR_OPERATION_ADD_PORT_LIST = 2,
-    SLDR_OPERATION_DEL_PORT_LIST = 3,
-    SLDR_OPERATION_LAG_REDIRECT = 4,
-    SLDR_OPERATION_FINE_GRAIN_LAG_ENABLE = 5,
+    SLDR_OPERATION_CREATE_LAG             = 0,
+    SLDR_OPERATION_DESTROY_LAG            = 1,
+    SLDR_OPERATION_ADD_PORT_LIST          = 2,
+    SLDR_OPERATION_DEL_PORT_LIST          = 3,
+    SLDR_OPERATION_LAG_REDIRECT           = 4,
+    SLDR_OPERATION_FINE_GRAIN_LAG_ENABLE  = 5,
     SLDR_OPERATION_FINE_GRAIN_LAG_DISABLE = 6,
 };
 
@@ -2402,6 +2802,7 @@ struct ku_sfdt_reg {
  */
 struct ku_qprt_reg {
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t dei; /**< dei - DEI */
     uint8_t prio; /**< prio - PCP */
     uint8_t color; /**< color */
@@ -2413,122 +2814,9 @@ struct ku_qprt_reg {
  */
 struct ku_qpdp_reg {
     uint8_t local_port; /**< local_port - local port number */
-    uint8_t sub_port; /**< sub_port - Virtual port within the physical port. */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t color; /**< color - 0-green, 1-yellow, 2-red */
     uint8_t default_priority; /**< default_priority - Default Port priority (default 0) */
-};
-
-/**
- * ku_qsptc_reg structure is used to store the QSPTC register parameters
- */
-struct ku_qsptc_reg {
-    uint8_t local_iport; /**< local_iport - local ingress port number (must be stacking port) */
-    uint8_t local_eport; /**< local_eport - local egress port number (must be stacking port) */
-    uint8_t itclass; /**< itclass - Received tclass */
-    uint8_t tclass; /**< tclass - Regenerated stacking traffic class for received packet on stacking port */
-};
-
-/**
- * ku_qtct_reg structure is used to store the QTCT register parameters
- */
-struct ku_qtct_reg {
-    uint8_t local_port; /**< local_port - local port number */
-    uint8_t sub_port; /**< sub_port - Virtual port within the physical port. */
-    uint8_t priority; /**< priority - Priority */
-    uint8_t traffic_class; /**< traffic_class - Traffic class used for priority=<prio> */
-};
-
-/**
- * ku_cnct_reg structure is used to store the CNCT register parameters
- */
-struct ku_cnct_reg {
-    uint8_t local_port; /**< local_port - local port number */
-    uint8_t prio; /**< priority - Priority */
-    uint8_t enable_congestion_notif_valid; /**< enable write operation into enable_congestion_notif */
-    uint8_t enable_congestion_notif; /**< disable/enable congestion notification for this egress port */
-    uint8_t keep_cn_tags_valid; /**< enable write operation into keep_cn_tags */
-    uint8_t keep_cn_tags; /**< keep/remove CNTags on frames egressing to this port */
-};
-
-
-/**
- * ku_cpid_reg structure is used to store the CPID register parameters
- */
-struct ku_cpid_reg {
-    uint8_t                              local_port; /**< local_port - local port number */
-    uint8_t                              prio; /**< priority - Priority */
-    uint64_t __attribute__((aligned(8))) cpid; /**< IEEE 802.1Qau Congestion Point Identifier */
-};
-
-/**
- * sxd_cpcs_operation enumerated type is used to note the
- * CPCS operation type.
- */
-enum sxd_cpcs_operation {
-    SXD_CPCS_OP_SET = 0,
-    SXD_CPCS_OP_GET = 1,
-};
-
-
-/**
- * ku_cpcs_reg structure is used to store the CPCS register parameters
- */
-struct ku_cpcs_reg {
-    enum sxd_cpcs_operation operation;
-    uint8_t                 traffic_class; /**< Traffic Class */
-    uint32_t                set_point; /**< The set point for the queue, */
-    int32_t                 cp_weight; /**< The weight (cpW) of the congestion point */
-    uint32_t                cp_sample_base; /**< The minimum number of octets to enqueue in the CPs queue between CNM PDU transmissions */
-    uint32_t                cp_min_header_octets; /**< The minimum number of octets that the CP is to return in the Encapsulated MSDU field ( */
-};
-
-
-/**
- * ku_cnmc_reg structure is used to store the CNMC register parameters
- */
-struct ku_cnmc_reg {
-    uint8_t prio; /**< priority - Priority */
-};
-
-/**
- * ets_tc_conf structure is used to store the QETCR register per tc parameters
- */
-struct ets_tc_conf {
-    uint8_t group_update; /**< group_update - Group Update */
-    uint8_t bw_update; /**< bw_update - Bandwidth Allocation Update */
-    uint8_t rate_update; /**< rate_update - Rate Limit Update */
-    uint8_t group; /**< group - TCG assigned to traffic class tc */
-    uint8_t bw_allocation; /**< bw_allocation - The percentage of bandwidth guaranteed to traffic class tc within its TCG */
-    uint8_t max_bw_units; /**< max_bw_units - The maximal bandwidth allowed for the use Ttraffic class tc */
-    uint8_t max_bw_value; /**< max_bw_value - The maximal bandwidth allowed for the use Ttraffic class tc */
-};
-
-/**
- * ets_global_shaper_conf structure is used to store the QETCR register global shaper parameters
- */
-struct ets_global_shaper_conf {
-    uint8_t rate_update; /**< rate_update - Rate Limit Update */
-    uint8_t max_bw_units; /**< max_bw_units - The maximal bandwidth units for the use of Global Shaper */
-    uint8_t max_bw_value; /**< max_bw_value - The maximal bandwidth value for the use of Global Shaper */
-};
-
-/**
- * ku_qegcs_reg structure is used to store the QEGCS register parameters
- */
-struct ku_qegcs_reg {
-    uint8_t local_port; /**< local_port - local port number */
-    uint8_t group_0_7_arbiter;
-    uint8_t group_15_arbiter;
-    uint8_t global_arbiter;
-};
-
-/**
- * ku_qetcr_reg structure is used to store the QETCR register parameters
- */
-struct ku_qetcr_reg {
-    uint8_t                       local_port; /**< local_port - local port number */
-    struct ets_tc_conf            tc_conf[8]; /**< tc_conf - Per-tclass configuration */
-    struct ets_global_shaper_conf global_shaper; /**< global_shaper - Global Shaper configuration */
 };
 
 /**
@@ -2536,6 +2824,7 @@ struct ku_qetcr_reg {
  */
 struct ku_qpfcr_reg {
     uint8_t local_port;
+    uint8_t lp_msb;    /**< local_port msb */
     uint8_t traffic_class;
     uint8_t traffic_class_group;
     uint8_t min_threshold;
@@ -2543,19 +2832,11 @@ struct ku_qpfcr_reg {
 };
 
 /**
- * ku_qdpm_reg structure is used to store the QDPM register parameters
- */
-struct ku_qdpm_reg {
-    uint8_t dscp_update[DSCP_CODES_NUMBER];    /**< dscp_update - whether to update this DSCP mapping in HW */
-    uint8_t color[DSCP_CODES_NUMBER]; /**< color mapping per DSCP value */
-    uint8_t priority[DSCP_CODES_NUMBER];       /**< priority mapping per DSCP value - Priority */
-};
-
-/**
  * ku_qpcr_reg structure is used to store the QPCR register parameters
  */
 struct ku_qpcr_reg {
-    uint8_t port; /**< port - Policer port number */
+    uint8_t port;   /**< local_port - Policer port number */
+    uint8_t lp_msb; /**< local_port msb */
     uint8_t global_policer; /**< global -   1 - Global policer configuration
                              *  0 - Per port policer configuration */
     uint16_t pid; /**< policer_id - Policer ID */
@@ -2595,7 +2876,8 @@ struct ku_access_qpcr_reg {
  */
 struct ku_qpbr_reg {
     uint8_t operation; /**< policer_operation - Operation */
-    uint8_t port; /**< port - Policer port number */
+    uint8_t port;      /**< local_port - Policer port number */
+    uint8_t lp_msb;    /**< local_port msb */
     uint8_t global_policer; /**< global -   1 - Global policer configuration
                              *   0 - Per port policer configuration */
     uint16_t pid; /**< pid - Policer ID */
@@ -2611,7 +2893,8 @@ struct ku_qpbr_reg {
  * parameters
  */
 struct ku_plbf_reg {
-    uint8_t port; /**< local_port - local port number */
+    uint8_t port;     /**< local_port - local port number */
+    uint8_t lp_msb;   /**< local_port msb */
     uint8_t lbf_mode; /**< lbf_mode - Port loopback filtering state  */
 };
 
@@ -2620,6 +2903,7 @@ struct ku_plbf_reg {
  */
 struct ku_qpts_reg {
     uint8_t port; /**< port - Port number */
+    uint8_t lp_msb; /**< local_port msb */
     uint8_t trust_level; /**< trust_level -
                           *  0 - Trust Port
                           *  1 - Trust User Priority - this is the default value / trust L2
@@ -2629,20 +2913,11 @@ struct ku_qpts_reg {
 };
 
 /**
- * ku_qstct_reg structure is used to store the QSTCT register parameters
- */
-struct ku_qstct_reg {
-    uint8_t swid; /**< swid - Switch partition ID */
-    uint8_t prio; /**< prio - Ingress Priority */
-    uint8_t utclass; /**< utclass - Stacking traffic class used for unicast packets with priority prio */
-    uint8_t mtclass; /**< mtclass - Stacking traffic class used for multicast packets with priority prio */
-};
-
-/**
  * ku_qpdpm_reg structure is used to store the QPDPM register parameters
  */
 struct ku_qpdpm_reg {
     uint8_t local_port; /**< port - Port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t dscp_update[DSCP_CODES_NUMBER];    /**< dscp_update - whether to update this DSCP mapping in HW */
     uint8_t color[DSCP_CODES_NUMBER]; /**< color mapping per DSCP value */
     uint8_t priority[DSCP_CODES_NUMBER];       /**< priority mapping per DSCP value - Priority */
@@ -2653,6 +2928,7 @@ struct ku_qpdpm_reg {
  */
 struct ku_qepm_reg {
     uint8_t local_port; /**< port - Port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t exp_update[EXP_CODES_NUMBER];    /**< exp_update - whether to update this EXP mapping in HW */
     uint8_t ecn[EXP_CODES_NUMBER]; /**< the new packet ecn value */
     uint8_t color[EXP_CODES_NUMBER]; /**< color mapping per EXP value */
@@ -2660,68 +2936,11 @@ struct ku_qepm_reg {
 };
 
 /**
- * ku_qeec_reg structure is used to store the QEEC register parameters
- */
-struct ku_qeec_reg {
-    uint8_t  local_port; /**< port - Port number */
-    uint8_t  port_rate; /**< port_rate - Port rate */
-    uint8_t  element_hierarchy; /**< 0-port, 1-group, 2-sub-group, 3-TC */
-    uint8_t  element_index; /** index in the hierarchy */
-    uint8_t  next_element_index; /** element index of the lower level element is connected to */
-    uint8_t  min_shaper_enable; /**< min_shaper_enable - 0-disable, 1- enable */
-    uint8_t  ptp_shaper; /**< shaper mode - 0-regular shaper, 1-PTP oriented shaper */
-    uint8_t  packet_mode; /**<  0-bytes mode, 1-packet mode */
-    uint32_t min_shaper; /** min shaper configuration */
-    uint8_t  max_shaper_enable; /**< max_shaper_enable - 0-disable, 1-enable */
-    uint32_t max_shaper; /** max shaper configuration */
-    uint8_t  phantom_queue_enable; /**< phantom_queue_enable - 0-disable, 1-enable */
-    uint32_t phantom_queue; /** phantom queue configuration */
-    uint8_t  dwrr_enable; /**< dwrr_enable - 0-disable, 1-enable */
-    uint8_t  dwrr; /** dwrr - 0-strict priority, 1-DWRR */
-    uint8_t  dwrr_weight; /** dwrr weight on the link going down from the element */
-};
-
-/**
- * ku_qpdcp_reg structure is used to store the QPDCP register parameters
- */
-struct ku_qpdpc_reg {
-    uint8_t local_port; /**local port number */
-    uint8_t sub_port; /** virtual port within the physical port */
-    uint8_t dei; /** default port DEI */
-    uint8_t pcp; /** default port PCP */
-};
-
-/**
- * ku_qtctm_reg structure is used to store the QTCTM register parameters
- */
-struct ku_qtctm_reg {
-    uint8_t local_port; /**local port number */
-    uint8_t mc_aware; /** 0-non mc aware, 1-mc aware */
-};
-
-/**
- * ku_qspip_reg structure is used to store the QSPIP register parameters
- */
-struct ku_qspip_reg {
-    uint8_t switch_prio; /**switch priority */
-    uint8_t ieee_prio; /** ieee priority */
-};
-
-/**
- * ku_qspcp_reg structure is used to store the QSPCP register parameters
- */
-struct ku_qspcp_reg {
-    uint8_t local_port; /**local port number */
-    uint8_t switch_prio; /** switch priority */
-    uint8_t rx_prio; /** RX counting priority */
-    uint8_t tx_prio; /** TX counting priority */
-};
-
-/**
  * ku_qrwe_reg structure is used to store the QRWE register parameters
  */
 struct ku_qrwe_reg {
     uint8_t local_port; /**local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t exp_rewrite; /**rewrite EXP enable */
     uint8_t dscp_rewrite; /**rewrite DSCP enable */
     uint8_t pcp_rewrite; /**rewrite PCP enable */
@@ -2754,6 +2973,7 @@ struct qpem_switch_prio {
  */
 struct ku_qpem_reg {
     uint8_t                 local_port; /**local port number */
+    uint8_t                 lp_msb;     /**< local_port msb */
     struct qpem_switch_prio switch_prio[16]; /** switch prio mapping */
 };
 
@@ -2777,6 +2997,7 @@ struct qpdsm_switch_prio {
  */
 struct ku_qpdsm_reg {
     uint8_t                  local_port; /**local port number */
+    uint8_t                  lp_msb;     /**< local_port msb */
     struct qpdsm_switch_prio switch_prio[16]; /** switch priority to dscp mapping */
 };
 
@@ -2801,24 +3022,8 @@ struct qppm_switch_prio {
  */
 struct ku_qppm_reg {
     uint8_t                 local_port; /**local port number */
+    uint8_t                 lp_msb;     /**< local_port msb */
     struct qppm_switch_prio switch_prio[16]; /** switch priority to pcp mapping */
-};
-
-/**
- * ku_qsll_reg structure is used to store the QSLL register parameters
- */
-struct ku_qsll_reg {
-    uint8_t sll_time;
-};
-
-/**
- * ku_access_qsll_reg structure is used to store the access
- * register QSLL command parameters
- */
-struct ku_access_qsll_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_qsll_reg      qsll_reg; /**< qsll_reg - QSLL register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
 };
 
 /**
@@ -2826,6 +3031,7 @@ struct ku_access_qsll_reg {
  */
 struct ku_qhll_reg {
     uint8_t local_port;
+    uint8_t lp_msb;    /**< local_port msb */
     uint8_t hll_time;
     uint8_t stall_en;
     uint8_t stall_cnt;
@@ -2845,19 +3051,9 @@ struct ku_access_qhll_reg {
  * PVGT operation type.
  */
 typedef enum sxd_pvgt_operation {
-    SXD_PVGT_OP_ADD_VLAN_E = 0,
+    SXD_PVGT_OP_ADD_VLAN_E    = 0,
     SXD_PVGT_OP_REMOVE_VLAN_E = 1,
 } sxd_pvgt_operation_t;
-
-/**
- * ku_pvgt_reg structure is used to store the PVGT register parameters
- */
-typedef struct ku_pvgt_reg {
-    uint8_t              swid;
-    sxd_pvgt_operation_t op;
-    uint16_t             vid;
-    uint16_t             vlan_group;
-} ku_pvgt_reg_t;
 
 /**
  * ku_msci_reg structure is used to store the MSCI register parameters
@@ -2871,10 +3067,11 @@ struct ku_msci_reg {
  * sxd_mrsr_command enumerated type is used to note the MRSR command type
  */
 enum sxd_mrsr_command {
-    SXD_MRSR_CMD_DO_NOTHING = 0,
-    SXD_MRSR_CMD_SW_RESET = 1,
-    SXD_MRSR_CMD_ENCLOSURE_RESET = 3,
-    SXD_MRSR_CMD_SHUTDOWN = 4
+    SXD_MRSR_CMD_DO_NOTHING           = 0,
+    SXD_MRSR_CMD_SW_RESET             = 1,
+    SXD_MRSR_CMD_ENCLOSURE_RESET      = 3,
+    SXD_MRSR_CMD_SHUTDOWN             = 4,
+    SXD_MRSR_CMD_RESET_AT_PCI_DISABLE = 6
 };
 
 /**
@@ -2885,31 +3082,11 @@ struct ku_mrsr_reg {
 };
 
 /**
- * ku_pprr_reg structure is used to store the PPRR register parameters
- */
-typedef struct ku_pprr_reg {
-    uint8_t  ipv4;
-    uint8_t  ipv6;
-    uint8_t  src;
-    uint8_t  dst;
-    uint8_t  tcp;
-    uint8_t  udp;
-    uint8_t  ignore_l3;
-    uint8_t  ignore_l4;
-    uint8_t  inner_outer;
-    uint8_t  ip_length;
-    uint8_t  reg_index;
-    uint16_t port_range_min;
-    uint16_t port_range_max;
-    uint8_t  cbset;
-} ku_pprr_reg_t;
-
-/**
  * sxd_pagt_operation_t enumerated type is used to note the
  * PAGT operation type.
  */
 typedef enum sxd_pagt_operation {
-    SXD_PAGT_OP_CREATE_E = 0,
+    SXD_PAGT_OP_CREATE_E     = 0,
     SXD_PAGT_OP_DEALLOCATE_E = 1,
 } sxd_pagt_operation_t;
 
@@ -2937,85 +3114,65 @@ typedef struct ku_pagt_reg {
  * PVBT operation type.
  */
 typedef enum sxd_pvbt_operation {
-    SXD_PVBT_OP_BIND_E = 0,
+    SXD_PVBT_OP_BIND_E   = 0,
     SXD_PVBT_OP_UNBIND_E = 1,
 } sxd_pvbt_operation_t;
-
-/**
- * ku_pvbt_reg structure is used to store the PVBT register parameters
- */
-typedef struct ku_pvbt_reg {
-    sxd_pvbt_operation_t operation;
-    uint8_t              swid;
-    uint16_t             vlan_group;
-    uint8_t              group;
-    uint16_t             acl_id_grp_id;
-} ku_pvbt_reg_t;
-
 
 /**
  * sxd_ppbt_operation enumerated type is used to note the
  * PPBT operation type.
  */
 typedef enum sxd_ppbt_operation {
-    SXD_PPBT_OP_BIND_E = 0,
+    SXD_PPBT_OP_BIND_E   = 0,
     SXD_PPBT_OP_UNBIND_E = 1,
+    SXD_PPBT_OP_ADD_E    = 2,
 } sxd_ppbt_operation_t;
 
 typedef enum sxd_flex_acl_action_type {
-    SXD_ACTION_TYPE_NULL_E = 0,
-    SXD_ACTION_TYPE_MAC_E = 1,
-    SXD_ACTION_TYPE_VLAN_E = 2,
-    SXD_ACTION_TYPE_TRAP_E = 3,
-    SXD_ACTION_TYPE_TRAP_W_USER_DEF_VAL_E = 4,
-    SXD_ACTION_TYPE_PORT_FILTER_E = 5,
-    SXD_ACTION_TYPE_QOS_E = 6,
-    SXD_ACTION_TYPE_FORWARD_E = 7,
-    SXD_ACTION_TYPE_POLICING_COUNTING_E = 8,
-    SXD_ACTION_TYPE_META_DATA_E = 9,
-    SXD_ACTION_TYPE_UC_ROUTER_AND_MPLS_E = 10,
-    SXD_ACTION_TYPE_VXLAN_E = 11,
-    SXD_ACTION_TYPE_MPLS_E = 12,
-    SXD_ACTION_TYPE_HASH_E = 13,
-    SXD_ACTION_TYPE_VIRTUAL_FORWARDING_E = 14,
-    SXD_ACTION_TYPE_IGNORE_E = 15,
-    SXD_ACTION_TYPE_MC_E = 16,
-    SXD_ACTION_TYPE_SIP_DIP_E = 17,
-    SXD_ACTION_TYPE_L4_PORT_E = 18,
-    SXD_ACTION_TYPE_MIRROR_SAMPLER_E = 19,
-    SXD_ACTION_TYPE_UNDEFINDED_E = 20,
-    SXD_ACTION_TYPE_PORT_FILTER_EXT_E = 21,
-    SXD_ACTION_TYPE_LAST_E = 22
+    SXD_ACTION_TYPE_NULL_E                     = 0,
+    SXD_ACTION_TYPE_MAC_E                      = 1,
+    SXD_ACTION_TYPE_VLAN_E                     = 2,
+    SXD_ACTION_TYPE_TRAP_E                     = 3,
+    SXD_ACTION_TYPE_TRAP_W_USER_DEF_VAL_E      = 4,
+    SXD_ACTION_TYPE_PORT_FILTER_E              = 5,
+    SXD_ACTION_TYPE_QOS_E                      = 6,
+    SXD_ACTION_TYPE_FORWARD_E                  = 7,
+    SXD_ACTION_TYPE_POLICING_COUNTING_E        = 8,
+    SXD_ACTION_TYPE_META_DATA_E                = 9,
+    SXD_ACTION_TYPE_UC_ROUTER_AND_MPLS_E       = 10,
+    SXD_ACTION_TYPE_VXLAN_E                    = 11,
+    SXD_ACTION_TYPE_MPLS_E                     = 12,
+    SXD_ACTION_TYPE_HASH_E                     = 13,
+    SXD_ACTION_TYPE_VIRTUAL_FORWARDING_E       = 14,
+    SXD_ACTION_TYPE_IGNORE_E                   = 15,
+    SXD_ACTION_TYPE_MC_E                       = 16,
+    SXD_ACTION_TYPE_SIP_DIP_E                  = 17,
+    SXD_ACTION_TYPE_L4_PORT_E                  = 18,
+    SXD_ACTION_TYPE_MIRROR_SAMPLER_E           = 19,
+    SXD_ACTION_TYPE_UNDEFINDED_E               = 20,
+    SXD_ACTION_TYPE_PORT_FILTER_EXT_E          = 21,
+    SXD_ACTION_TYPE_PORT_FILTER_EXT2_E         = 22,
+    SXD_ACTION_TYPE_FLEX_MODIFIER_EMT_E        = 23,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_ALU_IMM_E     = 24,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_ALU_REG_E     = 25,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_ALU_FIELD_E   = 26,
+    SXD_ACTION_TYPE_CUSTOM_BYTES_MOVE_E        = 27,
+    SXD_ACTION_TYPE_FIELDS_SET_IMM_E           = 28,
+    SXD_ACTION_TYPE_FIELDS_MOVE_E              = 29,
+    SXD_ACTION_TYPE_BUFFER_SNAP_E              = 30,
+    SXD_ACTION_TYPE_TRUNCATION_E               = 33,
+    SXD_ACTION_TYPE_FS_DB_E                    = 34,
+    SXD_ACTION_TYPE_POLICING_COUNTING_BY_REF_E = 36,
+    SXD_ACTION_TYPE_FLOW_ESTIMATOR_E           = 37,
+    SXD_ACTION_TYPE_LAST_E                     = 38
 } sxd_flex_acl_action_type_t;
-
-/**
- * sxd_ppbt_cong enumerated type is used to note the
- * PPBT congestion type.
- */
-typedef enum sxd_ppbt_cong {
-    SXD_PPBT_CONG_MAIN_BINDING = 0,
-    SXD_PPBT_CONG_FALSE_BINDING = 1,
-    SXD_PPBT_CONG_BINDING = 2
-} sxd_ppbt_cong_t;
-
-/**
- * ku_ppbt_reg structure is used to store the PPBT register parameters
- */
-typedef struct ku_ppbt_reg {
-    sxd_ppbt_operation_t operation;
-    uint8_t              egress;
-    uint8_t              port;
-    sxd_ppbt_cong_t      cong;
-    uint8_t              group;
-    uint16_t             acl_id_grp_id;
-} ku_ppbt_reg_t;
 
 /**
  * sxd_acl_ptce_action_type enumerated type is used to
  * note the PTCE action type.
  */
 typedef enum sxd_acl_ptce_action_type {
-    SXD_PTCE_ACTION_TYPE_DEFAULT_E = 0,
+    SXD_PTCE_ACTION_TYPE_DEFAULT_E  = 0,
     SXD_PTCE_ACTION_TYPE_EXTENDED_E = 1,
 } sxd_acl_ptce_action_type_t;
 
@@ -3024,12 +3181,12 @@ typedef enum sxd_acl_ptce_action_type {
  * the PTCE key type.
  */
 typedef enum sxd_acl_ptce_key_type {
-    SXD_PTCE_KEY_TYPE_IPV4_FULL_E = 0,
-    SXD_PTCE_KEY_TYPE_IPV6_FULL_E = 1,
-    SXD_PTCE_KEY_TYPE_MAC_FULL_E = 2,
+    SXD_PTCE_KEY_TYPE_IPV4_FULL_E     = 0,
+    SXD_PTCE_KEY_TYPE_IPV6_FULL_E     = 1,
+    SXD_PTCE_KEY_TYPE_MAC_FULL_E      = 2,
     SXD_PTCE_KEY_TYPE_MAC_IPV4_FULL_E = 3,
-    SXD_PTCE_KEY_TYPE_MAC_SHORT_E = 5,
-    SXD_PTCE_KEY_TYPE_FCOE_FULL_E = 32
+    SXD_PTCE_KEY_TYPE_MAC_SHORT_E     = 5,
+    SXD_PTCE_KEY_TYPE_FCOE_FULL_E     = 32
 } sxd_acl_ptce_key_type_t;
 
 /**
@@ -3037,11 +3194,11 @@ typedef enum sxd_acl_ptce_key_type {
  * the PTCE action trap action type.
  */
 typedef enum sxd_ptce_trap_action {
-    SXD_PTCE_TRAP_ACTION_PERMIT_E = 0,
-    SXD_PTCE_TRAP_ACTION_SOFT_DROP_E = 1,
-    SXD_PTCE_TRAP_ACTION_TRAP_E = 2,
+    SXD_PTCE_TRAP_ACTION_PERMIT_E         = 0,
+    SXD_PTCE_TRAP_ACTION_SOFT_DROP_E      = 1,
+    SXD_PTCE_TRAP_ACTION_TRAP_E           = 2,
     SXD_PTCE_TRAP_ACTION_SOFT_DROP_TRAP_E = 3,
-    SXD_PTCE_TRAP_ACTION_DENY_E = 4,
+    SXD_PTCE_TRAP_ACTION_DENY_E           = 4,
 } sxd_ptce_trap_action_t;
 
 /**
@@ -3049,11 +3206,11 @@ typedef enum sxd_ptce_trap_action {
  * the PTCE action vlan action type.
  */
 typedef enum sxd_ptce_vlan_action {
-    SXD_PTCE_VLAN_ACTION_NOP_E = 0,
-    SXD_PTCE_VLAN_ACTION_PUSH_VID_KEEP_PRIO_E = 0x8,
-    SXD_PTCE_VLAN_ACTION_PUSH_VLAN_E = 0xC,
+    SXD_PTCE_VLAN_ACTION_NOP_E                   = 0,
+    SXD_PTCE_VLAN_ACTION_PUSH_VID_KEEP_PRIO_E    = 0x8,
+    SXD_PTCE_VLAN_ACTION_PUSH_VLAN_E             = 0xC,
     SXD_PTCE_VLAN_ACTION_REPLACE_VID_KEEP_PRIO_E = 0x18,
-    SXD_PTCE_VLAN_ACTION_REPLACE_VID_PRIO_E = 0x1c,
+    SXD_PTCE_VLAN_ACTION_REPLACE_VID_PRIO_E      = 0x1c,
 } sxd_ptce_vlan_action_t;
 
 /**
@@ -3103,12 +3260,12 @@ typedef struct sxd_ptce_ipv6_full_key {
  * op type.
  */
 typedef enum sxd_ptce_operation {
-    SXD_PTCE_OP_WRITE = 0,
-    SXD_PTCE_OP_READ = 0,
-    SXD_PTCE_OP_CLEAR_ON_READ = 1,
-    SXD_PTCE_OP_UPDATE = 1,
+    SXD_PTCE_OP_WRITE          = 0,
+    SXD_PTCE_OP_READ           = 0,
+    SXD_PTCE_OP_CLEAR_ON_READ  = 1,
+    SXD_PTCE_OP_UPDATE         = 1,
     SXD_PTCE_OP_CLEAR_ACTIVITY = 2,
-    SXD_PTCE_OP_WRITE_CLEAR = 3
+    SXD_PTCE_OP_WRITE_CLEAR    = 3
 } sxd_ptce_operation_t;
 
 
@@ -3276,74 +3433,74 @@ typedef enum sxd_flex_defer {
 typedef enum sxd_flex_acl_l2_dmac_type_ {
     SXD_FLEX_ACL_L2_DMAC_TYPE_MULTICAST = 0,
     SXD_FLEX_ACL_L2_DMAC_TYPE_BROADCAST = 1,
-    SXD_FLEX_ACL_L2_DMAC_TYPE_UNICAST = 2,
+    SXD_FLEX_ACL_L2_DMAC_TYPE_UNICAST   = 2,
 } sxd_flex_acl_l2_dmac_type_t;
 
 typedef enum sxd_flex_acl_l3_type_ {
-    SXD_FLEX_ACL_L3_TYPE_IPV4 = 0,
-    SXD_FLEX_ACL_L3_TYPE_IPV6 = 1,
-    SXD_FLEX_ACL_L3_TYPE_ARP = 2,
+    SXD_FLEX_ACL_L3_TYPE_IPV4  = 0,
+    SXD_FLEX_ACL_L3_TYPE_IPV6  = 1,
+    SXD_FLEX_ACL_L3_TYPE_ARP   = 2,
     SXD_FLEX_ACL_L3_TYPE_OTHER = 3,
 } sxd_flex_acl_l3_type_t;
 
 typedef enum sxd_flex_acl_l4_type_ {
-    SXD_FLEX_ACL_L4_TYPE_TCP = 1 << 0,
-        SXD_FLEX_ACL_L4_TYPE_UDP = 1 << 1,
-        SXD_FLEX_ACL_L4_TYPE_RESERVED = 1 << 2,
-        SXD_FLEX_ACL_L4_TYPE_OTHER = 1 << 3,
+    SXD_FLEX_ACL_L4_TYPE_TCP      = 1 << 0,
+    SXD_FLEX_ACL_L4_TYPE_UDP      = 1 << 1,
+    SXD_FLEX_ACL_L4_TYPE_RESERVED = 1 << 2,
+    SXD_FLEX_ACL_L4_TYPE_OTHER    = 1 << 3,
 } sxd_flex_acl_l4_type_t;
 
 typedef enum sxd_flex_acl_discard_state_ {
-    SXD_FLEX_ACL_DISCARD_STATE_FORWARD = 0,
+    SXD_FLEX_ACL_DISCARD_STATE_FORWARD            = 0,
     SXD_FLEX_ACL_DISCARD_STATE_SOFT_DISCARD_ERROR = 1,
-    SXD_FLEX_ACL_DISCARD_STATE_DISCARD = 2,
-    SXD_FLEX_ACL_DISCARD_STATE_DICARD_ERROR = 3,
+    SXD_FLEX_ACL_DISCARD_STATE_DISCARD            = 2,
+    SXD_FLEX_ACL_DISCARD_STATE_DICARD_ERROR       = 3,
     SXD_FLEX_ACL_DISCARD_STATE_LAST,
 } sxd_flex_acl_discard_state_t;
 
 typedef enum sxd_flex_acl_l4_type_extended_ {
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_NONE = 0,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_OTHERS = 1,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_TCP = 2,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_UDP = 3,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_BTH = 4,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_NONE    = 0,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_RAW     = 1,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_TCP     = 2,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_UDP     = 3,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_BTH     = 4,
     SXD_FLEX_ACL_L4_TYPE_EXTENDED_BTHOUDP = 5,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_ICMP = 6,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_IGMP = 7,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_AH = 8,
-    SXD_FLEX_ACL_L4_TYPE_EXTENDED_ESP = 9,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_ICMP    = 6,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_IGMP    = 7,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_AH      = 8,
+    SXD_FLEX_ACL_L4_TYPE_EXTENDED_ESP     = 9,
 } sxd_flex_acl_l4_type_extended_t;
 
 typedef enum sxd_flex_acl_nd_sll_or_tll_valid_ {
     SXD_FLEX_ACL_NO_ND_SLL_OR_TTL = 0,
-    SXD_FLEX_ACL_ND_SLL = 1,
-    SXD_FLEX_ACL_ND_TLL = 2,
+    SXD_FLEX_ACL_ND_SLL           = 1,
+    SXD_FLEX_ACL_ND_TLL           = 2,
 } sxd_flex_acl_nd_sll_or_tll_valid;
 
 typedef enum sxd_flex_acl_mc_bc_or_flood_type_ {
-    SXD_FLEX_ACL_MC_TYPE_FLOOD_FOR_UC = 1 << 0,
-        SXD_FLEX_ACL_MC_TYPE_BC = 1 << 1,
-        SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_NON_IP = 1 << 2,
-        SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV4 = 1 << 3,
-        SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV4_LINK_LOCAL = 1 << 4,
-        SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV6 = 1 << 5,
-        SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV6_NODES_LOCAL = 1 << 6,
-        SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_ROCE_V1 = 1 << 7,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_FOR_UC              = 1 << 0,
+    SXD_FLEX_ACL_MC_TYPE_BC                        = 1 << 1,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_NON_IP           = 1 << 2,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV4             = 1 << 3,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV4_LINK_LOCAL  = 1 << 4,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV6             = 1 << 5,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_IPV6_NODES_LOCAL = 1 << 6,
+    SXD_FLEX_ACL_MC_TYPE_FLOOD_MC_ROCE_V1          = 1 << 7,
 } sxd_flex_acl_mc_bc_or_flood_type;
 
 typedef enum sxd_flex_acl_ipv6_extension_headers_ {
-    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_ROUTING = 0,
-    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_FRAGMENT = 1,
+    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_ROUTING             = 0,
+    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_FRAGMENT            = 1,
     SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_DESTINATION_OPTIONS = 2,
-    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_AUTHENTICATION = 3,
-    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_ESP = 4,
-    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_MOBILITY = 5,
+    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_AUTHENTICATION      = 3,
+    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_ESP                 = 4,
+    SXD_FLEX_ACL_IPV6_EXTENSION_HEADER_MOBILITY            = 5,
 } sxd_flex_acl_ipv6_extension_headers_t;
 
 typedef enum sxd_flex_ttl_cmd_ {
-    SXD_FLEX_TTL_CMD_DO_NOTHING_E = 0,
+    SXD_FLEX_TTL_CMD_DO_NOTHING_E    = 0,
     SXD_FLEX_TTL_CMD_SET_TTL_VALUE_E = 1,
-    SXD_FLEX_TTL_CMD_DECREMENT_E = 2,
+    SXD_FLEX_TTL_CMD_DECREMENT_E     = 2,
     SXD_FLEX_TTL_CMD_LAST_E,
 } sxd_flex_ttl_cmd_t;
 
@@ -3378,6 +3535,8 @@ typedef enum sxd_flex_vid_cmd {
     SXD_FLEX_VID_CMD_TYPE_SWAP_INNER_OUTER_E,
     SXD_FLEX_VID_CMD_TYPE_LAST_E
 } sxd_flex_vid_cmd_t;
+
+#define SXD_FLEX_ACL_VLAN_ETHERTYPE_FROM_EGRESS_PORT_INDEX 3
 
 typedef enum sxd_flex_vlan_ethertype_cmd {
     SXD_FLEX_VLAN_ETHERTYPE_CMD_TYPE_DO_NOTHING_E = 0,
@@ -3453,6 +3612,7 @@ typedef struct sxd_trap_flex_action {
     uint8_t                            mirror_agent;
     uint8_t                            mirror_enable;
     uint32_t                           user_def_val;
+    uint8_t                            preserve_user_def_val;
 } sxd_trap_flex_action_t;
 
 typedef struct sxd_port_filter_flex_action {
@@ -3466,10 +3626,29 @@ typedef struct sxd_port_filter_ext_flex_action {
     uint32_t egress_port_list_97_128;
 } sxd_port_filter_ext_flex_action_t;
 
+#define PORT_FILTER_EXT2_FLEX_ACTION_LIST_SIZE         32
+#define PORT_FILTER_EXT2_FLEX_ACTION_NUM_LISTS_IN_PAGE 2
+#define PORT_FILTER_EXT2_FLEX_ACTION_PAGE_SIZE \
+    (PORT_FILTER_EXT2_FLEX_ACTION_LIST_SIZE * PORT_FILTER_EXT2_FLEX_ACTION_NUM_LISTS_IN_PAGE)
+#define PORT_FILTER_EXT2_FLEX_ACTION_HW_PORT_TO_PAGE(hw_port) \
+    (((hw_port) - 1) / PORT_FILTER_EXT2_FLEX_ACTION_PAGE_SIZE)
+#define PORT_FILTER_EXT2_FLEX_ACTION_HW_PORT_TO_OFFSET_IN_PAGE(hw_port) \
+    (((hw_port) - 1) % PORT_FILTER_EXT2_FLEX_ACTION_PAGE_SIZE)
+#define PORT_FILTER_EXT2_FLEX_ACTION_HW_PORT_TO_LIST(hw_port) \
+    (PORT_FILTER_EXT2_FLEX_ACTION_HW_PORT_TO_OFFSET_IN_PAGE(hw_port) / PORT_FILTER_EXT2_FLEX_ACTION_LIST_SIZE)
+#define PORT_FILTER_EXT2_FLEX_ACTION_HW_PORT_TO_OFFSET_IN_LIST(hw_port) \
+    (PORT_FILTER_EXT2_FLEX_ACTION_HW_PORT_TO_OFFSET_IN_PAGE(hw_port) % PORT_FILTER_EXT2_FLEX_ACTION_LIST_SIZE)
+
+typedef struct sxd_port_filter_ext2_flex_action {
+    uint8_t  page;
+    uint32_t egress_port_list_0_31;
+    uint32_t egress_port_list_32_63;
+} sxd_port_filter_ext2_flex_action_t;
+
 typedef enum sxd_flex_dscp_cmd {
-    SXD_FLEX_DSCP_CMD_TYPE_DO_NOTHING_E = 0,
-    SXD_FLEX_DSCP_CMD_TYPE_SET_3_LSB_BITS_E = 1,
-    SXD_FLEX_DSCP_CMD_TYPE_SET_3_MSB_BITS_E = 2,
+    SXD_FLEX_DSCP_CMD_TYPE_DO_NOTHING_E      = 0,
+    SXD_FLEX_DSCP_CMD_TYPE_SET_3_LSB_BITS_E  = 1,
+    SXD_FLEX_DSCP_CMD_TYPE_SET_3_MSB_BITS_E  = 2,
     SXD_FLEX_DSCP_CMD_TYPE_SET_DSCP_6_BITS_E = 3,
     SXD_FLEX_DSCP_CMD_TYPE_LAST_E,
 } sxd_flex_dscp_cmd_t;
@@ -3485,14 +3664,14 @@ typedef enum sxd_flex_ecn_cmd {
 } sxd_flex_ecn_cmd_t;
 
 typedef enum sxd_flex_switch_prio_cmd {
-    SXD_FLEX_SWITCH_PRIO_CMD_TYPE_DO_NOTHING_E = 0,
+    SXD_FLEX_SWITCH_PRIO_CMD_TYPE_DO_NOTHING_E          = 0,
     SXD_FLEX_SWITCH_PRIO_CMD_TYPE_SET_SWITCH_PRIORITY_E = 1,
     SXD_FLEX_SWITCH_PRIO_CMD_TYPE_LAST,
 } sxd_flex_switch_prio_cmd_t;
 
 typedef enum sxd_flex_color_cmd {
     SXD_FLEX_COLOR_CMD_TYPE_DO_NOTHING_E = 0,
-    SXD_FLEX_COLOR_CMD_TYPE_SET_COLOR_E = 1,
+    SXD_FLEX_COLOR_CMD_TYPE_SET_COLOR_E  = 1,
     SXD_FLEX_COLOR_CMD_TYPE_LAST_E,
 } sxd_flex_color_cmd_t;
 
@@ -3518,14 +3697,14 @@ typedef enum sxd_flex_traffic_class_cmd {
 
 typedef enum sxd_ptce2_next_type {
     SXD_FLEX_NEXT_POINTER_RECORD_E = 0,
-    SXD_FLEX_GOTO_RECORD_E = 1,
+    SXD_FLEX_GOTO_RECORD_E         = 1,
 } sxd_ptce2_next_type_t;
 
 typedef enum sxd_binding_cmd {
-    SXD_FLEX_BINDING_NONE_E = 0,
-    SXD_FLEX_BINDING_JUMP_E = 1,
-    SXD_FLEX_BINDING_CALL_E = 2,
-    SXD_FLEX_BINDING_BREAK_E = 3,
+    SXD_FLEX_BINDING_NONE_E      = 0,
+    SXD_FLEX_BINDING_JUMP_E      = 1,
+    SXD_FLEX_BINDING_CALL_E      = 2,
+    SXD_FLEX_BINDING_BREAK_E     = 3,
     SXD_FLEX_BINDING_TERMINATE_E = 4,
 } sxd_binding_cmd_t;
 
@@ -3581,10 +3760,45 @@ typedef struct sxd_policing_monitoring_flex_action {
     uint16_t                                   pid;
 } sxd_policing_monitoring_flex_action_t;
 
+typedef enum sxd_policing_monitoring_by_ref_flex_action_type {
+    SXD_POLIICING_MONITORING_FLEX_ACTION_COUNTER_BY_REF_E = 0,
+    SXD_POLIICING_MONITORING_FLEX_ACTION_POLICER_BY_REF_E,
+    SXD_POLIICING_MONITORING_FLEX_ACTION_LAST_BY_REF_E,
+} sxd_policing_monitoring_by_ref_flex_action_type_t;
+
+
+typedef struct sxd_policing_monitoring_by_ref_flex_action {
+    sxd_policing_monitoring_by_ref_flex_action_type_t type;
+    uint8_t                                           cbset;
+} sxd_policing_monitoring_by_ref_flex_action_t;
+
+
 typedef struct sxd_metadata_flex_action {
     uint16_t meta_data;
     uint16_t mask;
 } sxd_metadata_flex_action_t;
+
+typedef struct sxd_trucation_flex_action {
+    sxd_boolean_t trunc_en;
+    uint16_t      trunc_profile_id;
+} sxd_trucation_flex_action_t;
+
+typedef enum sxd_flow_estimator_profile_id {
+    SXD_FLOW_ESTIMATOR_PROFILE0_E = 0,
+    SXD_FLOW_ESTIMATOR_PROFILE1_E,
+    SXD_FLOW_ESTIMATOR_PROFILE2_E,
+    SXD_FLOW_ESTIMATOR_PROFILE3_E,
+} sxd_flow_estimator_profile_id_e;
+
+typedef struct sxd_flow_estimator_profile_key {
+    sxd_flow_estimator_profile_id_e profile_id;
+} sxd_flow_estimator_profile_key_t;
+
+typedef struct sxd_flow_estimator_flex_action {
+    sxd_flow_estimator_profile_key_t profile_key;    /**< flow estimator profile key */
+    sxd_counter_set_t                bulk_counter;   /**< flow estimator bulk counter */
+} sxd_flow_estimator_flex_action_t;
+
 
 typedef enum sxd_uc_router_flex_action_type {
     SXD_UC_ROUTER_FLEX_ACTION_TYPE_IP_REMOTE_E = 0,
@@ -3592,6 +3806,7 @@ typedef enum sxd_uc_router_flex_action_type {
     SXD_UC_ROUTER_FLEX_ACTION_TYPE_TUNNL_TERMINIATION_E,
     SXD_UC_ROUTER_FLEX_ACTION_TYPE_MPLS_ILM_E,
     SXD_UC_ROUTER_FLEX_ACTION_TYPE_MPLS_NHLFE_E,
+    SXD_UC_ROUTER_FLEX_ACTION_TYPE_AR_E,
     SXD_UC_ROUTER_FLEX_ACTION_TYPE_LAST_E,
 } sxd_uc_router_flex_action_type_t;
 
@@ -3617,6 +3832,13 @@ typedef struct sxd_uc_router_flex_action_mpls_nhlfe {
     uint16_t ecmp_size;
 } sxd_uc_router_flex_action_mpls_nhlfe_t;
 
+typedef struct sxd_uc_router_flex_action_ar {
+    uint8_t  ar_lookup_prof_id;
+    uint16_t ecmp_size;
+    uint16_t arlpgt_pointer;
+    uint32_t arft_pointer;
+} sxd_uc_router_flex_action_ar_t;
+
 typedef struct sxd_uc_router_flex_action {
     sxd_uc_router_flex_action_type_t type;
     union {
@@ -3625,6 +3847,7 @@ typedef struct sxd_uc_router_flex_action {
         sxd_uc_router_flex_action_tunnul_termination_t tunnul_termination;
         sxd_uc_router_flex_action_mpls_ilm_t           mpls_ilm;
         sxd_uc_router_flex_action_mpls_nhlfe_t         mpls_nhlfe;
+        sxd_uc_router_flex_action_ar_t                 ar_uc_route;
     } structs;
 } sxd_uc_router_flex_action_t;
 typedef enum sxd_vni_flex_action_type {
@@ -3680,27 +3903,39 @@ typedef enum sxd_hash_flex_action_cmd {
     SXD_HASH_FLEX_ACTION_CMD_LAST_E
 } sxd_hash_flex_action_cmd_t;
 typedef enum sxd_hash_flex_action_hash_fields {
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SMAC_31_0_E = 0,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_DMAC_31_0_E = 1,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_DMAC_SMAC_47_32_E = 2,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SMAC_DMAC_47_32_E = 3,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_31_0_E = 4,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_63_32_E = 5,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_95_64_E = 6,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_127_96_E = 7,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_31_0_E = 8,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_63_32_E = 9,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_95_64_E = 10,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_127_96_E = 11,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_SPI_E = 17,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_31_0_E = 18,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_63_32_E = 19,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_95_64_E = 20,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_127_96_E = 21,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_31_0_E = 22,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_63_32_E = 23,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_95_64_E = 24,
-    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_127_96_E = 25
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SMAC_31_0_E            = 0,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_DMAC_31_0_E            = 1,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_DMAC_SMAC_47_32_E      = 2,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SMAC_DMAC_47_32_E      = 3,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_31_0_E             = 4,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_63_32_E            = 5,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_95_64_E            = 6,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SIP_127_96_E           = 7,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_31_0_E             = 8,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_63_32_E            = 9,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_95_64_E            = 10,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_DIP_127_96_E           = 11,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_IP_PROTO_E             = 14,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_L4_SPORT_DPORT_E       = 15,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_L4_DPORT_SPORT_E       = 16,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_SPI_E                  = 17,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_31_0_E       = 18,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_63_32_E      = 19,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_95_64_E      = 20,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_SIP_127_96_E     = 21,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_31_0_E       = 22,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_63_32_E      = 23,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_95_64_E      = 24,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_DIP_127_96_E     = 25,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_IP_PROTO_E       = 28,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_L4_SPORT_DPORT_E = 29,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_INNER_L4_DPORT_SPORT_E = 30,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_1_0_E      = 31,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_3_2_E      = 32,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_5_4_E      = 33,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_GP_REGISTER_7_6_E      = 34,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_HASH_VALUE_E           = 35,
+    SXD_HASH_FLEX_ACTION_HASH_FIELD_LAST_E,
 } sxd_hash_flex_action_hash_fields_t;
 
 typedef struct sxd_hash_flex_action {
@@ -3748,12 +3983,48 @@ typedef enum sxd_ignore_flex_action_disable_ovl_learning_type {
     SXD_IGNORE_FLEX_ACTION_IGNORE_DISABLE_OVL_LEARNING_TYPE_DISABLE_LEARNING_E,
     SXD_IGNORE_FLEX_ACTION_IGNORE_DISABLE_OVL_LEARNING_TYPE_LAST_E,
 } sxd_ignore_flex_action_disable_ovl_learning_type_t;
+typedef enum sxd_ignore_flex_action_disable_fdb_security_type {
+    SXD_IGNORE_FLEX_ACTION_IGNORE_DISABLE_FDB_SECURITY_TYPE_REGULAR_FLOW_E = 0,
+    SXD_IGNORE_FLEX_ACTION_IGNORE_DISABLE_FDB_SECURITY_TYPE_DISABLE_SECURITY_E,
+    SXD_IGNORE_FLEX_ACTION_IGNORE_DISABLE_FDB_SECURITY_TYPE_LAST_E,
+} sxd_ignore_flex_action_disable_fdb_security_type_t;
+
+typedef enum sxd_ignore_flex_action_set_elephant_flow_type {
+    SXD_IGNORE_FLEX_ACTION_IGNORE_ELEPHANT_FLOW_DO_NOT_SET_E = 0,
+    SXD_IGNORE_FLEX_ACTION_IGNORE_ELEPHANT_FLOW_SET_ELEPHANT_STATE_E,
+    SXD_IGNORE_FLEX_ACTION_IGNORE_ELEPHANT_FLOW_SET_MICE_STATE_E,
+} sxd_ignore_flex_action_set_elephant_flow_type_t;
+
+typedef enum sxd_ignore_flex_action_ar_packet_prof_cmd_type {
+    SXD_IGNORE_FLEX_ACTION_IGNORE_AR_PACKET_PROF_DO_NOTHING_E = 0,
+    SXD_IGNORE_FLEX_ACTION_IGNORE_AR_PACKET_PROF_SET_E        = 1,
+} sxd_ignore_flex_action_ar_packet_prof_cmd_type_t;
+
+/**
+ * sxd_ralue_format_t enumerated type is used to note the
+ * format for RALUE register.
+ */
+typedef enum sxd_ar_lookup_profile_id {
+    SXD_AR_LOOKUP_PROFILE_ID_HBF = 0,
+    SXD_AR_LOOKUP_PROFILE_ID_0   = 1,
+    SXD_AR_LOOKUP_PROFILE_ID_1   = 2,
+} sxd_ar_lookup_profile_id_t;
+
+typedef struct sxd_ignore_flex_action_cond_mirroring_type {
+    uint16_t cond_mirroring_mask;
+    uint16_t cond_mirroring_val;
+} sxd_ignore_flex_action_cond_mirroring_type_t;
 
 typedef struct sxd_ignore_flex_action {
     sxd_ignore_flex_action_ignore_stp_type_t           ignore_stp;
     sxd_ignore_flex_action_ignore_vl_filter_type_t     ignore_vl_filter;
     sxd_ignore_flex_action_disable_learning_type_t     disable_learning;
     sxd_ignore_flex_action_disable_ovl_learning_type_t disable_ovl_learning;
+    sxd_ignore_flex_action_disable_fdb_security_type_t disable_fdb_security;
+    sxd_ignore_flex_action_set_elephant_flow_type_t    set_elephant_flow;
+    sxd_ar_lookup_profile_id_t                         ar_packet_prof_id;
+    sxd_ignore_flex_action_ar_packet_prof_cmd_type_t   ar_packet_prof_cmd;
+    sxd_ignore_flex_action_cond_mirroring_type_t       cond_mirror;
 } sxd_ignore_flex_action_t;
 
 typedef enum sxd_group_or_acl_binding_type {
@@ -3762,10 +4033,10 @@ typedef enum sxd_group_or_acl_binding_type {
 } sxd_group_or_acl_binding_type_t;
 
 typedef enum sxd_mc_flex_action_rpf_action_type {
-    SXD_MC_FLEX_ACTION_RPF_ACTION_NOP_E = 0,
-    SXD_MC_FLEX_ACTION_RPF_ACTION_RPF_TRAP_E = 1,
+    SXD_MC_FLEX_ACTION_RPF_ACTION_NOP_E             = 0,
+    SXD_MC_FLEX_ACTION_RPF_ACTION_RPF_TRAP_E        = 1,
     SXD_MC_FLEX_ACTION_RPF_ACTION_RPF_DISCARD_ERR_E = 3,
-    SXD_MC_FLEX_ACTION_RPF_ACTION_ASSERT_TRAP_E = 6,
+    SXD_MC_FLEX_ACTION_RPF_ACTION_ASSERT_TRAP_E     = 6,
     SXD_MC_FLEX_ACTION_RPF_ACTION_LAST_E,
 } sxd_mc_flex_action_rpf_action_type_t;
 
@@ -3787,7 +4058,7 @@ typedef struct sxd_mc_flex_action {
 
 typedef enum sxd_sip_dip_flex_action_direction {
     SXD_SIP_DIP_FLEX_ACTION_DIRECTION_DESTINATION_E = 0,
-    SXD_SIP_DIP_FLEX_ACTION_DIRECTION_SOURCE_E = 1,
+    SXD_SIP_DIP_FLEX_ACTION_DIRECTION_SOURCE_E      = 1,
     SXD_SIP_DIP_FLEX_ACTION_DIRECTION_TYPE_LAST_E,
 } sxd_sip_dip_flex_action_direction_t;
 
@@ -3806,15 +4077,15 @@ typedef struct sxd_sip_dip_flex_action {
 } sxd_sip_dip_flex_action_t;
 
 typedef enum sxd_l4_port_flex_action_direction {
-    SXD_L4_PORT_FLEX_ACTION_DIRECTION_SOURCE_E = 0,
+    SXD_L4_PORT_FLEX_ACTION_DIRECTION_SOURCE_E      = 0,
     SXD_L4_PORT_FLEX_ACTION_DIRECTION_DESTINATION_E = 1,
     SXD_L4_PORT_FLEX_ACTION_DIRECTION_TYPE_LAST_E,
 } sxd_l4_port_flex_action_direction_t;
 
 typedef enum sxd_l4_port_flex_action_hash {
-    SXD_L4_PORT_FLEX_ACTION_HASH_NONE_E = 0,
+    SXD_L4_PORT_FLEX_ACTION_HASH_NONE_E   = 0,
     SXD_L4_PORT_FLEX_ACTION_HASH_ROUTER_E = 1,
-    SXD_L4_PORT_FLEX_ACTION_HASH_LAG_E = 2,
+    SXD_L4_PORT_FLEX_ACTION_HASH_LAG_E    = 2,
     SXD_L4_PORT_FLEX_ACTION_HASH_TYPE_LAST_E,
 } sxd_l4_port_flex_action_hash_t;
 
@@ -3825,27 +4096,274 @@ typedef struct sxd_l4_port_flex_action {
     uint16_t                            l4_port;
 } sxd_l4_port_flex_action_t;
 
+typedef struct sxd_mirror_sampler_flex_action {
+    uint8_t  mirror_agent;
+    uint32_t mirror_probability_rate;
+} sxd_mirror_sampler_flex_action_t;
+
+typedef enum sxd_custom_bytes_alu_imm_action_opcode {
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_SET_E = 0,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_ADD_E = 1,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_AND_E = 2,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_OR_E  = 3,
+    SXD_CUSTOM_BYTES_ALU_IMM_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_alu_imm_action_opcode_t;
+
+typedef struct sxd_custom_bytes_alu_imm_flex_action {
+    sxd_custom_bytes_alu_imm_action_opcode_t opcode;
+    uint8_t                                  dest_cbset;
+    uint16_t                                 imm;
+    uint16_t                                 mask;
+} sxd_custom_bytes_alu_imm_flex_action_t;
+
+typedef enum sxd_custom_bytes_alu_reg_action_opcode {
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_SET_E  = 0,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_ADD_E  = 1,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_AND_E  = 2,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_OR_E   = 3,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_SUB_E  = 4,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_XOR_E  = 5,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_ADDC_E = 6,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_SUBC_E = 7,
+    SXD_CUSTOM_BYTES_ALU_REG_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_alu_reg_action_opcode_t;
+
+typedef struct sxd_custom_bytes_alu_reg_flex_action {
+    sxd_custom_bytes_alu_reg_action_opcode_t opcode;
+    uint8_t                                  dest_cbset;
+    uint8_t                                  src_cbset;
+    uint16_t                                 mask;
+    uint8_t                                  shr;
+} sxd_custom_bytes_alu_reg_flex_action_t;
+
+typedef enum sxd_custom_bytes_flex_action_field_select {
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_ECMP_HASH_E  = 1,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_LAG_HASH_E   = 2,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_RANDOM_E     = 3,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_IP_LENGTH_E  = 4,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VID_E        = 6,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_USER_TOKEN_E = 7,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_TTL_E        = 24,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DMAC_15_0_E  = 25,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DMAC_31_16_E = 26,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DMAC_47_32_E = 27,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SMAC_15_0_E  = 28,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SMAC_31_16_E = 29,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SMAC_47_32_E = 30,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_15_0_E    = 31,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_31_16_E   = 32,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_47_32_E   = 33,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_63_48_E   = 34,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_79_64_E   = 35,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_95_80_E   = 36,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_111_96_E  = 37,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_DIP_127_112_E = 38,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_15_0_E    = 39,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_31_16_E   = 40,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_47_32_E   = 41,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_63_48_E   = 42,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_79_64_E   = 43,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_95_80_E   = 44,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_111_96_E  = 45,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_SIP_127_112_E = 46,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_L4_SOURCE_PORT_E      = 47,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_L4_DESTINATION_PORT_E = 48,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VNI_15_0_E  = 49,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VNI_31_16_E = 50,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_FID_E           = 51,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_VRID_E          = 52,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_PORT_USER_MEM_E = 54,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_GP_REGISTER_0_OFFSET = 55,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_GP_REGISTER_1_OFFSET = 56,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_CQE_USER_DEF_VAL_15_0_E  = 62,
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_CQE_USER_DEF_VAL_19_16_E = 63,
+
+    SXD_CUSTOM_BYTES_FLEX_ACTION_FIELD_TYPE_LAST_E,
+} sxd_custom_bytes_flex_action_field_select_t;
+
+typedef enum sxd_custom_bytes_alu_field_action_opcode {
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_SET_E  = 0,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_ADD_E  = 1,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_AND_E  = 2,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_OR_E   = 3,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_SUB_E  = 4,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_XOR_E  = 5,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_ADDC_E = 6,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_SUBC_E = 7,
+    SXD_CUSTOM_BYTES_ALU_FIELD_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_alu_field_action_opcode_t;
+
+typedef struct sxd_custom_bytes_alu_field_flex_action {
+    sxd_custom_bytes_alu_field_action_opcode_t  opcode;
+    uint8_t                                     cbset;
+    sxd_custom_bytes_flex_action_field_select_t field_select;
+    uint16_t                                    mask;
+    uint8_t                                     shr;
+} sxd_custom_bytes_alu_field_flex_action_t;
+
+typedef enum sxd_custom_bytes_move_action_opcode {
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_MOVE_E  = 0,
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_LOAD_E  = 1,
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_STORE_E = 2,
+    SXD_CUSTOM_BYTES_MOVE_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_custom_bytes_move_action_opcode_t;
+
+typedef struct sxd_custom_bytes_move_flex_action {
+    sxd_flex_defer_t                            defer;
+    sxd_custom_bytes_move_action_opcode_t       opcode;
+    uint8_t                                     size;
+    uint8_t                                     dest_cbset;
+    uint8_t                                     src_cbset;
+    sxd_custom_bytes_flex_action_field_select_t field_select;
+} sxd_custom_bytes_move_flex_action_t;
+
+typedef struct sxd_fields_set_imm_action {
+    sxd_flex_defer_t                            defer;
+    sxd_custom_bytes_flex_action_field_select_t dest_field_select;
+    uint8_t                                     size;
+    uint16_t                                    imm;
+} sxd_fields_set_imm_action_t;
+
+typedef struct sxd_fields_move_action {
+    sxd_flex_defer_t                            defer;
+    sxd_custom_bytes_flex_action_field_select_t dest_field_select;
+    sxd_custom_bytes_flex_action_field_select_t src_field_select;
+    uint8_t                                     size;
+} sxd_fields_move_action_t;
+
+typedef enum sxd_flex_modifier_emt_action_opcode {
+    SXD_FLEX_MODIFIER_EMT_ACTION_OPCODE_NOP_E     = 0,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OPCODE_PUSH_E    = 1,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OPCODE_EDIT_E    = 2,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OPCODE_DISABLE_E = 3,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OPCODE_POP_E     = 4,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OPCODE_TYPE_LAST_E,
+} sxd_flex_modifier_emt_action_opcode_t;
+
+typedef enum sxd_flex_modifier_emt_action_modify_offset {
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFY_OFFSET_GP_REG_0_E = 0,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFY_OFFSET_GP_REG_1_E = 1,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFY_OFFSET_LAST_E,
+} sxd_flex_modifier_emt_action_modify_offset_t;
+
+typedef enum sxd_flex_modifier_emt_action_offset_type {
+    SXD_FLEX_MODIFIER_EMT_ACTION_OFFSET_TYPE_GP_REG_E   = 0,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OFFSET_TYPE_CONSTANT_E = 1,
+    SXD_FLEX_MODIFIER_EMT_ACTION_OFFSET_TYPE_LAST_E,
+} sxd_flex_modifier_emt_action_offset_type_t;
+
+typedef enum sxd_flex_modifier_emt_action_modifier_base {
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_SOP_E             = 0,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_MAC_E             = 1,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_ETHERTYPE_E       = 2,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_IP_E              = 3,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_MPLS_E            = 4,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_NVE_E             = 5,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_GRE_E             = 6,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_UDP_E             = 7,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_FLEX_E            = 8,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_INNER_MAC_E       = 9,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_INNER_MPLS_E      = 10,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_INNER_ETHERTYPE_E = 11,
+    SXD_FLEX_MODIFIER_EMT_ACTION_MODIFIER_BASE_LAST_E,
+} sxd_flex_modifier_emt_action_modifier_base_t;
+
+typedef struct sxd_flex_modifier_emt_record {
+    sxd_flex_modifier_emt_action_opcode_t        emt_opcode;
+    uint8_t                                      emt_pointer;
+    sxd_flex_modifier_emt_action_modify_offset_t modify_offset;
+    sxd_flex_modifier_emt_action_offset_type_t   offset_type;
+    sxd_flex_modifier_emt_action_modifier_base_t modifier_base;
+} sxd_flex_modifier_emt_record_t;
+
+typedef struct sxd_flex_modifier_emt_action {
+    sxd_flex_modifier_emt_record_t emt_record[2];
+} sxd_flex_modifier_emt_action_t;
+
+typedef struct sxd_buffer_snap_flex_action {
+    uint8_t snap_id;
+} sxd_buffer_snap_flex_action_t;
+
+
+typedef enum sxd_flex_stateful_db_key_type {
+    SXD_FLEX_STATEFUL_DB_KEY_TYPE_GROUP_ID_E     = 0,
+    SXD_FLEX_STATEFUL_DB_KEY_TYPE_LINEAR_INDEX_E = 1,
+} sxd_flex_stateful_db_key_type_t;
+
+typedef enum sxd_flex_stateful_db_ticket_op {
+    SXD_FLEX_STATEFUL_DB_TICKET_OP_NOP_E     = 0,
+    SXD_FLEX_STATEFUL_DB_TICKET_OP_RELEASE_E = 1,
+    SXD_FLEX_STATEFUL_DB_TICKET_OP_CHECK_E   = 2,
+} sxd_flex_stateful_db_ticket_op_t;
+
+typedef enum sxd_flex_stateful_db_db_op {
+    SXD_FLEX_STATEFUL_DB_DB_OP_NOP_E                                     = 0,
+    SXD_FLEX_STATEFUL_DB_DB_OP_READ_E                                    = 1,
+    SXD_FLEX_STATEFUL_DB_DB_OP_WRITE_E                                   = 2,
+    SXD_FLEX_STATEFUL_DB_DB_OP_REMOVE_ENTRY_WITH_FAILURE_INDICATION_E    = 3,
+    SXD_FLEX_STATEFUL_DB_DB_OP_REMOVE_ENTRY_WITHOUT_FAILURE_INDICATION_E = 4,
+} sxd_flex_stateful_db_db_op_t;
+
+typedef enum sxd_flex_stateful_db_sem_op {
+    SXD_FLEX_STATEFUL_DB_SEM_OP_NOP_E    = 0,
+    SXD_FLEX_STATEFUL_DB_SEM_OP_LOCK_E   = 1,
+    SXD_FLEX_STATEFUL_DB_SEM_OP_UNLOCK_E = 2,
+} sxd_flex_stateful_db_sem_op_t;
+
+typedef struct sxd_flex_stateful_db_action {
+    uint16_t                         key_id;
+    sxd_flex_stateful_db_key_type_t  key_type;
+    uint8_t                          cbs_index;
+    sxd_flex_stateful_db_ticket_op_t ticket_op;
+    uint8_t                          partition_id;
+    sxd_flex_stateful_db_db_op_t     db_op;
+    sxd_flex_stateful_db_sem_op_t    sem_op;
+} sxd_flex_stateful_db_action_t;
+
 typedef struct sxd_action_slot {
     sxd_flex_acl_action_type_t type;
     union {
-        sxd_mac_flex_action_t                 action_mac;
-        sxd_vlan_flex_action_t                action_vlan;
-        sxd_trap_flex_action_t                action_trap;          /** Used for trap and trap_w_user_def_val */
-        sxd_port_filter_flex_action_t         action_port_filter;
-        sxd_qos_flex_action_t                 action_qos;
-        sxd_forward_flex_action_t             action_forward;
-        sxd_policing_monitoring_flex_action_t action_policing_monitoring;
-        sxd_metadata_flex_action_t            action_metadata;
-        sxd_uc_router_flex_action_t           action_uc_router;
-        sxd_vni_flex_action_t                 action_vni;
-        sxd_mpls_flex_action_t                action_mpls;
-        sxd_hash_flex_action_t                action_hash;
-        sxd_virtual_forward_flax_action_t     action_virtual_forward;
-        sxd_ignore_flex_action_t              action_ignore;
-        sxd_mc_flex_action_t                  action_mc;
-        sxd_sip_dip_flex_action_t             action_sip_dip;
-        sxd_l4_port_flex_action_t             action_l4_port;
-        sxd_port_filter_ext_flex_action_t     action_port_filter_ext;
+        sxd_mac_flex_action_t                        action_mac;
+        sxd_vlan_flex_action_t                       action_vlan;
+        sxd_trap_flex_action_t                       action_trap;      /** Used for trap and trap_w_user_def_val */
+        sxd_port_filter_flex_action_t                action_port_filter;
+        sxd_qos_flex_action_t                        action_qos;
+        sxd_forward_flex_action_t                    action_forward;
+        sxd_policing_monitoring_flex_action_t        action_policing_monitoring;
+        sxd_policing_monitoring_by_ref_flex_action_t action_policing_monitoring_by_ref;
+        sxd_metadata_flex_action_t                   action_metadata;
+        sxd_uc_router_flex_action_t                  action_uc_router;
+        sxd_vni_flex_action_t                        action_vni;
+        sxd_mpls_flex_action_t                       action_mpls;
+        sxd_hash_flex_action_t                       action_hash;
+        sxd_virtual_forward_flax_action_t            action_virtual_forward;
+        sxd_ignore_flex_action_t                     action_ignore;
+        sxd_mc_flex_action_t                         action_mc;
+        sxd_sip_dip_flex_action_t                    action_sip_dip;
+        sxd_l4_port_flex_action_t                    action_l4_port;
+        sxd_mirror_sampler_flex_action_t             action_mirror_sampler;
+        sxd_port_filter_ext_flex_action_t            action_port_filter_ext;
+        sxd_port_filter_ext2_flex_action_t           action_port_filter_ext2;
+        sxd_custom_bytes_alu_imm_flex_action_t       action_custom_bytes_alu_imm;
+        sxd_custom_bytes_alu_reg_flex_action_t       action_custom_bytes_alu_reg;
+        sxd_custom_bytes_alu_field_flex_action_t     action_custom_bytes_alu_field;
+        sxd_custom_bytes_move_flex_action_t          action_custom_bytes_move;
+        sxd_fields_set_imm_action_t                  action_fields_set_imm;
+        sxd_fields_move_action_t                     action_fields_move;
+        sxd_flex_modifier_emt_action_t               action_flex_modifier_emt;
+        sxd_buffer_snap_flex_action_t                action_buffer_snap;
+        sxd_flex_stateful_db_action_t                action_flex_stateful_db;
+        sxd_trucation_flex_action_t                  action_truncation;
+        sxd_flow_estimator_flex_action_t             action_flow_estimator;
     } fields;
 } sxd_action_slot_t;
 
@@ -3934,8 +4452,8 @@ typedef struct ku_prbt_reg {
  * sxd_pefa_ca_operation enumerates type of clear activity operation.
  */
 typedef enum sxd_pefa_ca_operation {
-    SXD_PEFA_CA_OP_SET = 0,
-    SXD_PEFA_CA_OP_CLEAR = 1,
+    SXD_PEFA_CA_OP_SET      = 0,
+    SXD_PEFA_CA_OP_CLEAR    = 1,
     SXD_PEFA_CA_OP_MAINTAIN = 2,
 } sxd_pefa_ca_operation_t;
 
@@ -3950,36 +4468,88 @@ typedef struct ku_pefa_reg {
     sxd_flex_action_set_t   action_set;
 } ku_pefa_reg_t;
 
-#define SXD_ACL_CUSTOM_BYTE_SET0 0x0
-#define SXD_ACL_CUSTOM_BYTE_SET1 0x1
-#define SXD_ACL_CUSTOM_BYTE_SET2 0x2
-#define SXD_ACL_CUSTOM_BYTE_SET3 0x3
-#define SXD_ACL_CUSTOM_BYTE_SET4 0x4
-#define SXD_ACL_CUSTOM_BYTE_SET5 0x5
-#define SXD_ACL_CUSTOM_BYTE_SET6 0x6
-#define SXD_ACL_CUSTOM_BYTE_SET7 0x7
-#define SXD_ACL_CUSTOM_BYTE_SET8 0x8
-#define SXD_ACL_CUSTOM_BYTE_SET9 0x9
+#define SXD_ACL_CUSTOM_BYTE_SET0  0x0
+#define SXD_ACL_CUSTOM_BYTE_SET1  0x1
+#define SXD_ACL_CUSTOM_BYTE_SET2  0x2
+#define SXD_ACL_CUSTOM_BYTE_SET3  0x3
+#define SXD_ACL_CUSTOM_BYTE_SET4  0x4
+#define SXD_ACL_CUSTOM_BYTE_SET5  0x5
+#define SXD_ACL_CUSTOM_BYTE_SET6  0x6
+#define SXD_ACL_CUSTOM_BYTE_SET7  0x7
+#define SXD_ACL_CUSTOM_BYTE_SET8  0x8
+#define SXD_ACL_CUSTOM_BYTE_SET9  0x9
+#define SXD_ACL_CUSTOM_BYTE_SET10 0xa
+#define SXD_ACL_CUSTOM_BYTE_SET11 0xb
 
-#define SXD_ACL_EXTRACTION_POINT_MAC_HEADER         0x0
-#define SXD_ACL_EXTRACTION_POINT_ETHER_TYPE         0x4
-#define SXD_ACL_EXTRACTION_POINT_IPV4_HEADER        0x5
-#define SXD_ACL_EXTRACTION_POINT_IPV4_PAYLOAD       0x6
-#define SXD_ACL_EXTRACTION_POINT_ARP                0x9
-#define SXD_ACL_EXTRACTION_POINT_IPV6_HEADER        0xA
-#define SXD_ACL_EXTRACTION_POINT_IPV6_PAYLOAD       0xB
-#define SXD_ACL_EXTRACTION_POINT_MPLS_HEADER        0x12
-#define SXD_ACL_EXTRACTION_POINT_MPLS_PAYLOAD       0x13
-#define SXD_ACL_EXTRACTION_POINT_ROCE_GRH_HEADER    0x14
-#define SXD_ACL_EXTRACTION_POINT_GRE_PAYLOLAD       0x1A
-#define SXD_ACL_EXTRACTION_POINT_UDP_PAYLOAD        0x25
-#define SXD_ACL_EXTRACTION_POINT_INNER_MAC_HEADER   0x27
-#define SXD_ACL_EXTRACTION_POINT_INNER_ETHER_TYPE   0x28
-#define SXD_ACL_EXTRACTION_POINT_INNER_IPV4_HEADER  0x29
-#define SXD_ACL_EXTRACTION_POINT_INNER_IPV4_PAYLOAD 0x2A
-#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_HEADER  0x2D
-#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_PAYLOAD 0x2E
-#define SXD_ACL_EXTRACTION_POINT_INNER_UDP_PAYLOAD  0x3A
+#define SXD_ACL_EXTRACTION_POINT_START_OF_PACKET        0x0
+#define SXD_ACL_EXTRACTION_POINT_MAC_HEADER             0x1
+#define SXD_ACL_EXTRACTION_POINT_ETHER_TYPE             0x4
+#define SXD_ACL_EXTRACTION_POINT_IPV4_HEADER            0x5
+#define SXD_ACL_EXTRACTION_POINT_IPV4_PAYLOAD           0x6
+#define SXD_ACL_EXTRACTION_POINT_ARP                    0x9
+#define SXD_ACL_EXTRACTION_POINT_IPV6_HEADER            0xA
+#define SXD_ACL_EXTRACTION_POINT_IPV6_PAYLOAD           0xB
+#define SXD_ACL_EXTRACTION_POINT_MPLS_HEADER            0x12
+#define SXD_ACL_EXTRACTION_POINT_MPLS_PAYLOAD           0x13
+#define SXD_ACL_EXTRACTION_POINT_ROCE_GRH_HEADER        0x14
+#define SXD_ACL_EXTRACTION_POINT_PTP                    0x15
+#define SXD_ACL_EXTRACTION_POINT_GRE_HEADER             0x19
+#define SXD_ACL_EXTRACTION_POINT_GRE_PAYLOLAD           0x1A
+#define SXD_ACL_EXTRACTION_POINT_FCOE_VFT               0x1B
+#define SXD_ACL_EXTRACTION_POINT_FCOE_IFR               0x1C
+#define SXD_ACL_EXTRACTION_POINT_FCOE_ENC               0x1D
+#define SXD_ACL_EXTRACTION_POINT_FCOE_CONFIGURABLE      0x1E
+#define SXD_ACL_EXTRACTION_POINT_FCOE_FRAME_HEADER      0x1F
+#define SXD_ACL_EXTRACTION_POINT_FCOE_PAYLOAD           0x20
+#define SXD_ACL_EXTRACTION_POINT_ROCE_BTH_HEADER        0x21
+#define SXD_ACL_EXTRACTION_POINT_ICMP_HEADER            0x22
+#define SXD_ACL_EXTRACTION_POINT_IGMP_HEADER            0x23
+#define SXD_ACL_EXTRACTION_POINT_UDP_HEADER             0x24
+#define SXD_ACL_EXTRACTION_POINT_UDP_PAYLOAD            0x25
+#define SXD_ACL_EXTRACTION_POINT_TCP_HEADER             0x26
+#define SXD_ACL_EXTRACTION_POINT_INNER_MAC_HEADER       0x27
+#define SXD_ACL_EXTRACTION_POINT_INNER_ETHER_TYPE       0x28
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV4_HEADER      0x29
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV4_PAYLOAD     0x2A
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_HEADER      0x2D
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_PAYLOAD     0x2E
+#define SXD_ACL_EXTRACTION_POINT_INNER_MPLS_HEADER      0x30
+#define SXD_ACL_EXTRACTION_POINT_INNER_UDP_HEADER       0x39
+#define SXD_ACL_EXTRACTION_POINT_INNER_UDP_PAYLOAD      0x3A
+#define SXD_ACL_EXTRACTION_POINT_INNER_TCP_HEADER       0x3B
+#define SXD_ACL_EXTRACTION_POINT_VXLAN_HEADER           0x50
+#define SXD_ACL_EXTRACTION_POINT_VXLAN_GPE_HEADER       0x51
+#define SXD_ACL_EXTRACTION_POINT_GENEVE_HEADER          0x52
+#define SXD_ACL_EXTRACTION_POINT_IPV6_HBH               0x60
+#define SXD_ACL_EXTRACTION_POINT_IPV6_DESTINATION       0x61
+#define SXD_ACL_EXTRACTION_POINT_IPV6_ROUTING           0x62
+#define SXD_ACL_EXTRACTION_POINT_IPV6_FRAGMENT          0x63
+#define SXD_ACL_EXTRACTION_POINT_IPV6_MOBILITY          0x66
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_HBH         0x68
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_DESTINATION 0x69
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_ROUTING     0x6A
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_FRAGMENT    0x6B
+#define SXD_ACL_EXTRACTION_POINT_INNER_IPV6_MOBILITY    0x6E
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER0           0x80
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER1           0x81
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER2           0x82
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER3           0x83
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER4           0x84
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER5           0x85
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER6           0x86
+#define SXD_ACL_EXTRACTION_POINT_FLEX_HEADER7           0x87
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER0     0xA0
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER1     0xA1
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER2     0xA2
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER3     0xA3
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER4     0xA4
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER5     0xA5
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER6     0xA6
+#define SXD_ACL_EXTRACTION_POINT_INNER_FLEX_HEADER7     0xA7
+#define SXD_ACL_EXTRACTION_POINT_HASH_SIG0              0xE0      /* SPC4 only */
+#define SXD_ACL_EXTRACTION_POINT_HASH_SIG1              0xE1      /* SPC4 only */
+#define SXD_ACL_EXTRACTION_POINT_HASH_SIG2              0xE2      /* SPC4 only */
+#define SXD_ACL_EXTRACTION_POINT_HASH_SIG3              0xE3      /* SPC4 only */
 
 typedef struct sxd_flex_extraction_point {
     uint8_t enable;
@@ -3999,9 +4569,9 @@ typedef struct sxd_pemb_recorde_multicast_egress {
 } sxd_pemb_recorde_multicast_egress_t;
 
 typedef enum ku_pemb_entry_type {
-    KU_PEMB_ENTRY_TYPE_SPREADING_E = 0x1,
+    KU_PEMB_ENTRY_TYPE_SPREADING_E            = 0x1,
     KU_PEMB_ENTRY_TYPE_EGRESS_ACL_MULTICAST_E = 0x2,
-    KU_PEMB_ENTRY_TYPE_RESERVED_E = 0x3
+    KU_PEMB_ENTRY_TYPE_RESERVED_E             = 0x3
 } ku_pemb_entry_type_t;
 
 typedef struct ku_pemb_reg {
@@ -4030,7 +4600,7 @@ typedef struct ku_prcr_reg {
  */
 typedef enum sxd_acl_pacl_acl_type {
     SXD_PACL_ACL_TYPE_ALL = 0,
-    SXD_PACL_ACL_TYPE_L3 = 1,
+    SXD_PACL_ACL_TYPE_L3  = 1,
 } sxd_acl_pacl_acl_type_t;
 
 /**
@@ -4049,9 +4619,9 @@ typedef struct ku_pacl_reg {
  * PTAR operation.
  */
 typedef enum sxd_acl_ptar_op {
-    SXD_PTAR_OP_ALLOCATE_E = 0,
-    SXD_PTAR_OP_RESIZE_E = 1,
-    SXD_PTAR_OP_DEALLOCATE_E = 2,
+    SXD_PTAR_OP_ALLOCATE_E      = 0,
+    SXD_PTAR_OP_RESIZE_E        = 1,
+    SXD_PTAR_OP_DEALLOCATE_E    = 2,
     SXD_PTAR_OP_TEST_ALLOCATE_E = 3,
 } sxd_acl_ptar_op_t;
 
@@ -4061,10 +4631,10 @@ typedef enum sxd_acl_ptar_op {
  * note the PTAR action type.
  */
 typedef enum sxd_acl_ptar_action_type {
-    SXD_PTAR_DEFAULT_ACTION_E = 0,
+    SXD_PTAR_DEFAULT_ACTION_E  = 0,
     SXD_PTAR_EXTENDED_ACTION_E = 1,
-    SXD_PTAR_FLEX_ACTION_E = 2,
-    SXD_PTAR_FLEX_2_ACTION_E = 2
+    SXD_PTAR_FLEX_ACTION_E     = 2,
+    SXD_PTAR_FLEX_2_ACTION_E   = 2
 } sxd_acl_ptar_action_type_t;
 
 
@@ -4073,15 +4643,15 @@ typedef enum sxd_acl_ptar_action_type {
  * note the PTAR action type.
  */
 typedef enum sxd_acl_ptar_key_type {
-    SXD_PTAR_KEY_IPv4_FULL_E = 0,
-    SXD_PTAR_KEY_IPv6_FULL_E = 1,
-    SXD_PTAR_KEY_MAC_FULL_E = 2,
-    SXD_PTAR_KEY_MAC_IPv4_FULL_E = 3,
-    SXD_PTAR_KEY_MAC_SHORT_E = 4,
+    SXD_PTAR_KEY_IPv4_FULL_E         = 0,
+    SXD_PTAR_KEY_IPv6_FULL_E         = 1,
+    SXD_PTAR_KEY_MAC_FULL_E          = 2,
+    SXD_PTAR_KEY_MAC_IPv4_FULL_E     = 3,
+    SXD_PTAR_KEY_MAC_SHORT_E         = 4,
     SXD_PTAR_KEY_CONFIGURABLE_FULL_E = 16,
-    SXD_PTAR_KEY_FCOE_FULL_E = 32,
-    SXD_PTAR_KEY_FLEX_KEY_E = 0x50,
-    SXD_PTAR_KEY_FLEX_2_KEY_E = 0x51
+    SXD_PTAR_KEY_FCOE_FULL_E         = 32,
+    SXD_PTAR_KEY_FLEX_KEY_E          = 0x50,
+    SXD_PTAR_KEY_FLEX_2_KEY_E        = 0x51
 } sxd_acl_ptar_key_type_t;
 
 /**
@@ -4089,10 +4659,10 @@ typedef enum sxd_acl_ptar_key_type {
  * optimization mode.
  */
 typedef enum sxd_ptar_optimization_type {
-    SXD_PTAR_TCAM_NO_OPTIMIZATION_E = 0,
+    SXD_PTAR_TCAM_NO_OPTIMIZATION_E   = 0,
     SXD_PTAR_TCAM_SOFT_OPTIMIZATION_E = 1,
     SXD_PTAR_TCAM_HARD_OPTIMIZATION_E = 2,
-    SXD_PTAR_TCAM_RESERVED_E = 3,
+    SXD_PTAR_TCAM_RESERVED_E          = 3,
 } sxd_ptar_optimization_type_t;
 
 /**
@@ -4100,7 +4670,7 @@ typedef enum sxd_ptar_optimization_type {
  * for TCAM optimization mode. Granularity is 5%. Duplication number is used.
  */
 typedef enum sxd_ptar_packet_rate {
-    SXD_PTAR_PACKET_RATE_0_PCT = 0,
+    SXD_PTAR_PACKET_RATE_0_PCT  = 0,
     SXD_PTAR_PACKET_RATE_10_PCT = 2,
     SXD_PTAR_PACKET_RATE_20_PCT = 4,
     SXD_PTAR_PACKET_RATE_40_PCT = 8,
@@ -4109,7 +4679,7 @@ typedef enum sxd_ptar_packet_rate {
 
 typedef enum sxd_acl_ptar_direction {
     SXD_PTAR_ACL_DIRECTION_INGRESS_E = 0,
-    SXD_PTAR_ACL_DIRECTION_EGRESS_E = 1
+    SXD_PTAR_ACL_DIRECTION_EGRESS_E  = 1
 } sxd_acl_ptar_direction_t;
 
 /**
@@ -4119,6 +4689,7 @@ typedef struct ku_ptar_reg {
     sxd_acl_ptar_op_t            op;
     sxd_acl_ptar_action_type_t   action_type;
     sxd_acl_ptar_key_type_t      key_type;
+    sxd_boolean_t                stateful_db_region;
     uint16_t                     region_size;
     uint16_t                     region_id;
     uint8_t                      atcam_dup;
@@ -4131,51 +4702,6 @@ typedef struct ku_ptar_reg {
     uint16_t                     region_id_dup[SXD_TCAM_REGOIN_ID_DUP];
 } ku_ptar_reg_t;
 
-/**
- * sxd_acl_ffar_op enumerated type is used to note the
- * FFAR operation.
- */
-enum sxd_acl_ffar_op {
-    SXD_FFAR_OP_ALLOCATE = 0,
-    SXD_FFAR_OP_RESIZE = 1,
-    SXD_FFAR_OP_DEALLOCATE = 2,
-    SXD_FFAR_OP_TEST_ALLOCATE = 3,
-};
-
-
-/**
- * sxd_fc_optimization_type_t enumerated type is used to note the TCAM
- * optimization mode.
- */
-typedef enum sxd_fc_optimization_type {
-    SXD_FC_TCAM_NO_OPTIMIZATION = 0,
-    SXD_FC_TCAM_SOFT_OPTIMIZATION = 1,
-    SXD_FC_TCAM_HARD_OPTIMIZATION = 2,
-    SXD_FC_TCAM_RESERVED = 3,
-} sxd_fc_optimization_type_t;
-
-/**
- * ku_ffar_reg structure is used to store the FFAR register parameters
- */
-struct ku_ffar_reg {
-    enum sxd_acl_ffar_op       op;
-    uint16_t                   region_size;
-    sxd_fc_optimization_type_t op_type;
-};
-
-/**
- * ku_pgcr_reg structure is used to store the PGCR register
- * parameters
- */
-typedef struct ku_pgcr_reg {
-    uint8_t  update_prune;
-    uint16_t pbs_table_size;
-    uint16_t max_eacl;
-    uint16_t max_iacl;
-    uint16_t atcam_ignore_prune_vector;
-    uint8_t  activity_dis;
-    uint32_t default_action_base;
-} ku_pgcr_reg_t;
 
 /**
  * ku_puet_reg structure is used to store the PUET register
@@ -4187,15 +4713,40 @@ typedef struct ku_puet_reg {
 } ku_puet_reg_t;
 
 /**
+ * sxd_acl_direction enumerated type is used to note the ACL direction.
+ *
+ * NOTE: Any change to this enum requires alignments at least in
+ * the following components:
+ * 1. ACL Drop DB (look for ACL_DROP_USR_DEF_VAL_SET)
+ * 2. WJH library (look for ACL DROP reasons and ACL directions)
+ * 3. Drop monitor (look for SXD ACL direction)
+ *
+ */
+typedef enum sxd_acl_direction {
+    SXD_ACL_DIRECTION_INGRESS_E          = 0,
+    SXD_ACL_DIRECTION_EGRESS_E           = 1,
+    SXD_ACL_DIRECTION_RIF_INGRESS_E      = 2,
+    SXD_ACL_DIRECTION_RIF_EGRESS_E       = 3,
+    SXD_ACL_DIRECTION_TPORT_INGRESS_E    = 4,
+    SXD_ACL_DIRECTION_TPORT_EGRESS_E     = 5,
+    SXD_ACL_DIRECTION_CPU_INGRESS_E      = 6,
+    SXD_ACL_DIRECTION_CPU_EGRESS_E       = 7,
+    SXD_ACL_DIRECTION_SINGLE_POINT_MIN_E = SXD_ACL_DIRECTION_INGRESS_E,
+    SXD_ACL_DIRECTION_SINGLE_POINT_MAX_E = SXD_ACL_DIRECTION_CPU_EGRESS_E,
+    SXD_ACL_DIRECTION_SINGLE_POINT_NUM_E = SXD_ACL_DIRECTION_SINGLE_POINT_MAX_E + 1,
+    SXD_ACL_DIRECTION_MULTI_POINTS_E     = SXD_ACL_DIRECTION_SINGLE_POINT_MAX_E + 1
+} sxd_acl_direction_t;
+
+/**
  * sxd_router_arp_operation_t enumerated type is used to note the ARP
  * operation.
  */
 typedef enum sxd_router_arp_operation {
-    SXD_ROUTER_ARP_OPERATION_ALLOCATE = 0,
-    SXD_ROUTER_ARP_OPERATION_WRITE = 1,
-    SXD_ROUTER_ARP_OPERATION_DEALLOCATE = 2,
+    SXD_ROUTER_ARP_OPERATION_ALLOCATE        = 0,
+    SXD_ROUTER_ARP_OPERATION_WRITE           = 1,
+    SXD_ROUTER_ARP_OPERATION_DEALLOCATE      = 2,
     SXD_ROUTER_ARP_OPERATION_WRITE_A_CLEARED = 3,
-    SXD_ROUTER_ARP_OPERATION_CLEAR_A = 2
+    SXD_ROUTER_ARP_OPERATION_CLEAR_A         = 2
 } sxd_router_arp_operation_t;
 
 /**
@@ -4260,6 +4811,7 @@ typedef struct ku_pkey_multi_parameters {
  */
 typedef struct ku_mpls_adj_parameters {
     uint32_t nhlfe_ptr;
+    uint8_t  tqos_profile;
     uint16_t ecmp_size;
     uint16_t underlay_router_interface;
 } ku_mpls_adj_parameters_t;
@@ -4268,10 +4820,10 @@ typedef struct ku_mpls_adj_parameters {
  * Underlay Destination IP Types
  */
 typedef enum sxd_udip_type {
-    SXD_UDIP_TYPE_IPV4 = 0,
-    SXD_UDIP_TYPE_IPV6 = 1,
+    SXD_UDIP_TYPE_IPV4                     = 0,
+    SXD_UDIP_TYPE_IPV6                     = 1,
     SXD_UDIP_TYPE_AUTO_TUNNEL_IPV6_TO_IPV4 = 2,
-    SXD_UDIP_TYPE_AUTO_TUNNEL_ISATAP = 3,
+    SXD_UDIP_TYPE_AUTO_TUNNEL_ISATAP       = 3,
 } sxd_udip_type_e;
 
 /**
@@ -4285,6 +4837,56 @@ typedef struct ku_l3_tunnel_encap_adj_parameters {
     } prefix;
 } ku_l3_tunnel_encap_adj_parameters_t;
 
+/**
+ * The new header type added by the NAT
+ */
+typedef enum sxd_nat4to6_new_header_type {
+    SXD_NAT4TO6_NEW_HEADER_TYPE_IPV4 = 0,
+    SXD_NAT4TO6_NEW_HEADER_TYPE_IPV6 = 1,
+} sxd_nat4to6_new_header_type_e;
+
+/**
+ * The expected L3 protocol to handle
+ */
+typedef enum sxd_nat4to6_exp_l3 {
+    SXD_NAT4TO6_EXP_L3_ANY  = 0,
+    SXD_NAT4TO6_EXP_L3_IPV4 = 1,
+    SXD_NAT4TO6_EXP_L3_IPV6 = 2,
+} sxd_nat4to6_exp_l3_e;
+
+/**
+ * NAT Ipv4/IPv6 Adjacency Parameters Layout
+ */
+typedef struct ku_nat4to6_adj_parameters {
+    sxd_nat4to6_new_header_type_e new_header_type;
+    uint16_t                      ingress_rif;
+    uint8_t                       qos_profile;
+    sxd_nat4to6_exp_l3_e          exp_l3;
+    union {
+        uint32_t ipv4_udip;
+        uint32_t ipv6_ptr;
+    } udip;
+} ku_nat4to6_adj_parameters_t;
+
+/**
+ * Re-lookup ECMP Adjacency Parameters Layout
+ */
+typedef struct ku_relookup_ecmp_adj_parameters {
+    uint32_t      next_adjacency_ptr;
+    uint32_t      next_ecmp_size;
+    sxd_boolean_t rd;
+    uint32_t      rehash_seed;
+} ku_relookup_ecmp_adj_parameters_t;
+
+/**
+ * Re-lookup LPM Adjacency Parameters Layout
+ */
+typedef struct ku_relookup_lpm_adj_parameters {
+    uint32_t      virtual_router;
+    sxd_boolean_t rd;
+    uint32_t      rehash_seed;
+} ku_relookup_lpm_adj_parameters_t;
+
 /*
  * RATR - adjacency_parameters
  */
@@ -4295,6 +4897,9 @@ typedef union ku_adj_parameters {
     ku_pkey_multi_parameters_t           pkey_multi_parameters;
     ku_mpls_adj_parameters_t             mpls_adj_parameters;
     ku_l3_tunnel_encap_adj_parameters_t  l3_tunnel_encap_adj_parameters;
+    ku_nat4to6_adj_parameters_t          nat4to6_adj_parameters;
+    ku_relookup_ecmp_adj_parameters_t    relookup_ecmp_adj_parameters;
+    ku_relookup_lpm_adj_parameters_t     relookup_lpm_adj_parameters;
 } ku_adj_parameters_t;
 
 /**
@@ -4302,12 +4907,15 @@ typedef union ku_adj_parameters {
  * operation.
  */
 typedef enum sxd_router_adjacency_table_type {
-    ETHERNET = 0,
+    ETHERNET             = 0,
     PKEY_UNI_WITHOUT_GRH = 1,
-    PKEY_UNI_WITH_GRH = 2,
-    PKEY_MULTI = 3,
-    MPLS = 4,
-    L3_TUNNEL_ENCAP = 5,
+    PKEY_UNI_WITH_GRH    = 2,
+    PKEY_MULTI           = 3,
+    MPLS                 = 4,
+    L3_TUNNEL_ENCAP      = 5,
+    NAT4TO6              = 7,
+    RELOOKUP_ECMP        = 8,
+    RELOOKUP_LPM         = 9,
 } sxd_router_adjacency_table_type_t;
 
 /**
@@ -4315,11 +4923,11 @@ typedef enum sxd_router_adjacency_table_type {
  */
 
 typedef enum sxd_router_adjacency_table {
-    ETHERNET_UNICAST_ADJACENCY = 0,
+    ETHERNET_UNICAST_ADJACENCY            = 0,
     IPoIB_UNICAST_AND_MULTICAST_ADJACENCY = 1,
-    IPoIB_ALL_ROUTERS_ADJACENCY = 2,
-    IPoIB_IP_BROADCAST_ADJACENCY = 3,
-    IB_ALGO_ROUTING = 4,
+    IPoIB_ALL_ROUTERS_ADJACENCY           = 2,
+    IPoIB_IP_BROADCAST_ADJACENCY          = 3,
+    IB_ALGO_ROUTING                       = 4,
 } sxd_router_adjacency_table_t;
 
 /**
@@ -4328,7 +4936,7 @@ typedef enum sxd_router_adjacency_table {
  */
 typedef enum sxd_router_adjacency_validate {
     SXD_ROUTE_ADJECENCY_DELETE = 0,
-    SXD_ROUTE_ADJECENCY_WRITE = 1,
+    SXD_ROUTE_ADJECENCY_WRITE  = 1,
 } sxd_router_adjacency_validate_t;
 
 /**
@@ -4345,37 +4953,25 @@ typedef uint16_t sxd_rif_t;
  * sxd_router_route_action_t enumerated type is used to note the route action.
  */
 typedef enum sxd_router_action_type {
-    SXD_ROUTER_ROUTE_ACTION_PERMIT = 0,
-    SXD_ROUTER_ROUTE_ACTION_SOFT_DROP = 1,
-    SXD_ROUTER_ROUTE_ACTION_TRAP = 2,
+    SXD_ROUTER_ROUTE_ACTION_PERMIT         = 0,
+    SXD_ROUTER_ROUTE_ACTION_SOFT_DROP      = 1,
+    SXD_ROUTER_ROUTE_ACTION_TRAP           = 2,
     SXD_ROUTER_ROUTE_ACTION_SOFT_DROP_TRAP = 3,
-    SXD_ROUTER_ROUTE_ACTION_DENY = 4,
+    SXD_ROUTER_ROUTE_ACTION_DENY           = 4,
 } sxd_router_route_action_t;
 
 /**
  * sxd_router_en_route_action_t enumerated type is used to note the route action in RouterEN.
  */
 typedef enum sxd_router_en_action {
-    SXD_ROUTER_EN_ACTION_NOP = 0,
-    SXD_ROUTER_EN_ACTION_TRAP = 1,
+    SXD_ROUTER_EN_ACTION_NOP           = 0,
+    SXD_ROUTER_EN_ACTION_TRAP          = 1,
     SXD_ROUTER_EN_ACTION_MIRROR_TO_CPU = 2,
-    SXD_ROUTER_EN_ACTION_MIRROR = 3,
+    SXD_ROUTER_EN_ACTION_MIRROR        = 3,
     SXD_ROUTER_EN_ACTION_DISCARD_ERROR = 4,
-    SXD_ROUTER_EN_ACTION_MIN = SXD_ROUTER_EN_ACTION_NOP,
-    SXD_ROUTER_EN_ACTION_MAX = SXD_ROUTER_EN_ACTION_DISCARD_ERROR,
+    SXD_ROUTER_EN_ACTION_MIN           = SXD_ROUTER_EN_ACTION_NOP,
+    SXD_ROUTER_EN_ACTION_MAX           = SXD_ROUTER_EN_ACTION_DISCARD_ERROR,
 } sxd_router_en_action_t;
-
-/**
- * sxd_forward_action_t enumerated type is used to note the forward action in NHLFE.
- */
-typedef enum sxd_forward_action {
-    SXD_FORWARD_ACTION_ETH = 0,
-    SXD_FORWARD_ACTION_IP_ROUTER = 1,
-    SXD_FORWARD_ACTION_CONTINUE_LOOKUPS = 2,
-    SXD_FORWARD_ACTION_NEXT_NHLFE = 3,
-    SXD_FORWARD_ACTION_MIN = SXD_FORWARD_ACTION_ETH,
-    SXD_FORWARD_ACTION_MAX = SXD_FORWARD_ACTION_NEXT_NHLFE,
-} sxd_forward_action_t;
 
 /**
  * ku_ratr_reg structure is used to store the RATR register parameters
@@ -4400,7 +4996,7 @@ struct ku_ratr_reg {
  * operation for RATRAD
  */
 typedef enum sxd_ratrad_operation {
-    SXD_RATRAD_OP_READ_ACTIVITY = 0,
+    SXD_RATRAD_OP_READ_ACTIVITY       = 0,
     SXD_RATRAD_OP_READ_CLEAR_ACTIVITY = 1,
 } sxd_ratrad_operation_t;
 
@@ -4435,19 +5031,30 @@ typedef struct sxd_fc_addr {
  * route type.
  */
 typedef enum sxd_router_route_type {
-    SXD_ROUTER_ROUTE_TYPE_IPV4 = 0,
-    SXD_ROUTER_ROUTE_TYPE_IPV6 = 1,
+    SXD_ROUTER_ROUTE_TYPE_IPV4              = 0,
+    SXD_ROUTER_ROUTE_TYPE_IPV6              = 1,
     SXD_ROUTER_ROUTE_TYPE_IB_GID_SITE_LOCAL = 2,
 } sxd_router_route_type_t;
 
+/**
+ * sxd_router_mc_route_type_t enumerated type is used to note the
+ * multicast route type.
+ */
+typedef enum sxd_router_mc_route_type {
+    SXD_ROUTER_MC_ROUTE_TYPE_IPV4_G0 = 0,
+    SXD_ROUTER_MC_ROUTE_TYPE_IPV6_G0 = 1,
+    SXD_ROUTER_MC_ROUTE_TYPE_IPV4_G1 = 2,
+    SXD_ROUTER_MC_ROUTE_TYPE_IPV6_G1 = 3,
+} sxd_router_mc_route_type_t;
+
 typedef enum sxd_router_tcam_write_operation {
     /*On write register*/
-    SXD_ROUTER_TCAM_WRITE = 0,
-    SXD_ROUTER_TCAM_UPDATE = 1,
+    SXD_ROUTER_TCAM_WRITE          = 0,
+    SXD_ROUTER_TCAM_UPDATE         = 1,
     SXD_ROUTER_TCAM_CLEAR_ACTIVITY = 2,
-    SXD_ROUTER_TCAM_WRITE_CLEAR = 3,
+    SXD_ROUTER_TCAM_WRITE_CLEAR    = 3,
     /*On read register*/
-    SXD_ROUTER_TCAM_READ = 0,
+    SXD_ROUTER_TCAM_READ              = 0,
     SXD_ROUTER_ACTIVITY_CLEAR_ON_READ = 1,
 } sxd_router_tcam_write_operation_t;
 
@@ -4459,13 +5066,13 @@ typedef enum sxd_kvd_hash_operation {
     SXD_KVD_HASH_OPERATION_DELETE,
     SXD_KVD_HASH_OPERATION_DELETE_ALL,
     /*On read register*/
-    SXD_KVD_HASH_OPERATION_READ = 0,
+    SXD_KVD_HASH_OPERATION_READ       = 0,
     SXD_KVD_HASH_OPERATION_READ_CLEAR = 1,
 } sxd_kvd_hash_operation_t;
 
 typedef enum sxd_fcf_tcam_write_operation {
-    SXD_FCF_TCAM_WRITE = 0,
-    SXD_FCF_TCAM_UPDATE = 1,
+    SXD_FCF_TCAM_WRITE          = 0,
+    SXD_FCF_TCAM_UPDATE         = 1,
     SXD_FCF_TCAM_CLEAR_ACTIVITY = 2,
 } sxd_fcf_tcam_write_operation_t;
 
@@ -4475,24 +5082,24 @@ typedef enum sxd_fcf_tcam_write_operation {
  */
 typedef enum {
     SXD_ROUTER_QOS_MAP_PRIO_FROM_DSCP = 0,
-    SXD_ROUTER_QOS_PRESERVE_PRIO = 1,
+    SXD_ROUTER_QOS_PRESERVE_PRIO      = 1,
 } sxd_router_qos_t;
 
 /*
  * Egress Port Type for Fibre Channel protocols
  */
 typedef enum sxd_ept {
-    SXD_FCF_FCOE_VF_PORT = 0,
-    SXD_FCF_FCOE_VE_PORT = 1,
-    SXD_FCF_FC_VF_PORT = 2,
-    SXD_FCF_FC_VE_PORT = 3,
+    SXD_FCF_FCOE_VF_PORT  = 0,
+    SXD_FCF_FCOE_VE_PORT  = 1,
+    SXD_FCF_FC_VF_PORT    = 2,
+    SXD_FCF_FC_VE_PORT    = 3,
     SXD_FCF_FCOIB_VF_PORT = 4,
     SXD_FCF_FCOIB_VE_PORT = 5,
 } sxd_ept_t;
 
 typedef enum sxd_counter_opcode {
-    SXD_COUNTER_OPCODE_NOP = 0,
-    SXD_COUNTER_OPCODE_ADD_COUNTERS = 1,
+    SXD_COUNTER_OPCODE_NOP            = 0,
+    SXD_COUNTER_OPCODE_ADD_COUNTERS   = 1,
     SXD_COUNTER_OPCODE_FLUSH_COUNTERS = 2,
     SXD_COUNTER_OPCODE_CLEAR_COUNTERS = 8,
 } sxd_counter_opcode_t;
@@ -4533,22 +5140,6 @@ struct ku_ruft_reg {
     uint32_t                          ecmp_size;
     uint8_t                           table;
     sxd_adj_index_t                   adjacency_index;
-};
-
-/**
- * ku_fftr_reg structure is used to store the FFTR register parameters
- */
-struct ku_fftr_reg {
-    uint8_t                        valid;
-    sxd_fcf_tcam_write_operation_t operation;
-    uint16_t                       offset;
-    sxd_fcf_id_t                   fcf;
-    sxd_fc_addr_t                  did;
-    sxd_fc_addr_t                  did_mask;
-    sxd_fc_addr_t                  sid;
-    sxd_fc_addr_t                  sid_mask;
-    sxd_ept_t                      ept;
-    uint16_t                       ve_port_index;  /* Should be 0 for vf_ports */
 };
 
 /**
@@ -4593,14 +5184,14 @@ struct ku_rauht_reg {
  */
 typedef enum sxd_rauhtd_filter_fields {
     SXD_RAUHTD_FILTER_ACTIVE = 1 << 0,
-        SXD_RAUHTD_FILTER_RIF = 1 << 3,
+    SXD_RAUHTD_FILTER_RIF    = 1 << 3,
 } sxd_rauhtd_filter_fields_t;
 
 /**
  * operation for RAUHTD
  */
 typedef enum sxd_rauhtd_operation {
-    SXD_RAUHTD_OP_DUMP_ENTRIES = 0,
+    SXD_RAUHTD_OP_DUMP_ENTRIES   = 0,
     SXD_RAUHTD_OP_CLEAR_ACTIVITY = 1,
 } sxd_rauhtd_operation_t;
 
@@ -4667,9 +5258,9 @@ enum sxd_rmft_ttl_cmd {
  * in RMFT.
  */
 typedef enum sxd_rmft_rpf_action {
-    SXD_RMFT_RPF_ACTION_NONE = 0,
-    SXD_RMFT_RPF_ACTION_DISCARD = 1,
-    SXD_RMFT_RPF_ACTION_TRAP = 2,
+    SXD_RMFT_RPF_ACTION_NONE        = 0,
+    SXD_RMFT_RPF_ACTION_DISCARD     = 1,
+    SXD_RMFT_RPF_ACTION_TRAP        = 2,
     SXD_RMFT_RPF_ACTION_DIRECTIONAL = 4,
 } sxd_rmft_rpf_action_t;
 
@@ -4705,7 +5296,7 @@ struct ku_rmft_reg {
  */
 struct ku_rmft_v2_reg {
     sxd_boolean_t                     valid;
-    sxd_router_route_type_t           route_type;
+    sxd_router_mc_route_type_t        route_type;
     sxd_router_tcam_write_operation_t operation;
     sxd_boolean_t                     activity;
     uint16_t                          offset;
@@ -4747,9 +5338,10 @@ struct ku_ptcead_reg {
  * type.
  */
 typedef enum sxd_router_ecmp_hash_type {
-    SXD_ROUTER_ECMP_HASH_TYPE_CRC = 0,
-    SXD_ROUTER_ECMP_HASH_TYPE_XOR = 1,
+    SXD_ROUTER_ECMP_HASH_TYPE_CRC    = 0,
+    SXD_ROUTER_ECMP_HASH_TYPE_XOR    = 1,
     SXD_ROUTER_ECMP_HASH_TYPE_RANDOM = 2,
+    SXD_ROUTER_ECMP_HASH_TYPE_CRC2   = 3,
 } sxd_router_ecmp_hash_type_t;
 
 /**
@@ -4768,6 +5360,7 @@ struct ku_recr_reg {
 struct ku_recr_v2_reg {
     uint8_t                              per_port_configuration;
     uint8_t                              local_port;
+    uint8_t                              lp_msb;    /**< local_port msb */
     uint8_t                              symmetric_hash;
     sxd_router_ecmp_hash_type_t          hash_type;
     uint32_t                             seed;
@@ -4782,12 +5375,14 @@ struct ku_recr_v2_reg {
  * sxd_router_tcam_type_t enumerated type is used to note the TCAM type.
  */
 typedef enum sxd_router_tcam_type {
-    SXD_ROUTER_TCAM_TYPE_IPV4_UNICAST = 0,
-    SXD_ROUTER_TCAM_TYPE_IPV4_MULTICAST = 1,
-    SXD_ROUTER_TCAM_TYPE_IPV6_UNICAST = 2,
-    SXD_ROUTER_TCAM_TYPE_IPV6_MULTICAST = 3,
-    SXD_ROUTER_TCAM_TYPE_IPV4_HOST_TABLE = 4,
-    SXD_ROUTER_TCAM_TYPE_IPV6_HOST_TABLE = 5,
+    SXD_ROUTER_TCAM_TYPE_IPV4_UNICAST     = 0,
+    SXD_ROUTER_TCAM_TYPE_IPV4_MULTICAST   = 1,
+    SXD_ROUTER_TCAM_TYPE_IPV6_UNICAST     = 2,
+    SXD_ROUTER_TCAM_TYPE_IPV6_MULTICAST   = 3,
+    SXD_ROUTER_TCAM_TYPE_IPV4_HOST_TABLE  = 4,
+    SXD_ROUTER_TCAM_TYPE_IPV6_HOST_TABLE  = 5,
+    SXD_ROUTER_TCAM_TYPE_IPV4_MULTICAST_1 = 6,
+    SXD_ROUTER_TCAM_TYPE_IPV6_MULTICAST_1 = 7,
     SXD_ROUTER_TCAM_TYPE_INVALID
 } sxd_router_tcam_type_t;
 
@@ -4796,10 +5391,10 @@ typedef enum sxd_router_tcam_type {
  * operation.
  */
 typedef enum sxd_router_tcam_operation {
-    SXD_ROUTER_TCAM_OPERATION_ALLOCATE = 0,
-    SXD_ROUTER_TCAM_OPERATION_RESIZE = 1,
+    SXD_ROUTER_TCAM_OPERATION_ALLOCATE   = 0,
+    SXD_ROUTER_TCAM_OPERATION_RESIZE     = 1,
     SXD_ROUTER_TCAM_OPERATION_DEALLOCATE = 2,
-    SXD_ROUTER_TCAM_OPERATION_TEST = 3,
+    SXD_ROUTER_TCAM_OPERATION_TEST       = 3,
 } sxd_router_tcam_operation_t;
 
 /**
@@ -4807,10 +5402,10 @@ typedef enum sxd_router_tcam_operation {
  * optimization mode.
  */
 typedef enum sxd_router_optimization_type_ {
-    SXD_ROUTER_TCAM_NO_OPTIMIZATION = 0,
+    SXD_ROUTER_TCAM_NO_OPTIMIZATION   = 0,
     SXD_ROUTER_TCAM_SOFT_OPTIMIZATION = 1,
     SXD_ROUTER_TCAM_HARD_OPTIMIZATION = 2,
-    SXD_ROUTER_TCAM_RESERVED = 3,
+    SXD_ROUTER_TCAM_RESERVED          = 3,
 } sxd_router_optimization_type_t;
 
 
@@ -4819,6 +5414,7 @@ typedef enum sxd_router_optimization_type_ {
  */
 struct ku_rtar_reg {
     sxd_router_tcam_operation_t    operation;
+    sxd_boolean_t                  external_bind;
     sxd_router_tcam_type_t         type;
     uint16_t                       tcam_size;
     sxd_router_optimization_type_t op_type;
@@ -4852,10 +5448,10 @@ typedef union ku_rif_list {
  * sxd_rigr_op_t enumerated type is used to indicates the encoding of the router_interface_list field
  */
 typedef enum sxd_rigr_op {
-    RIGR_OP_ADD_RIF = 1,
-    RIGR_OP_REMOVE_RIF = 2,
+    RIGR_OP_ADD_RIF         = 1,
+    RIGR_OP_REMOVE_RIF      = 2,
     RIGR_OP_REMOVE_ALL_RIFS = 3,
-    RIGR_OP_UPDATE_RIF = 4,
+    RIGR_OP_UPDATE_RIF      = 4,
 } sxd_rigr_op_t;
 
 /**
@@ -4863,7 +5459,7 @@ typedef enum sxd_rigr_op {
  * encoding of the router_interface_list field
  */
 typedef enum sxd_rigr_encoding {
-    ETH_ONLY = 0,
+    ETH_ONLY     = 0,
     ETH_AND_PKEY = 1,
 } sxd_rigr_encoding_t;
 
@@ -4876,75 +5472,6 @@ struct ku_rigr_reg {
     sxd_rigr_encoding_t     enc;
     uint16_t                offset;
     ku_rif_list_t           rif_list;
-};
-
-/**
- * sxd_rigr_v2_list_type_t enumerated type is used to indicate the
- * type of egress rif list encoded in the register
- */
-typedef enum sxd_rigr_v2_list_type {
-    RIGR_V2_ERIF_LIST = 0,
-    RIGR_V2_BIT_VECTOR = 1,
-    RIGR_V2_MPLS_ENCAP = 2,
-    RIGR_V2_NVE_DECAP = 3,
-    RIGR_V2_IPIP_ENCAP = 4,
-} sxd_rigr_v2_list_type_t;
-
-typedef struct sxd_rigr_v2_erif_list_entry {
-    sxd_boolean_t valid;
-    uint16_t      erif;
-} sxd_rigr_v2_erif_list_entry_t;
-
-#define SXD_RIGR_V2_ERIF_LIST_MAX  32
-#define SXD_RIGR_V2_BIT_VECTOR_MAX 64
-
-typedef struct sxd_rigr_v2_erif_list {
-    sxd_boolean_t                 vrmid;
-    uint32_t                      rmid_index;
-    sxd_rigr_v2_erif_list_entry_t erifs[SXD_RIGR_V2_ERIF_LIST_MAX];
-} sxd_rigr_v2_erif_list_t;
-
-typedef struct sxd_rigr_v2_bit_vector {
-    sxd_boolean_t vrmid;
-    uint32_t      rmid_index;
-    uint8_t       offset;
-    sxd_boolean_t erif_bit_vector[SXD_RIGR_V2_BIT_VECTOR_MAX];
-} sxd_rigr_v2_bit_vector_t;
-
-typedef struct sxd_rigr_v2_mpls_encap {
-    uint32_t nhlfe_ptr;
-    uint16_t ecmp_size;
-    uint16_t egress_rif;
-} sxd_rigr_v2_mpls_encap_t;
-
-typedef struct sxd_rigr_v2_nve_decap {
-    uint16_t uerif;
-} sxd_rigr_v2_nve_decap_t;
-
-typedef struct sxd_rigr_v2_ip_in_ip_encap {
-    sxd_router_route_type_t ipip_type;
-    uint32_t                ipv4_udip;
-    uint32_t                ipv6_ptr;
-    uint16_t                egress_rif;
-} sxd_rigr_v2_ip_in_ip_encap_t;
-
-typedef union sxd_rigr_v2_erifs {
-    sxd_rigr_v2_erif_list_t      erif_list;
-    sxd_rigr_v2_bit_vector_t     bit_vector;
-    sxd_rigr_v2_mpls_encap_t     mpls_encap;
-    sxd_rigr_v2_nve_decap_t      nve_decap;
-    sxd_rigr_v2_ip_in_ip_encap_t ipip_encap;
-} sxd_rigr_v2_erifs_t;
-
-/**
- * ku_rigr_v2_reg structure is used to store the RIGRv2 register parameters
- */
-struct ku_rigr_v2_reg {
-    sxd_rigr_v2_list_type_t list_type;
-    uint32_t                rigr_index;
-    sxd_boolean_t           vnext;
-    uint32_t                next_rigr_index;
-    sxd_rigr_v2_erifs_t     erifs;
 };
 
 #define SXD_RMEIR_BIT_VECTOR_MAX 256
@@ -4982,6 +5509,7 @@ struct ku_rmid_reg {
  */
 struct ku_rmpu_reg {
     uint8_t       local_port;
+    uint8_t       lp_msb;    /**< local_port msb */
     sxd_boolean_t op;
     uint8_t       size;
     uint32_t      rmid_index[SXD_RMPU_MAX];
@@ -4995,6 +5523,7 @@ typedef struct ku_router_vlan_interface_properties {
     uint8_t  swid;
     uint16_t vlan_id;
     uint16_t efid;
+    uint8_t  mac_profile_id;
     uint8_t  router_interface_mac[6];
     uint8_t  vrrp_id_ipv6;
     uint8_t  vrrp_id_ipv4;
@@ -5008,6 +5537,7 @@ typedef struct ku_router_vlan_interface_properties {
 typedef struct ku_router_fid_interface_properties {
     uint8_t  swid;
     uint16_t fid;
+    uint8_t  mac_profile_id;
     uint8_t  router_interface_mac[6];
     uint8_t  vrrp_id_ipv6;
     uint8_t  vrrp_id_ipv4;
@@ -5018,9 +5548,11 @@ typedef struct ku_router_fid_interface_properties {
  * ku_router_sub_port_interface_properties_t struct is used to store the router interface properties when the router interface type is sub_port.
  */
 typedef struct ku_router_sub_port_interface_properties {
+    uint8_t  ar;
     uint8_t  lag;
     uint16_t system_port;
     uint16_t efid;
+    uint8_t  mac_profile_id;
     uint8_t  router_interface_mac[6];
     uint16_t vlan_id;
     uint8_t  vrrp_id_ipv6;
@@ -5028,7 +5560,7 @@ typedef struct ku_router_sub_port_interface_properties {
 } ku_router_sub_port_interface_properties_t;
 
 /**
- * ku_router_tunnel_interface_properties_t struct is used to store the router interface properties when the router interface type is tunnel.
+ * ku_router_l3_tunnel_interface_properties_t struct is used to store the router interface properties when the router interface type is L3 tunnel.
  */
 typedef struct ku_router_l3_tunnel_interface_properties {
     uint8_t  type;
@@ -5040,6 +5572,13 @@ typedef struct ku_router_l3_tunnel_interface_properties {
 } ku_router_l3_tunnel_interface_properties_t;
 
 /**
+ * ku_router_generic_tunnel_interface_properties_t struct is used to store the router interface properties when the router interface type is a generic tunnel.
+ */
+typedef struct ku_router_usip_tunnel_interface_properties {
+    uint32_t usip[4];
+} ku_router_usip_tunnel_interface_properties_t;
+
+/**
  * ku_router_loopback_interface_properties_t struct is used to store
  * the router interface properties when the router interface
  * type is tunnel.
@@ -5047,7 +5586,8 @@ typedef struct ku_router_l3_tunnel_interface_properties {
 typedef struct ku_router_loopback_interface_properties {
     uint8_t protocol;
     union {
-        ku_router_l3_tunnel_interface_properties_t l3_tunnel_interface;
+        ku_router_l3_tunnel_interface_properties_t   l3_tunnel_interface;
+        ku_router_usip_tunnel_interface_properties_t usip_tunnel_interface;
     } properties;
 } ku_router_loopback_interface_properties_t;
 
@@ -5095,16 +5635,16 @@ typedef union ku_rif_properties {
  *       Thus, backward compatibility is achieved provided the parser is also updated.
  */
 typedef enum sxd_router_interface_type {
-    VLAN_INTERFACE = 0,
-    IB_SWID_INTERFACE = 1,
-    FID_INTERFACE = 2,
+    VLAN_INTERFACE         = 0,
+    IB_SWID_INTERFACE      = 1,
+    FID_INTERFACE          = 2,
     IB_SWID_PORT_INTERFACE = 3,
-    SUB_PORT_INTERFACE = 4,
-    IB_PORT_INTERFACE = 5,
-    LOOPBACK_INTERFACE = 6,
-    PKEY_INTERFACE = 8,
-    INTERFACE_MIN = VLAN_INTERFACE,
-    INTERFACE_MAX = PKEY_INTERFACE
+    SUB_PORT_INTERFACE     = 4,
+    IB_PORT_INTERFACE      = 5,
+    LOOPBACK_INTERFACE     = 6,
+    PKEY_INTERFACE         = 8,
+    INTERFACE_MIN          = VLAN_INTERFACE,
+    INTERFACE_MAX          = PKEY_INTERFACE
 } sxd_router_interface_type_t;
 
 /**
@@ -5112,7 +5652,7 @@ typedef enum sxd_router_interface_type {
  */
 typedef enum sxd_router_interface_op {
     INTERFACE_CREATE_OR_EDIT = 0,
-    INTERFACE_DELETE = 1
+    INTERFACE_DELETE         = 1
 } sxd_router_interface_op_t;
 
 /**
@@ -5148,31 +5688,22 @@ struct ku_ritr_reg {
 };
 
 /**
- * ku_fitr_reg structure is used to store the FITR register parameters
- */
-struct ku_fitr_reg {
-    uint8_t      valid;
-    sxd_fcf_id_t fcf;
-    uint8_t      fc_map[3];
-    uint8_t      prio; /**< prio - static VLAN prio for FCF egress traffic */
-    uint16_t     vid; /**< vid - VLAN Identifier */
-};
-
-/**
  * sxd_ritr_loopback_protocol_t enumerated type is used to note the possible loopback protocols.
  */
 typedef enum sxd_ritr_loopback_protocol {
-    SXD_ROUTER_LOOPBACK_PROTOCOL_IPV4 = 0,
-    SXD_ROUTER_LOOPBACK_PROTOCOL_IPV6 = 1,
-    SXD_ROUTER_LOOPBACK_PROTOCOL_GENERIC = 2,
+    SXD_ROUTER_LOOPBACK_PROTOCOL_IPV4      = 0,
+    SXD_ROUTER_LOOPBACK_PROTOCOL_IPV6      = 1,
+    SXD_ROUTER_LOOPBACK_PROTOCOL_GENERIC   = 2,
+    SXD_ROUTER_LOOPBACK_PROTOCOL_USIP_IPV4 = 3,
+    SXD_ROUTER_LOOPBACK_PROTOCOL_USIP_IPV6 = 4,
 } sxd_ritr_loopback_protocol_t;
 
 /**
  * sxd_ritr_ipinip_tunnel_encap_type_t enumerated type is used to note the possible encapsulation types.
  */
 typedef enum sxd_ritr_ipinip_tunnel_encap_type {
-    SXD_TUNNEL_ENCAP_TYPE_IP_IN_IP = 0,            /**< Tunnel is IPinIP */
-    SXD_TUNNEL_ENCAP_TYPE_IP_IN_GRE_IN_IP = 1,     /**< Tunnel is GRE, no key */
+    SXD_TUNNEL_ENCAP_TYPE_IP_IN_IP            = 0, /**< Tunnel is IPinIP */
+    SXD_TUNNEL_ENCAP_TYPE_IP_IN_GRE_IN_IP     = 1, /**< Tunnel is GRE, no key */
     SXD_TUNNEL_ENCAP_TYPE_IP_IN_GRE_KEY_IN_IP = 2, /**< Tunnel is GRE, with a key */
 } sxd_ritr_ipinip_tunnel_encap_type_t;
 
@@ -5182,7 +5713,7 @@ typedef enum sxd_ritr_ipinip_tunnel_encap_type {
  * Note: should be used only when encapsulation type is TUNNEL_ENCAP_TYPE_IP_IN_GRE_KEY_IN_IP.
  */
 typedef enum sxd_ritr_ipinip_tunnel_options {
-    SXD_TUNNEL_KEY_GRE_KEY = 0,           /**< The key is defined by gre_key */
+    SXD_TUNNEL_KEY_GRE_KEY           = 0, /**< The key is defined by gre_key */
     SXD_TUNNEL_KEY_GRE_KEY_FROM_HASH = 1, /**< The 24msbs of the key are set by ipip_gre_key_for_hash */
 } sxd_ritr_ipinip_tunnel_options_t;
 
@@ -5190,18 +5721,18 @@ typedef enum sxd_ritr_ipinip_tunnel_options {
  * sxd_router_interface_type_t enumerated type is used to indicates the router interface type
  */
 typedef enum sxd_rgcr_rpf_mode {
-    SXD_RGCR_RPF_MODE_ENABLE = 0,
+    SXD_RGCR_RPF_MODE_ENABLE  = 0,
     SXD_RGCR_RPF_MODE_DISABLE = 1,
 } sxd_rgcr_rpf_mode_t;
 
 typedef enum sxd_rgcr_pcp_rw_mode {
     SXD_RGCR_PCP_RW_MODE_PRESERVE = 0,
-    SXD_RGCR_PCP_RW_MODE_DISABLE = 2,
-    SXD_RGCR_PCP_RW_MODE_ENABLE = 3,
+    SXD_RGCR_PCP_RW_MODE_DISABLE  = 2,
+    SXD_RGCR_PCP_RW_MODE_ENABLE   = 3,
 } sxd_rgcr_pcp_rw_mode_t;
 
 typedef enum sxd_rgcr_usp_mode {
-    SXD_RGCR_USP_MODE_PRESERVE = 0,
+    SXD_RGCR_USP_MODE_PRESERVE    = 0,
     SXD_RGCR_USP_MODE_RECALCULATE = 1,
 } sxd_rgcr_usp_mode_t;
 
@@ -5209,7 +5740,7 @@ typedef enum sxd_rgcr_op_type {
     SXD_RGCR_OP_TYPE_OPTIMIZATION_NONE = 0,
     SXD_RGCR_OP_TYPE_OPTIMIZATION_SOFT = 1,
     SXD_RGCR_OP_TYPE_OPTIMIZATION_HARD = 2,
-    SXD_RGCR_OP_TYPE_RESERVED = 3,
+    SXD_RGCR_OP_TYPE_RESERVED          = 3,
 } sxd_rgcr_op_type_t;
 
 /**
@@ -5217,7 +5748,7 @@ typedef enum sxd_rgcr_op_type {
  * for TCAM optimization mode. Granularity is 5%. Duplication number is used.
  */
 typedef enum sxd_rgcr_packet_rate {
-    SXD_RGCR_PACKET_RATE_0_PCT = 0,
+    SXD_RGCR_PACKET_RATE_0_PCT  = 0,
     SXD_RGCR_PACKET_RATE_10_PCT = 2,
     SXD_RGCR_PACKET_RATE_20_PCT = 4,
     SXD_RGCR_PACKET_RATE_40_PCT = 8,
@@ -5225,14 +5756,20 @@ typedef enum sxd_rgcr_packet_rate {
 } sxd_rgcr_packet_rate_t;
 
 typedef enum sxd_rgcr_activity_dis {
-    SXD_RGCR_ACTIVITY_ENABLED = 0,
+    SXD_RGCR_ACTIVITY_ENABLED  = 0,
     SXD_RGCR_ACTIVITY_DISABLED = 1,
 } sxd_rgcr_activity_dis_t;
 
 typedef enum sxd_rgcr_mpls_enable {
     SXD_RGCR_MPLS_DISABLE = 0,
-    SXD_RGCR_MPLS_ENABLE = 1,
+    SXD_RGCR_MPLS_ENABLE  = 1,
 } sxd_rgcr_mpls_enable_t;
+
+typedef enum sxd_rgcr_relookup_rehash_type {
+    SXD_RGCR_RELOOKUP_REHASH_TYPE_CRC    = 0,
+    SXD_RGCR_RELOOKUP_REHASH_TYPE_XOR    = 1,
+    SXD_RGCR_RELOOKUP_REHASH_TYPE_RANDOM = 2,
+} sxd_rgcr_relookup_rehash_type_e;
 
 /**
  * ku_rgcr_reg structure is used to store the RGCR register parameters
@@ -5246,6 +5783,7 @@ struct ku_rgcr_reg {
     uint16_t                max_pkey_router_interfaces;
     uint16_t                max_router_interfaces;
     uint16_t                max_virtual_routers;
+    uint8_t                 grht;
     sxd_rgcr_usp_mode_t     usp;
     sxd_rgcr_pcp_rw_mode_t  pcp_rw;
     uint8_t                 ipb;
@@ -5264,39 +5802,21 @@ struct ku_rgcr_reg {
 };
 
 /**
- * ku_fgcr_reg structure is used to store the FGCR register parameters
- */
-struct ku_fgcr_reg {
-    uint8_t  fcf_enable;
-    uint16_t max_fcf_instances;
-    uint16_t max_ve_ports;
-    uint8_t  fcf_mac[6];
-};
-
-/**
- * ku_fvet_reg structure is used to store the FVET register parameters
- */
-struct ku_fvet_reg {
-    uint8_t  valid;
-    uint16_t ve_port_id;
-    uint8_t  dmac[6];
-};
-
-/**
- * ku_fipl_reg structure is used to store the FIPL register parameters
- */
-struct ku_fipl_reg {
-    uint8_t ipl[0x000000FF + 1];
-    uint8_t ipl_mask[0x000000FF + 1];
-};
-
-/**
  * ku_rdpm_reg structure is used to store the RDPM register parameters
  */
 struct ku_rdpm_reg {
     uint8_t dscp_update[DSCP_CODES_NUMBER];    /**< dscp_update - whether to update this DSCP mapping in HW */
     uint8_t color[DSCP_CODES_NUMBER];          /**< color mapping per DSCP value */
     uint8_t priority[DSCP_CODES_NUMBER];       /**< priority mapping per DSCP value - Priority */
+};
+
+/**
+ * ku_access_rdpm_reg structure is used to store the access register RDPM command parameters
+ */
+struct ku_access_rdpm_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_rdpm_reg      rdpm_reg; /**< rdpm_reg - rdpm register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
 };
 
 /**
@@ -5324,10 +5844,10 @@ struct ku_rrcr_reg {
  * Set operation.
  */
 typedef enum sxd_router_counter_operation {
-    SXD_ROUTER_COUNTER_OPERATION_NOP = 0,
+    SXD_ROUTER_COUNTER_OPERATION_NOP      = 0,
     SXD_ROUTER_COUNTER_OPERATION_ALLOCATE = 1,
-    SXD_ROUTER_COUNTER_OPERATION_TEST = 2,
-    SXD_ROUTER_COUNTER_OPERATION_FREE = 3,
+    SXD_ROUTER_COUNTER_OPERATION_TEST     = 2,
+    SXD_ROUTER_COUNTER_OPERATION_FREE     = 3,
 } sxd_router_counter_operation_t;
 
 /**
@@ -5357,11 +5877,12 @@ struct ku_ricnt_reg {
     uint64_t __attribute__((aligned(8))) cntr[SXD_ROUTER_COUNTER_SET_MAX]; /**< cntr - Counter Set */
 };
 
+
 /*
  * RALTA operation
  */
 typedef enum sxd_ralta_operation {
-    SXD_RALTA_OPERATION_ALLOCATE = 0,
+    SXD_RALTA_OPERATION_ALLOCATE   = 0,
     SXD_RALTA_OPERATION_DEALLOCATE = 1,
 } sxd_ralta_operation_t;
 
@@ -5375,50 +5896,7 @@ typedef enum sxd_ralta_operation {
 #define SXD_SHSPM_TREE_BANK1_USER_FIRST        4
 #define SXD_SHSPM_TREE_BANK2_USER_FIRST        5
 
-/**
- * ku_ralta_reg structure is used to store the RALTA register parameters
- */
-struct ku_ralta_reg {
-    sxd_ralta_operation_t   operation;
-    sxd_router_route_type_t protocol;
-    uint8_t                 tree_id;
-};
-
-/*
- * Maximum LPM/SHSPM bins (= IPv6 maximum prefix length)
- */
-#define SXD_RALST_MAX_BIN 128
-
-/*
- * Tree terminator magic number. Denotes no-child
- */
 #define SXD_RALST_NO_CHILD 0xFF
-
-/**
- * Stores child bins of a bin in a SHSPM tree
- */
-typedef struct sxd_ralst_children {
-    uint8_t left_child;
-    uint8_t right_child;
-} sxd_ralst_children_t;
-
-/**
- * ku_ralst_reg structure is used to store the RALST register parameters
- */
-struct ku_ralst_reg {
-    uint8_t              root_bin;
-    uint8_t              tree_id;
-    sxd_ralst_children_t structure[SXD_RALST_MAX_BIN];
-};
-
-/**
- * ku_raltb_reg structure is used to store the RALTB register parameters
- */
-struct ku_raltb_reg {
-    sxd_vrid_t              router;
-    sxd_router_route_type_t protocol;
-    uint8_t                 tree_id;
-};
 
 /**
  * sxd_ralue_format_t enumerated type is used to note the
@@ -5426,8 +5904,9 @@ struct ku_raltb_reg {
  */
 typedef enum sxd_ralue_action_type {
     SXD_RALUE_ACTION_TYPE_REMOTE = 0,
-    SXD_RALUE_ACTION_TYPE_LOCAL = 1,
-    SXD_RALUE_ACTION_TYPE_IP2ME = 2,
+    SXD_RALUE_ACTION_TYPE_LOCAL  = 1,
+    SXD_RALUE_ACTION_TYPE_IP2ME  = 2,
+    SXD_RALUE_ACTION_TYPE_AR     = 3,
 } sxd_ralue_action_type_t;
 
 /**
@@ -5435,8 +5914,8 @@ typedef enum sxd_ralue_action_type {
  * type of RALUE register.
  */
 typedef enum sxd_ralue_type {
-    SXD_RALUE_TYPE_MARKER = 1,
-    SXD_RALUE_TYPE_ROUTE = 2,
+    SXD_RALUE_TYPE_MARKER       = 1,
+    SXD_RALUE_TYPE_ROUTE        = 2,
     SXD_RALUE_TYPE_ROUTE_MARKER = 3,
 } sxd_ralue_type_t;
 
@@ -5468,12 +5947,25 @@ struct ku_ralue_action_ip2me {
 };
 
 /**
+ * ku_ralue_action_ar structure is used to store the RALUE action AR field parameters
+ */
+struct ku_ralue_action_ar {
+    sxd_router_en_action_t     trap_action;
+    uint16_t                   trap_id;
+    sxd_ar_lookup_profile_id_t ar_lookup_prof_id;
+    uint32_t                   arft_ptr;
+    uint16_t                   ecmp_size;
+    uint16_t                   arlpgt_ptr;
+};
+
+/**
  * ku_ralue_action structure is used to store the RALUE action field parameters
  */
 union ku_ralue_action {
     struct ku_ralue_action_remote remote;
     struct ku_ralue_action_local  local;
     struct ku_ralue_action_ip2me  ip2me;
+    struct ku_ralue_action_ar     ar;
 };
 
 /**
@@ -5495,18 +5987,37 @@ struct ku_ralue_reg {
     union ku_ralue_action    action;
     sxd_counter_set_t        counter_set;
 };
-
-/**
- * ku_raleu_reg structure is used to store the RALEU register parameters
+/*
+ * ku_xm_cmd_ipv4_route structure is used to store the XMDR ipv4 cmd as part of the transaction field parameters
  */
-struct ku_raleu_reg {
-    sxd_router_route_type_t protocol;
-    sxd_vrid_t              router;
-    uint32_t                old_adjacency_index;
-    uint16_t                old_ecmp_size;
-    uint32_t                new_adjacency_index;
-    uint16_t                new_ecmp_size;
-};
+typedef struct ku_xm_cmd_ipv4_route {
+    uint32_t flags : 12;
+    uint32_t seq_number : 12;
+    uint32_t command_id : 8;
+    /*----------------------------------------------------------*/
+    uint16_t vrid;
+    uint8_t  trap_id_num : 4;
+    uint8_t  trap_action : 4;
+    uint8_t  op_code;
+    /*----------------------------------------------------------*/
+    uint8_t action_type : 4;
+    uint8_t entry_type : 4;
+    uint8_t reserved0;
+    uint8_t bmp_len;
+    uint8_t prefix_len;
+    /*----------------------------------------------------------*/
+    uint32_t counter_index : 24;
+    uint32_t counter_set_type : 8;
+    /*----------------------------------------------------------*/
+    uint32_t entry0;
+    /*----------------------------------------------------------*/
+    uint32_t entry1;
+    /*----------------------------------------------------------*/
+    uint32_t reserved1;
+    /*----------------------------------------------------------*/
+    uint32_t dip;
+    /*----------------------------------------------------------*/
+} ku_xm_cmd_ipv4_route_t;
 
 /**
  * ku_ralbu_reg structure is used to store the RALBU register parameters
@@ -5535,9 +6046,9 @@ struct ku_rtca_reg {
  * sxd_tca_log_pstate_type_t enumerated type is used to indicates the TCA logical port state type
  */
 typedef enum sxd_tca_log_pstate_type {
-    SXD_TCA_LOG_PSTATE_DOWN = 0,
-    SXD_TCA_LOG_PSTATE_INIT = 1,
-    SXD_TCA_LOG_PSTATE_ARM = 2,
+    SXD_TCA_LOG_PSTATE_DOWN   = 0,
+    SXD_TCA_LOG_PSTATE_INIT   = 1,
+    SXD_TCA_LOG_PSTATE_ARM    = 2,
     SXD_TCA_LOG_PSTATE_ACTIVE = 3,
 } sxd_tca_log_pstate_type_t;
 
@@ -5545,9 +6056,9 @@ typedef enum sxd_tca_log_pstate_type {
  * sxd_tca_ phy_pstate_type_t enumerated type is used to indicates the TCA physical port state type
  */
 typedef enum sxd_tca_phy_pstate_type {
-    SXD_TCA_PHY_PSTATE_DOWN = 0,
+    SXD_TCA_PHY_PSTATE_DOWN    = 0,
     SXD_TCA_PHY_PSTATE_POLLING = 1,
-    SXD_TCA_PHY_PSTATE_UP = 2,
+    SXD_TCA_PHY_PSTATE_UP      = 2,
 } sxd_tca_phy_pstate_type_t;
 
 /**
@@ -5570,12 +6081,22 @@ struct ku_rcap_reg {
     uint8_t vir_router;   /**< vir_router  - virtual router*/
 };
 
+
+/**
+ * sxd_sub_port_type_e enumerated type is used to indicate if local_port represents a profile.
+ */
+typedef enum sxd_sub_port_type {
+    SXD_SUP_PORT_TYPE_PHY_E     = 0,
+    SXD_SUP_PORT_TYPE_PROFILE_E = 1
+} sxd_sub_port_type_e;
+
 /**
  * ku_pspa_reg structure is used to store the PSPA register parameters
  */
 struct ku_pspa_reg {
     uint8_t swid; /**< swid - Switch partition ID */
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t sub_port; /**< sub_port - sub port number */
 };
 
@@ -5584,12 +6105,14 @@ struct ku_pspa_reg {
  */
 struct ku_pmlp_reg {
     uint8_t use_different_rx_tx; /** < use_different_rx_tx - use different rx and tx lanes */
-    uint8_t autosplit;  /**< autosplit - AutoSplit configuration */
+    uint8_t autosplit;  /**< autosplit - Auto Split configuration */
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t width;  /**< width - width */
     uint8_t lane[NUMBER_OF_SERDESES]; /**< lane - Lane - up to 8 serdeses in a module can be mapped to a local port */
     uint8_t rx_lane[NUMBER_OF_SERDESES]; /**< lane - Lane - up to 8 serdeses in a module can be mapped to a local port */
     uint8_t module[NUMBER_OF_SERDESES]; /**< module - Module number */
+    uint8_t slot[NUMBER_OF_SERDESES]; /**< module - slot number */
 };
 
 #define SXD_MGIR_HW_DEV_ID_SX          0xc738
@@ -5597,8 +6120,11 @@ struct ku_pmlp_reg {
 #define SXD_MGIR_HW_DEV_ID_SPECTRUM    0xcb84
 #define SXD_MGIR_HW_DEV_ID_SWITCH_IB2  0xcf08
 #define SXD_MGIR_HW_DEV_ID_QUANTUM     0xd2f0
+#define SXD_MGIR_HW_DEV_ID_QUANTUM2    0xd2f2
+#define SXD_MGIR_HW_DEV_ID_QUANTUM3    0xd2f4
 #define SXD_MGIR_HW_DEV_ID_SPECTRUM2   0xcf6c
 #define SXD_MGIR_HW_DEV_ID_SPECTRUM3   0xcf70
+#define SXD_MGIR_HW_DEV_ID_SPECTRUM4   0xcf80
 #define SXD_MGIR_HW_REV_ID_A0          0xA0
 #define SXD_MGIR_HW_REV_ID_A1          0xA1
 #define SXD_MGIR_HW_REV_ID_A2          0xA2
@@ -5608,48 +6134,12 @@ struct ku_pmlp_reg {
 #define SXD_MGIR_HW_REV_ID_SWITCHIB_A0 SXD_MGIR_HW_REV_ID_A0
 #define SXD_MGIR_HW_REV_ID_SLAVE_DEV   0xFF
 
-struct ku_mgir_hw_info {
-    uint16_t device_hw_revision;
-    uint16_t device_id;
-    uint8_t  dvfs;
-    uint32_t uptime;
-};
-struct ku_mgir_fw_info {
-    uint8_t  major;
-    uint8_t  minor;
-    uint8_t  sub_minor;
-    uint32_t build_id;
-    uint8_t  month;
-    uint8_t  day;
-    uint16_t year;
-    uint16_t hour;
-    uint8_t  psid[16];
-    uint32_t ini_file_version;
-    uint32_t extended_major;
-    uint32_t extended_minor;
-    uint32_t extended_sub_minor;
-    uint16_t isfu_major;
-};
-struct ku_mgir_sw_info {
-    uint8_t major;
-    uint8_t minor;
-    uint8_t sub_minor;
-};
-
-/**
- * ku_mgir_reg structure is used to store the MGIR register parameters
- */
-struct ku_mgir_reg {
-    struct ku_mgir_hw_info hw_info; /**< hw_info - HW information */
-    struct ku_mgir_fw_info fw_info; /**< fw_info - FW information */
-    struct ku_mgir_sw_info sw_info; /**< sw_info - SW information */
-};
-
 /**
  * ku_plib_reg structure is used to store the PLIB register parameters
  */
 struct ku_plib_reg {
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t ib_port; /**< ib_port -  IB Port remapping for local_port or Label port remapping for local_port */
     uint8_t split_num; /**< split_num - Label split mapping for local_port */
 };
@@ -5659,6 +6149,7 @@ struct ku_plib_reg {
  */
 struct ku_pcnr_reg {
     uint8_t local_port;       /**< local_port - local port number */
+    uint8_t lp_msb;           /**< local_port msb */
     uint8_t tuning_override; /**< tuning override - ENA/ DIS - enable PHY Fast boot mode */
 };
 
@@ -5667,36 +6158,17 @@ struct ku_pcnr_reg {
  */
 struct ku_pcmr_reg {
     uint8_t local_port;        /**< local_port - local port number */
+    uint8_t lp_msb;            /**< local_port msb */
+    uint8_t rx_ts_over_crc_cap; /**< rx_ts_over_crc_cap - Ingress timestamp over CRC capability */
     uint8_t tx_fcs_recalc_cap; /**< tx_fcs_recalc_cap - Egress prevent CRC overwrite capability */
+    uint8_t tx_ts_over_crc_cap; /**< tx_ts_over_crc_cap - Egress timestamp over CRC capability */
     uint8_t rx_fcs_drop_cap;   /**< rx_fcs_drop_cap - Ingress forward on bad CRC capability */
     uint8_t fcs_cap;           /**< fcs_cap - FCS check capability */
+    uint8_t rx_ts_over_crc;    /**< rx_ts_over_crc - ENA/ DIS - enable Ingress timestamp over CRC */
     uint8_t tx_fcs_recalc;     /**< tx_fcs_recalc - ENA/ DIS - enable Egress prevent CRC overwrite */
+    uint8_t tx_ts_over_crc;    /**< tx_ts_over_crc - ENA/ DIS - enable Egress timestamp over CRC */
     uint8_t rx_fcs_drop;       /**< rx_fcs_drop - ENA/ DIS - enable Ingress forward on bad CRC */
     uint8_t fcs_chk;           /**< FCS check - ENA/ DIS - enable FCS check  */
-};
-
-/**
- * ku_spzr_reg structure is used to store the SPZR register parameters
- */
-struct ku_spzr_reg {
-    uint8_t                              swid; /**< swid - SWitch partition ID */
-    uint8_t                              ndm; /**< ndm - Node description mask. Set to 1 to write the NodeDescription field */
-    uint8_t                              EnhSwP0_mask; /**< EnhSwP0_mask - Enhanced Switch Port 0 mask */
-    uint8_t                              cm; /**< cm - Set PortInfo:CapabilityMask to PortInfo:CapabilityMask specified */
-    uint8_t                              vk; /**< vk - Set the internal GSA V_Key */
-    uint8_t                              mp; /**< mp - Change PKey table size to max_pkey */
-    uint8_t                              sig; /**< sig - Set System Image GUID to system_image_guid specified */
-    uint8_t                              ng; /**< ng - Set node GUID to node_guid specified */
-    uint8_t                              g0; /**< g0 - Set port GUID0 to GUID0 specified */
-    uint8_t                              EnhSwP0; /**< EnhSwP0 - When set, it enables Enhanced Switch Port 0. Reported in NodeInfo */
-    uint32_t                             capability_mask; /**< capability_mask - Sets the PortInfoCapabilityMask: Specifies the supported capabilities of this node */
-    uint64_t __attribute__((aligned(8))) system_image_guid_h_l; /**< system_image_guid_h_l - System Image GUID, takes effect only if the sig bit is set */
-    uint64_t __attribute__((aligned(8))) guid0_h_l; /**< guid0_h_l - EUI-64 GUID assigned by the manufacturer */
-    uint64_t __attribute__((aligned(8))) node_guid_h_l; /**< node_guid_h_l - Node GUID must be the same for both ports */
-    uint32_t                             v_key_h; /**< v_key_h - The internal GSA V_Key (high) */
-    uint32_t                             v_key_l; /**< v_key_l - The internal GSA V_Key (low) */
-    uint16_t                             max_pkey; /**< max_pkey - max_pkey is derived from the profile - no set. Maximum pkeys for the port */
-    uint8_t                              NodeDescription[SX_IB_NODE_DESCRIPTION_LEN]; /**< NodeDescription - Text string that describes the node */
 };
 
 /**
@@ -5705,37 +6177,9 @@ struct ku_spzr_reg {
 struct ku_ppaos_reg {
     uint8_t swid;  /**< swid - Switch Partition ID to associate port with */
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t phy_test_mode_admin; /**< phy_test_mode_admin - Port extended administrative down status */
     uint8_t phy_test_mode_status; /**< phy_test_mode_status - Port extended down status */
-};
-
-/**
- * ku_pptt_reg structure is used to store the PPTT register parameters
- */
-struct ku_pptt_reg {
-    uint8_t  e;    /**< e - Enable PRBS test mode bit */
-    uint8_t  local_port;    /**< local_port - local port number */
-    uint8_t  pnat;    /**< pnat - Port number access type. determines the way local_port is interpreted */
-    uint32_t prbs_modes_cap;    /**< prbs_modes_cap - PRBS capability (bitmask)*/
-    uint8_t  prbs_mode_admin;    /**< prbs_mode_admin - PRBS Administratively capability (bitmask) */
-    uint16_t lane_rate_cap;    /**< lane_rate_cap - Per lane rate capability (bitmask) */
-    uint16_t lane_rate_admin;    /**< lane_rate_admin - Lane rate be used in PRBS */
-};
-
-/**
- * ku_pprt_reg structure is used to store the PPRT register parameters
- */
-struct ku_pprt_reg {
-    uint8_t  e;    /**< e - Enable PRBS test mode bit */
-    uint8_t  s;    /**< s - Start tuning */
-    uint8_t  local_port;    /**< local_port - local port number */
-    uint8_t  pnat;    /**< pnat - Port number access type. determines the way local_port is interpreted */
-    uint32_t prbs_modes_cap;    /**< prbs_modes_cap - PRBS capability (bitmask)*/
-    uint8_t  prbs_mode_admin;    /**< prbs_mode_admin - PRBS Administratively capability (bitmask) */
-    uint16_t lane_rate_cap;    /**< lane_rate_cap - Per lane rate capability (bitmask) */
-    uint16_t lane_rate_oper;    /**< lane_rate_admin - Lane rate be used in PRBS */
-    uint8_t  rx_tuning_status;   /**< rx_tuning_status - Tuning status */
-    uint8_t  lock_status;   /**< lock_status - lock on PRBS pattern status */
 };
 
 /**
@@ -5760,23 +6204,45 @@ struct ku_plpc_reg {
  */
 struct ku_pplm_reg {
     uint8_t  local_port; /**< local_port - Local port number */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint8_t  port_profile_mode; /**< port_profile_mode - Port profile modes (bitmask) */
     uint8_t  static_port_profile; /**< static_port_profile - Valid when Media based port profile is cleared, used to set the static port's profile index. */
     uint8_t  active_port_profile; /**< active_port_profile - The port's active Profile ID */
     uint8_t  retransmission_active; /**< retransmission_active - Active Retransmission */
-    uint32_t fec_mode_active; /**< fec_mode_active - Acive FEC (bitmask) */
+    uint32_t fec_mode_active; /**< fec_mode_active - Active FEC (bitmask) */
     uint8_t  rs_fec_correction_bypass_cap; /**< RS-FEC correction bypass override capability */
+    uint16_t fec_override_cap_400g_8x;  /**< 400GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_200g_4x;  /**< 200GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_100g_2x;  /**< 100GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_50g_1x;  /**< 50GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_56g; /**< 56GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_100g; /**< 100GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_50g; /**< 50GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_25g; /**< 25GE Ethernet FEC override capability bitmask */
     uint8_t  fec_override_cap_10g_40g; /**< 10/40GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_800g_8x;  /**< 800GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_400g_4x;  /**< 400GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_200g_2x;  /**< 200GE Ethernet FEC override capability bitmask */
+    uint16_t fec_override_cap_100g_1x;  /**< 100GE Ethernet FEC override capability bitmask */
     uint8_t  rs_fec_correction_bypass_admin; /**< RS-FEC correction bypass override admin */
+    uint16_t fec_override_admin_400g_8x;  /**< 400GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_200g_4x;  /**< 200GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_100g_2x;  /**< 100GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_50g_1x;  /**< 50GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_56g; /**< 56GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_100g; /**< 100GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_50g; /**< 50GE Ethernet FEC override admin */
     uint8_t  fec_override_admin_25g; /**< 25GE Ethernet FEC override capability admin */
     uint8_t  fec_override_admin_10g_40g; /**< 10/40GE Ethernet FEC override capability admin */
+    uint16_t fec_override_admin_800g_8x;  /**< 800GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_400g_4x;  /**< 400GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_200g_2x;  /**< 200GE Ethernet FEC override admin */
+    uint16_t fec_override_admin_100g_1x;  /**< 100GE Ethernet FEC override admin */
+    uint16_t ib_fec_override_admin_edr;  /**< EDR Infiniband FEC override admin */
+    uint16_t ib_fec_override_admin_fdr;  /**< FDR Infiniband FEC override admin */
+    uint16_t ib_fec_override_admin_hdr;  /**< HDR Infiniband FEC override admin */
+    uint16_t ib_fec_override_admin_ndr;  /**< NDR Infiniband FEC override admin */
+    uint16_t ib_fec_override_admin_xdr;  /**< XDR Infiniband FEC override admin */
 };
 
 /**
@@ -5811,75 +6277,13 @@ struct ku_pmpr_reg {
 };
 
 /**
- * ku_pmaos_reg structure is used to store the PMAOS register parameters
- */
-struct ku_pmaos_reg {
-    uint8_t module; /**< module - Module number */
-    uint8_t admin_status; /**< admin_status - Port administrative state (the desired state of the interface) */
-    uint8_t oper_status; /**< oper_status - Port operational state */
-    uint8_t ase; /**< ase - Admin State Update Enable */
-    uint8_t ee; /**< ee - Event Update Enable */
-    uint8_t error_type; /**< error_type - Module error details */
-    uint8_t e; /**< e - Event Generation on operational state change */
-    uint8_t rst; /**< rst - Module Reset Toggle */
-};
-
-/**
- * ku_pmtu_reg structure is used to store the PMTU register parameters
- */
-struct ku_pmtu_reg {
-    uint8_t  local_port; /**< local_port - local port number */
-    uint16_t max_mtu; /**< max_mtu - Maximum MTU supported on the port (Read Only) */
-    uint16_t admin_mtu; /**< admin_mtu - Administratively configured MTU on the port */
-    uint16_t oper_mtu; /**< oper_mtu - Operational MTU */
-};
-
-/**
- * ku_pmcr_reg structure is used to store the PMCR register parameters
- */
-struct ku_pmcr_reg {
-    uint8_t local_port; /**< local_port - local port number (Index) */
-    uint8_t tx_disable_override_value;
-    uint8_t tx_disable_override_cntl;
-    uint8_t cdr_override_cntl; /**< cdr_override_cntl - Module CDR override control (Read/Write) */
-    uint8_t cdr_override_value; /**< cdr_override_value - Module CDR override value (Read/Write) */
-    uint8_t rx_amp_override_cntl; /**< rx_amp_override_cntl - Module RX amplitude override control (Read/Write) */
-    uint8_t rx_amp_override_value; /**< rx_amp_override_value - Module RX amplitude value (Read/Write) */
-    uint8_t rx_emp_override_cntl; /**< rx_emp_override_cntl - Module RX emphasis override control (Read/Write) */
-    uint8_t rx_emp_override_value; /**< rx_emp_override_value - Module RX emphasis value (Read/Write) */
-    uint8_t tx_equ_override_cntl; /**< tx_equ_override_cntl - Module TX equalization override control (Read/Write) */
-    uint8_t tx_equ_override_value; /**< tx_equ_override_value - Module TX equalization value (Read/Write) */
-};
-
-/**
  * ku_pfsc_reg structure is used to store the PFSC register parameters
  */
 struct ku_pfsc_reg {
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t fwd_admin; /**< fwd_admin - Administratively configured of Forward switching for Egress */
     uint8_t fwd_oper; /**< fwd_oper - Operational Egress Forward switching */
-};
-
-/**
- * ku_pmmp_reg structure is used to store the PMMP register parameters
- */
-struct ku_pmmp_reg {
-    uint8_t  module; /**< module - Module number */
-    uint16_t eeprom_override; /**< eeprom_override - override EEPROM bitmask */
-    uint8_t  qsfp_cable_breakout;  /**< qsfp cable breakout. */
-    uint8_t  qsfp_ethernet_compliance_code; /**< Ethernet compliance code bitmask (10/40/100G). */
-    uint8_t  qsfp_ext_ethernet_compliance_code; /**< Extended specification compliance codes. */
-    uint8_t  qsfp_giga_ethernet_compliance_code; /**< Giga Ethernet compliance codes. */
-    uint8_t  sfp_bit_rate;               /**< sfp bitrate. */
-    uint8_t  sfp_cable_technology;       /**< sfp+ cable technology. */
-    uint8_t  sfp_tengig_ethernet_compliance_code; /**< 10G Ethernet compliance code */
-    uint8_t  sfp_ext_ethernet_compliance_code; /**< Extended specification compliance codes. */
-    uint8_t  sfp_ethernet_compliance_code; /**< Ethernet compliance codes. */
-    uint8_t  cable_length;    /**< Length of cable assembly, units of 1m. */
-    uint8_t  attenuation_12g; /**< total channel attenuation @ 12GHz in db. */
-    uint8_t  attenuation_7g;  /**< total channel attenuation @ 7GHz in db. */
-    uint8_t  attenuation_5g;  /**< total channel attenuation @ 5GHz in db. */
-    uint8_t  module_identifier; /**< module identifier (SFP, QSFP, etc)  **/
 };
 
 /**
@@ -5887,14 +6291,18 @@ struct ku_pmmp_reg {
  */
 struct ku_sbcm_reg {
     uint8_t  desc; /**< desc - Descriptor buffer */
+    uint8_t  snap; /**< snap - Read the snapshot */
     uint8_t  local_port; /**< local_port - Local port number */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint8_t  pg_buff; /**< pg_buff - Port PG */
     uint8_t  dir; /**< dir - Direction */
-    uint8_t  infinite_size; /**< infinite_size - pool with inifinite size. When set size is reserved */
+    uint8_t  infinite_size; /**< infinite_size - pool with infinite size. When set size is reserved */
+    uint8_t  exc; /** Exclude - no accounting in the pool */
     uint32_t buff_occupancy; /**< buff_occupancy - Current buffer occupancy */
     uint32_t max_buff_occupancy; /**< max_buff_occupancy - Maximum value of buffer occupancy monitored */
     uint32_t clr; /**< clr - Clear max buffer occupancy - when set the max value is cleared */
     uint32_t min_buff; /**< min_buff - Minimum buffer size for the limiter */
+    uint8_t  infi_max; /** Max buffer is infinite */
     uint32_t max_buff; /**< max_buff - Maximum buffer size for the limiter in cells or "alpha" */
     uint8_t  pool; /**< pool - Association of the port-priority to a pool*/
 };
@@ -5905,9 +6313,10 @@ struct ku_sbcm_reg {
 struct ku_sbpm_reg {
     uint8_t  desc; /**< desc - Descriptor buffer */
     uint8_t  local_port; /**< local_port - Local port number */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint8_t  pool; /**< pool - Association of the port-priority to a pool*/
     uint8_t  dir; /**< dir - Direction */
-    uint8_t  infinite_size; /**< infinite_size - buff with inifinite size. When set size is reserved */
+    uint8_t  infinite_size; /**< infinite_size - buff with infinite size. When set size is reserved */
     uint32_t buff_occupancy; /**< buff_occupancy - Current buffer occupancy */
     uint32_t max_buff_occupancy; /**< max_buff_occupancy - Maximum value of buffer occupancy monitored */
     uint32_t clr; /**< clr - Clear max buffer occupancy - when set the max value is cleared */
@@ -5920,23 +6329,13 @@ struct ku_sbpm_reg {
  */
 struct ku_sbmm_reg {
     uint8_t  prio; /**< prio - Switch Priority*/
-    uint8_t  infinite_size; /**< infinite_size - buff with inifinite size. When set size is reserved */
+    uint8_t  infinite_size; /**< infinite_size - buff with infinite size. When set size is reserved */
     uint32_t buff_occupancy; /**< buff_occupancy - Current buffer occupancy */
     uint32_t max_buff_occupancy; /**< max_buff_occupancy - Maximum value of buffer occupancy monitored */
     uint32_t clr; /**< clr - Clear max buffer occupancy - when set the max value is cleared */
     uint32_t min_buff; /**< min_buff - Minimum buffer size for the limiter */
     uint32_t max_buff; /**< max_buff - Maximum buffer size for the limiter in cells or "alpha" */
     uint8_t  pool; /**< pool - Association of the switch priority to a pool*/
-};
-
-/**
- * ku_pplr_reg structure is used to store the PPLR register
- * parameters
- */
-struct ku_pplr_reg {
-    uint8_t local_port; /**< local_port - Local port number */
-    uint8_t el; /**< el - Egress Loopback Enable */
-    uint8_t il; /**< il - Ingress Loopback Enable */
 };
 
 /**
@@ -5984,13 +6383,6 @@ struct ku_fore_reg {
     uint16_t fan_over_limit; /**< fan_over_limit - Fan speed is above the high limit defined in MFSL register */
 };
 
-/**
- * ku_mtcap_reg structure is used to store the MTCAP register parameters
- */
-struct ku_mtcap_reg {
-    uint8_t sensor_count; /**< sensor_count - Number of sensors supported by the device */
-};
-
 
 /**
  * mtbr_record_temperature structure is used to store one MTBR temperature record.
@@ -6004,6 +6396,7 @@ struct mtbr_record_temperature {
  * ku_mtbr_reg structure is used to store the MTBR register parameters
  */
 struct ku_mtbr_reg {
+    uint8_t                          slot_index; /**< slot_index - Slot index */
     uint16_t                         base_sensor_index; /**< base_sensor_index - Base sensors index to access */
     uint8_t                          num_rec; /**< num_rec - Number of records to read */
     struct   mtbr_record_temperature temperature_record[MTBR_MAX_TEMPERATURE_RECORDS]; /**< temperature_record - Temperature records */
@@ -6071,7 +6464,7 @@ struct ku_mfpa_reg {
     uint32_t boot_address; /**< boot_address - Boot address points to the FW image in the flash */
     uint8_t  flash_num; /**< flash_num - Number of Flash Devices connected */
     uint32_t jedec_id; /**< jedec_id - Flash JEDEC ID */
-    uint16_t block_allignment; /**< block_allignment - Required allignment for block access */
+    uint16_t block_allignment; /**< block_allignment - Required alignment for block access */
     uint16_t sector_size; /**< sector_size - Flash Sector Size */
     uint8_t  capability_mask; /**< capability_mask - Capability Mask
                                *  Bit 0: Parallel Flash Support
@@ -6099,14 +6492,6 @@ struct ku_mfba_reg {
 };
 
 /**
- * ku_qcap_reg structure is used to store the QCAP register parameters
- */
-struct ku_qcap_reg {
-    uint8_t max_policers_per_port; /**< max_policers_per_port - Maximum number of policers available per port */
-    uint8_t max_policers_global; /**< max_policers_global - Maximum number of global policers */
-};
-
-/**
  * ku_raw_reg structure is used to store the RAW register parameters
  */
 struct ku_raw_reg {
@@ -6114,11 +6499,10 @@ struct ku_raw_reg {
     uint16_t size;    /**< size - the buffer size */
 };
 
-/**
- * ku_mtwe_reg structure is used to store the MTWE register parameters
- */
-struct ku_mtwe_reg {
-    uint8_t sensor_warning; /**< sensor_warning - Bit vector indicating which of the sensor reading is above threshold */
+struct ku_raw_reg_ext {
+    struct ku_raw_reg raw_reg;
+    uint32_t          fw_emad_latency;
+    uint32_t          fw_cache_read_time;
 };
 
 /**
@@ -6127,6 +6511,7 @@ struct ku_mtwe_reg {
 struct ku_pelc_reg {
     uint8_t                              op; /**< Operation - 0 - FEC control 1 - LLR control*/
     uint8_t                              local_port; /**< local_port - Local port number */
+    uint8_t                              lp_msb;     /**< local_port msb */
     uint8_t                              op_admin; /**< op_admin - Operation specific administratively enabled properties */
     uint8_t                              op_capability; /**< op_capability - Operation specific properties capabilities */
     uint8_t                              op_request; /**< op_request - Operation specific properties request */
@@ -6138,17 +6523,11 @@ struct ku_pelc_reg {
 };
 
 /**
- * ku_spad_reg structure is used to store the SPAD register parameters
- */
-struct ku_spad_reg {
-    uint64_t __attribute__((aligned(8))) base_mac; /**< base_mac - Base MAC address */
-};
-
-/**
  * ku_pvlc_reg structure is used to store the PVLC register parameters
  */
 struct ku_pvlc_reg {
     uint8_t local_port; /**< local_port - Local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t vl_cap; /**< vl_cap - Virtual Lanes supported on this port */
     uint8_t vl_admin; /**< vl_admin - Virtual Lanes enabled by the local admin on this port */
     uint8_t vl_operational; /**< vl_operational - Virtual Lanes Operational as configured by the Subnet Manager on this port */
@@ -6160,6 +6539,7 @@ struct ku_pvlc_reg {
 struct ku_mcia_reg {
     uint8_t  l; /**< l - Lock bit. Setting this bit will lock the access to the specific cable */
     uint8_t  module; /**< module - module number */
+    uint8_t  slot_index; /**< slot index - slot number */
     uint8_t  status; /**< status - module status */
     uint8_t  i2c_device_address; /**< i2c_device_address - I2C device address */
     uint8_t  page_number; /**< page_number - Page number */
@@ -6184,6 +6564,7 @@ struct ku_mcia_reg {
  */
 struct ku_pptb_reg {
     uint8_t local_port; /**< local_port - Local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t cm; /**< cm - ctrl_buff mask, enables update the ctrl_buff field */
     uint8_t um; /**< um - untagged_buff mask, enables update the untagged_buff field */
     uint8_t pm; /**< pm - pioX_buff mask, enables update the pioX_buff field */
@@ -6214,14 +6595,17 @@ struct ku_pptb_reg {
  */
 struct ku_pfcc_reg {
     uint8_t local_port; /**< local_port - Local port number */
-    uint8_t prio_mask_tx; /**< prio_mask_tx - Bit per prio inticating if TX flow control policy should be updated based on the below */
-    uint8_t prio_mask_rx; /**< prio_mask_rx - Bit per prio inticating if RX flow control policy should be updated based on the below */
+    uint8_t lp_msb;     /**< local_port msb */
+    uint8_t prio_mask_tx; /**< prio_mask_tx - Bit per prio indicating if TX flow control policy should be updated based on the below */
+    uint8_t prio_mask_rx; /**< prio_mask_rx - Bit per prio indicating if RX flow control policy should be updated based on the below */
     uint8_t pause_policy_tx; /**< pause_policy_tx - Pause policy on TX */
     uint8_t prio_policy_tx; /**< prio_policy_tx - Priority based Flow Control policy on TX */
     uint8_t cb_policy_tx; /**< cb_policy_tx - Credit Based Flow control policy in TX */
     uint8_t pause_policy_rx; /**< pause_policy_rx - Pause policy on RX */
     uint8_t prio_policy_rx; /**< prio_policy_rx - Priority based Flow Control policy on RX */
     uint8_t cb_policy_rx; /**< cb_policy_rx - Credit Based Flow control policy in RX */
+    uint8_t patx; /**< patx - Peer advertisement pause policy on Tx */
+    uint8_t parx; /**< parx - Peer advertisement pause policy on Rx */
 };
 
 /**
@@ -6229,6 +6613,7 @@ struct ku_pfcc_reg {
  */
 struct ku_pcap_reg {
     uint8_t  local_port; /**< local_port - Local port number */
+    uint8_t  lp_msb;     /**< local_port msb */
     uint32_t port_capability_mask[4]; /**< port_capability_mask - Sets the PortInfoCapabilityMask */
 };
 
@@ -6238,17 +6623,35 @@ struct ku_pcap_reg {
 struct ku_pude_reg {
     uint8_t swid; /**< swid - Switch ID */
     uint8_t local_port; /**< local_port - Local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t oper_status; /**< oper_status - Port operational state */
+    uint8_t logical_state_status; /**< logical_state_status - Port logical link state */
 };
 
 /**
- * ku_pmpe_reg structure is used to store the PMPE register parameters
+ * transport type
  */
-struct ku_pmpe_reg {
-    uint8_t module_id; /**< module_id - Port module number */
-    uint8_t oper_status; /**< oper_status - Port operational state */
-    uint8_t error_type;
-};
+#define SXD_FOREACH_OBJECT_TRANSPORT_TYPE(TRANSPORT_TYPE)      \
+    TRANSPORT_TYPE(SXD_TRANSPORT_TYPE_MAD, = 0, "MAD")         \
+    TRANSPORT_TYPE(SXD_TRANSPORT_TYPE_EMAD, = 1, "EMAD")       \
+    TRANSPORT_TYPE(SXD_TRANSPORT_TYPE_CMD_IFC, = 2, "CMD-IFC") \
+    TRANSPORT_TYPE(SXD_TRANSPORT_TYPE_CR_ACCESS, = 3, "CR")    \
+
+typedef enum sxd_transport_type {
+    SXD_FOREACH_OBJECT_TRANSPORT_TYPE(SXD_GENERATE_ENUM)
+} sxd_transport_type_t;
+
+/**
+ * MFDE FW fatal cause ID
+ */
+#define SXD_FOREACH_MFDE_FW_FATAL_CAUSE_ID(CAUSE_ID)                                                     \
+    CAUSE_ID(SXD_MFDE_FW_FATAL_CASUE_ID_CORE_PLL_LOCK_FAILURE_E, = 1, "Core PLL lock failure")           \
+    CAUSE_ID(SXD_MFDE_FW_FATAL_CASUE_ID_MIN_E, = SXD_MFDE_FW_FATAL_CASUE_ID_CORE_PLL_LOCK_FAILURE_E, "") \
+    CAUSE_ID(SXD_MFDE_FW_FATAL_CASUE_ID_MAX_E, = SXD_MFDE_FW_FATAL_CASUE_ID_CORE_PLL_LOCK_FAILURE_E, "")
+
+typedef enum sxd_mfde_fw_fatal_cause_id {
+    SXD_FOREACH_MFDE_FW_FATAL_CAUSE_ID(SXD_GENERATE_ENUM)
+} sxd_mfde_fw_fatal_cause_id_e;
 
 /**
  * ku_pmpc_reg structure is used to store the PMPC register parameters
@@ -6263,6 +6666,7 @@ struct ku_pmpc_reg {
  */
 struct ku_mpsc_reg {
     uint8_t                              local_port; /**< local_port - local port number */
+    uint8_t                              lp_msb;     /**< local_port msb */
     uint8_t                              clear_count; /**< clear_count - clear counter */
     uint8_t                              enable; /**< enable - enable sampling on local_port */
     uint8_t                              cong; /**< cong - Congestion */
@@ -6271,21 +6675,11 @@ struct ku_mpsc_reg {
 };
 
 /**
- * ku_mprs_reg structure is used to store the MPRS register parameters
- */
-struct ku_mprs_reg {
-    uint16_t parsing_depth;     /**< parsing_depth in bytes */
-    uint16_t parsing_en;        /**< parsing enable */
-    uint8_t  ctipl;             /**< cut through IP based */
-    uint8_t  ctipl_l2_length;    /**< l2 header length to be added to ip length */
-    uint16_t vxlan_udp_dport;    /**< VxLAN UDP dport */
-};
-
-/**
  * ku_mlcr_reg structure is used to store the MLCR register parameters
  */
 struct ku_mlcr_reg {
     uint8_t  local_port;      /**< local_port - local port number */
+    uint8_t  lp_msb;          /**< local_port msb */
     uint8_t  led_type;        /**< led_type - led type */
     uint8_t  cap_local_or_uid_only;        /**< cap_local_or_uid_only - cap local or uid only */
     uint16_t beacon_duration; /**< beacon_duration - duration of the beacon to be active */
@@ -6296,8 +6690,8 @@ struct ku_mlcr_reg {
  * mpgcr_mpls_et
  */
 typedef enum mpgcr_mpls_et {
-    MPGCR_ET8847 = 1,
-    MPGCR_ET8848 = 2,
+    MPGCR_ET8847        = 1,
+    MPGCR_ET8848        = 2,
     MPGCR_ET8847_ET8848 = 3,
 } mpgcr_mpls_et_t;
 
@@ -6306,8 +6700,8 @@ typedef enum mpgcr_mpls_et {
  */
 typedef enum mpgcr_pcp_rw {
     MPGCR_PCPRW_PRESERVE = 0,
-    MPGCR_PCPRW_DISABLE = 2,
-    MPGCR_PCPRW_ENABLE = 3
+    MPGCR_PCPRW_DISABLE  = 2,
+    MPGCR_PCPRW_ENABLE   = 3
 } mpgcr_pcp_rw_t;
 
 /**
@@ -6315,7 +6709,7 @@ typedef enum mpgcr_pcp_rw {
  */
 typedef enum mpgcr_ler_exp_rw {
     MPGCR_LER_EXP_DISABLE = 2,
-    MPGCR_LER_EXP_ENABLE = 3
+    MPGCR_LER_EXP_ENABLE  = 3
 } mpgcr_ler_exp_rw_t;
 
 /**
@@ -6323,7 +6717,7 @@ typedef enum mpgcr_ler_exp_rw {
  */
 typedef enum mpgcr_lsr_egress_ttl {
     MPGCR_LSR_EGRESS_TTL_POPPED = 1,
-    MPGCR_LSR_EGRESS_TTL_MIN = 2,
+    MPGCR_LSR_EGRESS_TTL_MIN    = 2,
 } mpgcr_lsr_egress_ttl_t;
 
 /**
@@ -6331,15 +6725,15 @@ typedef enum mpgcr_lsr_egress_ttl {
  */
 typedef enum mpgcr_egress_ler_ttl {
     MPGCR_EGRESS_LER_TTL_PRESERVE = 0,
-    MPGCR_EGRESS_LER_TTL_POPPED = 1,
-    MPGCR_EGRESS_LER_TTL_MIN = 2,
+    MPGCR_EGRESS_LER_TTL_POPPED   = 1,
+    MPGCR_EGRESS_LER_TTL_MIN      = 2,
 } mpgcr_egress_ler_ttl_t;
 
 /**
  * mpgcr_ingress_ler_ttl
  */
 typedef enum mpgcr_ingress_ler_ttl {
-    MPGCR_INGRESS_LER_TTL_IP = 0,
+    MPGCR_INGRESS_LER_TTL_IP     = 0,
     MPGCR_INGRESS_LER_TTL_CONFIG = 1,
 } mpgcr_ingress_ler_ttl_t;
 
@@ -6347,9 +6741,17 @@ typedef enum mpgcr_ingress_ler_ttl {
  * mpgcr_activity_dis_mpnhlfe
  */
 typedef enum mpgcr_activity_dis_mpnhlfe {
-    MPGCR_ACTIVITY_MPNHLFE_ENABLE = 0,
+    MPGCR_ACTIVITY_MPNHLFE_ENABLE  = 0,
     MPGCR_ACTIVITY_MPNHLFE_DISABLE = 1,
 } mpgcr_activity_dis_mpnhlfe_t;
+
+/**
+ * mpgcr_irif_vn_en
+ */
+typedef enum mpgcr_irif_vr_en {
+    MPGCR_IRIF_VR_EN_DISABLE = 0,
+    MPGCR_IRIF_VR_EN_ENABLE  = 1,
+} mpgcr_irif_vr_en_t;
 
 /**
  * ku_mpgcr_reg structure is used to store the MPGCR register parameters
@@ -6366,6 +6768,7 @@ struct ku_mpgcr_reg {
     uint32_t                     label_id_min; /**< label_id_min - Label IDs from label_id_min*/
     uint32_t                     label_id_max; /**< label_id_max - Label IDs to label_id_max*/
     uint8_t                      entropy_msb; /**< entropy_msb - Entropy 8 msb*/
+    mpgcr_irif_vr_en_t           irif_vr_en; /** irif virtual router enabled */
     mpgcr_activity_dis_mpnhlfe_t activity_dis_mpnhlfe; /**< activity_dis_mpnhlfe - Disable activity bit in MPNHLFE */
 };
 
@@ -6400,100 +6803,20 @@ struct ku_mpibe_reg {
  */
 typedef enum    nhlfe_dscp_or_exp_rw {
     NHLFE_DSCP_RE_PRESERVE = 0,
-    NHLFE_DSCP_RE_SET = 1,
-    NHLFE_DSCP_RE_CLEAR = 2
+    NHLFE_DSCP_RE_SET      = 1,
+    NHLFE_DSCP_RE_CLEAR    = 2
 } nhlfe_dscp_or_exp_rw_t;
 
 /**
  * nhlfe_label_action_t structure enumerates types how to handle push action
  */
 typedef enum nhlfe_label_action {
-    NHLFE_LABEL_ACTION_NO_PHP = 0,
-    NHLFE_LABEL_ACTION_PHP = 1,
-    NHLFE_LABEL_ACTION_PUSH_LABEL = 2,
-    NHLFE_LABEL_ACTION_PUSH_ENTROPY_LABEL = 3,
+    NHLFE_LABEL_ACTION_NO_PHP                       = 0,
+    NHLFE_LABEL_ACTION_PHP                          = 1,
+    NHLFE_LABEL_ACTION_PUSH_LABEL                   = 2,
+    NHLFE_LABEL_ACTION_PUSH_ENTROPY_LABEL           = 3,
     NHLFE_LABEL_ACTION_PUSH_ENTROPY_LABEL_AND_LABEL = 4
 } nhlfe_label_action_t;
-
-
-/**
- * Forward to Ethernet Parameters
- */
-typedef struct ku_struct_forward_to_eth_parameters {
-    nhlfe_dscp_or_exp_rw_t dscp_rw;
-    uint8_t                usp_dscp;
-    uint8_t                usp_exp;
-    nhlfe_dscp_or_exp_rw_t exp_rw;
-    uint8_t                set_exp;
-    uint8_t                exp;
-    uint8_t                expected_ip_var;
-    nhlfe_label_action_t   label_action;
-    uint32_t               label_id;
-    uint8_t                destination_mac[6];
-    uint16_t               egress_router_interface;
-    uint8_t                protection_en;
-    uint8_t                protection_active;
-    uint32_t               protection_nhlfe_ptr;
-} ku_forward_to_eth_parameters_t;
-
-/**
- * Forward to IP Router Parameters
- */
-typedef struct ku_struct_forward_to_ip_parameters {
-    nhlfe_dscp_or_exp_rw_t dscp_rw;
-    uint8_t                usp_dscp;
-    uint8_t                irifv;
-    uint16_t               irif;
-    uint8_t                erifv;
-    uint16_t               egress_router_interface;
-} ku_forward_to_ip_parameters_t;
-
-/**
- * Forward to Continue Lookups Parameters
- */
-typedef struct ku_continue_lookup_layout_parameters {
-    nhlfe_dscp_or_exp_rw_t dscp_rw;
-    uint8_t                usp_dscp;
-    uint8_t                irifv;
-    uint16_t               irif;
-    uint8_t                erifv;
-    uint16_t               egress_router_interface;
-} ku_continue_lookup_layout_parameters_t;
-
-/**
- * Forward to Next NHLFE Parameters
- */
-typedef struct ku_next_nhlfe_layout_parameters {
-    nhlfe_label_action_t label_action;
-    uint32_t             label_id;
-    uint32_t             next_nhlfe;
-    uint16_t             ecmp_size;
-} ku_next_nhlfe_layout_parameters_t;
-
-/*
- * MPNHLFE - nhlfe_parameters
- */
-typedef union ku_nhlfe_parameters {
-    ku_forward_to_eth_parameters_t         forward_to_eth_parameters;
-    ku_forward_to_ip_parameters_t          forward_to_ip_parameters;
-    ku_continue_lookup_layout_parameters_t continue_lookup_layout_parameters;
-    ku_next_nhlfe_layout_parameters_t      next_nhlfe_layout_parametrs;
-} ku_nhlfe_parameters_t;
-
-/**
- * ku_mpnhlfe_reg structure is used to store the MPNHLFE register parameters
- */
-struct ku_mpnhlfe_reg {
-    uint8_t                ca; /**< ca - clear activity */
-    uint8_t                a; /**< a - activity  */
-    uint8_t                v; /**< v - valid indication */
-    uint32_t               nhlfe_ptr; /**<nhlfe_ptr - index in the NHLFE table  */
-    sxd_forward_action_t   forward_action; /**<forward_action - NHLFE action */
-    sxd_router_en_action_t trap_action; /**<trap_action - trap action */
-    uint16_t               trap_id; /**<trap_id - trap ID */
-    sxd_counter_set_t      counter_set; /**<counter_set - counter set */
-    ku_nhlfe_parameters_t  nhlfe_parameters; /**<nhlfe_parameters - NHLFE parameters */
-};
 
 /**
  * ku_mdri_reg structure is used to store the MDRI register parameters
@@ -6509,147 +6832,6 @@ struct ku_mdri_reg {
     uint32_t mpls_reasons[8];     /**< mpls_reasons - mpls reasons */
     uint32_t tunnel_reasons[8];     /**< tunnel_reasons - tunnel reasons */
     uint32_t host_reasons[8];     /**< host_reasons - host reasons */
-};
-
-/**
- * ku_ppcnt_ib_port_counters structure is used to store the PPCNT register Infiniband
- * port counters parameters
- */
-struct ku_ppcnt_ib_port_counters {
-    uint16_t symbol_error_counter;
-    uint8_t  link_error_recovery_counter;
-    uint8_t  link_downed_counter;
-    uint16_t port_rcv_errors;
-    uint16_t port_rcv_remote_physical_errors;
-    uint16_t port_rcv_switch_relay_errors;
-    uint16_t port_xmit_discards;
-    uint8_t  port_xmit_constraint_errors;
-    uint8_t  port_rcv_constraint_errors;
-    uint8_t  local_link_integrity_errors;
-    uint8_t  excessive_buffer_overrun_errors;
-    uint16_t vl_15_dropped;
-    uint32_t port_xmit_data;
-    uint32_t port_rcv_data;
-    uint32_t port_xmit_pkts;
-    uint32_t port_rcv_pkts;
-    uint32_t port_xmit_wait;
-};
-
-
-/**
- * ku_ppcnt_ib_port_counters_extended structure is used to store the PPCNT register Infiniband
- * port counters extended parameters
- */
-struct ku_ppcnt_ib_port_counters_extended {
-    uint64_t __attribute__((aligned(8))) port_xmit_data;
-    uint64_t __attribute__((aligned(8))) port_rcv_data;
-    uint64_t __attribute__((aligned(8))) port_xmit_pkts;
-    uint64_t __attribute__((aligned(8))) port_rcv_pkts;
-    uint64_t __attribute__((aligned(8))) port_unicast_xmit_pkts;
-    uint64_t __attribute__((aligned(8))) port_unicast_rcv_pkts;
-    uint64_t __attribute__((aligned(8))) port_multicast_xmit_pkts;
-    uint64_t __attribute__((aligned(8))) port_multicast_rcv_pkts;
-};
-
-/**
- * ku_ppcnt_ib_port_rcv_err_details structure is used to store the PPCNT register Infiniband
- * port receive error details parameters
- */
-struct ku_ppcnt_ib_port_rcv_err_details {
-    uint16_t port_local_physical_errors;
-    uint16_t port_malformed_packet_errors;
-    uint16_t port_buffer_overrun_errors;
-    uint16_t port_dlid_mapping_errors;
-    uint16_t port_vl_mapping_errors;
-    uint16_t port_looping_errors;
-};
-
-/**
- * ku_ppcnt_ib_port_xmit_discard_details structure is used to store the PPCNT register Infiniband
- * port xmit discard details parameters
- */
-struct ku_ppcnt_ib_port_xmit_discard_details {
-    uint16_t port_inactive_discards;
-    uint16_t port_neighbor_mtu_discards;
-    uint16_t port_sw_lifetime_limit_discards;
-    uint16_t port_sw_hoq_lifetime_limit_discards;
-};
-
-/**
- * ku_ppcnt_ib_port_flow_ctl_counters structure is used to store the PPCNT register Infiniband
- * port flow control counters parameters
- */
-struct ku_ppcnt_ib_port_flow_ctl_counters {
-    uint32_t port_xmit_flow_pkts;
-    uint32_t port_rcv_flow_pkts;
-};
-
-/**
- * ku_ppcnt_ib_port_vl_xmit_wait_counters structure is used to store the PPCNT register Infiniband
- * port VL xmit wait counters parameters
- */
-struct ku_ppcnt_ib_port_vl_xmit_wait_counters {
-    uint16_t port_vl_xmit_wait_0;
-    uint16_t port_vl_xmit_wait_1;
-    uint16_t port_vl_xmit_wait_2;
-    uint16_t port_vl_xmit_wait_3;
-    uint16_t port_vl_xmit_wait_4;
-    uint16_t port_vl_xmit_wait_5;
-    uint16_t port_vl_xmit_wait_6;
-    uint16_t port_vl_xmit_wait_7;
-    uint16_t port_vl_xmit_wait_8;
-    uint16_t port_vl_xmit_wait_9;
-    uint16_t port_vl_xmit_wait_10;
-    uint16_t port_vl_xmit_wait_11;
-    uint16_t port_vl_xmit_wait_12;
-    uint16_t port_vl_xmit_wait_13;
-    uint16_t port_vl_xmit_wait_14;
-    uint16_t port_vl_xmit_wait_15;
-};
-
-/**
- * ku_ppcnt_ib_port_sw_port_vl_congestion structure is used to store the PPCNT register Infiniband
- * port SW port vl congestion parameters
- */
-struct ku_ppcnt_ib_port_sw_port_vl_congestion {
-    uint16_t sw_port_vl_congestion_0;
-    uint16_t sw_port_vl_congestion_1;
-    uint16_t sw_port_vl_congestion_2;
-    uint16_t sw_port_vl_congestion_3;
-    uint16_t sw_port_vl_congestion_4;
-    uint16_t sw_port_vl_congestion_5;
-    uint16_t sw_port_vl_congestion_6;
-    uint16_t sw_port_vl_congestion_7;
-    uint16_t sw_port_vl_congestion_8;
-    uint16_t sw_port_vl_congestion_9;
-    uint16_t sw_port_vl_congestion_10;
-    uint16_t sw_port_vl_congestion_11;
-    uint16_t sw_port_vl_congestion_12;
-    uint16_t sw_port_vl_congestion_13;
-    uint16_t sw_port_vl_congestion_14;
-    uint16_t sw_port_vl_congestion_15;
-};
-
-/**
- * ku_ppcnt_reg structure is used to store the PPCNT register parameters
- */
-struct ku_ppcnt_reg {
-    uint8_t swid; /**< swid - Switch Partition ID to associate port with */
-    uint8_t local_port; /**< local_port - Local port number */
-    uint8_t cntr_grp; /**< cntr_grp - Performance counter group */
-    uint8_t clr; /**< clr - Clear Counters */
-    uint8_t cntr_prio; /**< cntr_prio - Priority for counter set that support per priority. */
-    union {
-        uint64_t __attribute__((aligned(8)))          cntr_list[31]; /**< cntr_list - Counter set */
-        struct ku_ppcnt_ib_port_counters              ib_port_counters;
-        struct ku_ppcnt_ib_port_counters_extended     ib_port_counters_extended;
-        struct ku_ppcnt_ib_port_rcv_err_details       ib_port_receive_error_details;
-        struct ku_ppcnt_ib_port_xmit_discard_details  ib_port_xmit_discard_details;
-        struct ku_ppcnt_ib_port_flow_ctl_counters     ib_port_flow_ctl_counters;
-        struct ku_ppcnt_ib_port_vl_xmit_wait_counters ib_port_vl_xmit_wait_counters;
-        struct ku_ppcnt_ib_port_sw_port_vl_congestion ib_port_sw_port_vl_congestion;
-    } cntrs;
-    uint32_t cntr_num; /**< cntr_num - Counter num */
 };
 
 /**
@@ -6692,37 +6874,20 @@ struct ku_pbrl_reg {
  */
 struct ku_pbmc_reg {
     uint8_t            local_port; /**< local_port - Local port number */
+    uint8_t            lp_msb;     /**< local_port msb */
     uint16_t           xof_timer_value; /**< xof_timer_value - When SwitchX generates a Pause frame, it uses this value as the Pause timer. */
     uint16_t           xof_refresh; /**< xof_refresh - The time before a new Pause frame should be sent to refresh the Pause state. Using the same units as xof_timer_value above. */
     uint16_t           port_buffer_size; /**< port_buffer_size - Total packet buffer array available for the port. The sum of buffer array allocated to bufferX must not exceed port_buffer_size. */
     struct ku_pbrl_reg buffer[10]; /**< buffer - Configuring per-buffer parameters */
+    struct ku_pbrl_reg shared_headroom_pool; /**< shared_headroom_pool - Port's shared headroom pool usage */
     struct ku_pbrl_reg port_shared_buffer; /**< port_shared_buffer - Configuring port shared buffer parameters. Using the same layout as in BufferX */
-};
-
-/**
- * ku_pbsr_stat structure is used to PBSR buffer status value
- */
-struct ku_pbsr_stat {
-    uint16_t watermark; /**< Max buffer usage since last clear */
-    uint16_t used_buffer; /**< Number of used buffer lines */
-};
-
-/**
- * ku_pbsr_reg structure is used to store the PBSR register parameters
- */
-struct ku_pbsr_reg {
-    uint8_t             buffer_type; /**< Port buffer type */
-    uint8_t             local_port; /**< Local port number */
-    uint8_t             clear_wm; /**< Clear watermark for all PGs */
-    uint16_t            used_shared_headroom_buffer; /**< Number of currently used shared headroom buffer lines */
-    struct ku_pbsr_stat stat_buffer[SXD_EMAD_PBSR_BUFFER_NUM]; /**< Status per buffer */
 };
 
 /**
  * sxd_sbpr_mode_e enumerated mode used in SBPR register event field
  */
 typedef enum sxd_sbpr_mode {
-    SXD_SBPR_MODE_STATIC_E = 0,
+    SXD_SBPR_MODE_STATIC_E  = 0,
     SXD_SBPR_MODE_DYNAMIC_E = 1,
 } sxd_sbpr_mode_e;
 
@@ -6734,10 +6899,11 @@ struct ku_sbpr_reg {
     uint8_t  desc; /**< desc - Descriptor buffer */
     uint8_t  direction; /**< Direction - Ingress/ Egress */
     uint8_t  pool_id; /**< pool_id - pool number 1-16 */
-    uint8_t  infinite_size; /**< infinite_size - pool with inifinite size. When set size is reserved */
+    uint8_t  infinite_size; /**< infinite_size - pool with infinite size. When set size is reserved */
     uint32_t size; /**< size - pool size in buffers cells*/
     uint8_t  mode; /**< mode - Absolute/ Relative*/
-    uint32_t current_occupancy; /**< current_buff occupancy*/
+    uint32_t current_occupancy; /**< current buff_occupancy*/
+    uint32_t current_ext_occupancy; /**< current ext_buff_occupancy*/
     uint32_t clear; /**< clear - Clear on Read MAX buff occupancy*/
     uint32_t max_occupancy; /**< Max buff occupancy*/
 };
@@ -6756,6 +6922,7 @@ struct shared_buffer_status {
 struct ku_sbsr_reg {
     uint8_t                     clr; /**< Direction - Ingress/ Egress */
     uint8_t                     desc;
+    uint8_t                     port_page;
     uint32_t                    ingress_port_mask[SXD_EMAD_SBSR_PORT_MASK_SIZE]; /*< ingress port mask - 256 bits */
     uint32_t                    pg_buff_mask;
     uint32_t                    egress_port_mask[SXD_EMAD_SBSR_PORT_MASK_SIZE];
@@ -6764,20 +6931,12 @@ struct ku_sbsr_reg {
 };
 
 /**
- * ku_ppad_reg structure is used to store the PPAD register parameters
- */
-struct ku_ppad_reg {
-    uint8_t single_base_mac;
-    uint8_t local_port;
-    uint8_t mac[6]; /**< mac - Base MAC address */
-};
-
-/**
  * ku_ppsc_reg structure is used to store the PPSC register
  * parameters
  */
 struct ku_ppsc_reg {
     uint8_t local_port; /**< local_port - local port number */
+    uint8_t lp_msb;     /**< local_port msb */
     uint8_t wrps_admin; /**< wrps_admin - Width Reduction Power Save Admin state */
     uint8_t wrps_status; /**< wrps_status - link actual width */
     uint8_t up_threshold; /**< up_threshold - Link Width Up Threshold - the amount of data queued on the link before the link goes back to full width */
@@ -6917,6 +7076,636 @@ struct ku_mfm_reg {
     uint64_t __attribute__((aligned(8))) memory_mask; /**< memory_mask - On write commands, indicates which of the bits from memory field are updated */
 };
 
+typedef struct sxd_slrip_slrip_16nm {
+    uint8_t  ib_sel;
+    uint8_t  ffe_tap0;
+    uint8_t  ffe_tap1;
+    uint8_t  ffe_tap2;
+    uint8_t  ffe_tap3;
+    uint8_t  ffe_tap4;
+    uint8_t  ffe_tap5;
+    uint8_t  ffe_tap6;
+    uint8_t  ffe_tap7;
+    uint8_t  ffe_tap8;
+    uint8_t  sel_enc0;
+    uint16_t ffe_tap_en;
+    uint8_t  sel_enc1;
+    uint8_t  sel_enc2;
+    uint8_t  mixer_offset0;
+    uint8_t  mixer_offset1;
+    uint8_t  saved0_sel_enc0;
+    uint8_t  saved0_mixer_offset0;
+    uint8_t  saved1_sel_enc0;
+    uint8_t  saved1_mixer_offset0;
+} sxd_slrip_slrip_16nm_t;
+
+typedef struct sxd_slrip_slrip_7nm {
+    uint8_t  feq_train_mode;
+    uint8_t  term_lpf_override_ctrl;
+    uint8_t  vref_val_mode_ctrl;
+    uint8_t  dffe_override_ctrl;
+    uint8_t  vga_gain_override_ctrl;
+    uint8_t  hf_gain_override_ctrl;
+    uint8_t  mf_pole_override_ctrl;
+    uint8_t  mf_gain_override_ctrl;
+    uint8_t  lf_pole_override_ctrl;
+    uint8_t  lf_gain_override_ctrl;
+    uint8_t  dc_gain_override_ctrl;
+    uint8_t  term_attn_override_ctrl;
+    uint8_t  f1_override_ctrl;
+    uint8_t  f2_override_ctrl;
+    uint8_t  f3_override_ctrl;
+    uint8_t  f4_override_ctrl;
+    uint8_t  f5_override_ctrl;
+    uint8_t  f6_override_ctrl;
+    uint8_t  f7_override_ctrl;
+    uint8_t  f8_override_ctrl;
+    uint8_t  fm1_override_ctrl;
+    uint8_t  fm2_override_ctrl;
+    uint8_t  fm3_override_ctrl;
+    uint8_t  eth_override_ctrl;
+    uint8_t  mf_pole;
+    uint8_t  mf_gain;
+    uint8_t  lf_pole;
+    uint8_t  lf_gain;
+    uint8_t  term_attn_ctrl;
+    uint8_t  hf_gain;
+    uint8_t  dc_gain;
+    uint8_t  adc_vref_val;
+    uint8_t  vga_gain;
+    uint8_t  ffe_fm1;
+    uint8_t  ffe_fm2;
+    uint8_t  ffe_fm3;
+    uint8_t  ffe_f4;
+    uint8_t  ffe_f3;
+    uint8_t  ffe_f2;
+    uint8_t  ffe_f1;
+    uint8_t  ffe_f8;
+    uint8_t  ffe_f7;
+    uint8_t  ffe_f6;
+    uint8_t  ffe_f5;
+    uint8_t  dffe_dsel3;
+    uint8_t  dffe_coef3;
+    uint8_t  dffe_dsel2;
+    uint8_t  dffe_coef2;
+    uint8_t  dffe_dsel1;
+    uint8_t  dffe_coef1;
+    uint8_t  dffe_dsel0;
+    uint8_t  dffe_coef0;
+    uint8_t  dffe_dsel7;
+    uint8_t  dffe_coef7;
+    uint8_t  dffe_dsel6;
+    uint8_t  dffe_coef6;
+    uint8_t  dffe_dsel5;
+    uint8_t  dffe_coef5;
+    uint8_t  dffe_dsel4;
+    uint8_t  dffe_coef4;
+    uint8_t  dffe_dsel8;
+    uint8_t  dffe_coef8;
+    uint16_t th1;
+    uint16_t th0;
+    uint16_t th3;
+    uint16_t th2;
+    uint16_t th5;
+    uint16_t th4;
+    uint16_t th7;
+    uint16_t th6;
+    uint16_t th9;
+    uint16_t th8;
+    uint16_t th11;
+    uint16_t th10;
+    uint16_t th13;
+    uint16_t th12;
+    uint16_t th15;
+    uint16_t th14;
+    uint16_t th17;
+    uint16_t th16;
+    uint16_t th19;
+    uint16_t th18;
+    uint16_t th21;
+    uint16_t th20;
+} sxd_slrip_slrip_7nm_t;
+
+union slrip_page_data {
+    sxd_slrip_slrip_16nm_t slrip_16nm;
+    sxd_slrip_slrip_7nm_t  slrip_7nm;
+};
+
+/**
+ * ku_slrip_reg structure is used to store the SLRIP register parameters
+ */
+struct ku_slrip_reg {
+    uint8_t               status;
+    uint8_t               version;
+    uint8_t               local_port;
+    uint8_t               pnat;
+    uint8_t               lp_msb;
+    uint8_t               lane;
+    uint8_t               port_type;
+    union slrip_page_data page_data;
+};
+
+#define SXD_SLRP_ADC_VOS_NUM 64
+
+#define SXD_SLRP_ADC_GOS_NUM 64
+
+
+typedef enum sxd_slrp_ccal_state {
+    SXD_SLRP_CCAL_STATE_IDLE_E  = 0x0,
+    SXD_SLRP_CCAL_STATE_START_E = 0x1,
+    SXD_SLRP_CCAL_STATE_ON_E    = 0x2,
+    SXD_SLRP_CCAL_STATE_ABORT_E = 0x3,
+    SXD_SLRP_CCAL_STATE_MIN     = SXD_SLRP_CCAL_STATE_IDLE_E,
+    SXD_SLRP_CCAL_STATE_MAX     = SXD_SLRP_CCAL_STATE_ABORT_E
+} sxd_slrp_ccal_state_t;
+
+
+typedef enum sxd_slrp_ccal_op {
+    SXD_SLRP_CCAL_OP_OFF_E   = 0x0,
+    SXD_SLRP_CCAL_OP_NOP_E   = 0x1,
+    SXD_SLRP_CCAL_OP_INIT_E  = 0x2,
+    SXD_SLRP_CCAL_OP_START_E = 0x3,
+    SXD_SLRP_CCAL_OP_MIN     = SXD_SLRP_CCAL_OP_OFF_E,
+    SXD_SLRP_CCAL_OP_MAX     = SXD_SLRP_CCAL_OP_START_E
+} sxd_slrp_ccal_op_t;
+
+typedef struct sxd_slrp_slrp_40nm_28nm {
+    uint8_t  ib_sel;
+    uint8_t  dp_sel;
+    uint8_t  dp90sel;
+    uint8_t  mix90phase;
+    uint8_t  ffe_tap0;
+    uint8_t  ffe_tap1;
+    uint8_t  ffe_tap2;
+    uint8_t  ffe_tap3;
+    uint8_t  ffe_tap4;
+    uint8_t  ffe_tap5;
+    uint8_t  ffe_tap6;
+    uint8_t  ffe_tap7;
+    uint8_t  ffe_tap8;
+    uint8_t  mixerbias_tap_amp;
+    uint16_t ffe_tap_en;
+    uint8_t  ffe_tap_offset0;
+    uint8_t  ffe_tap_offset1;
+    uint16_t slicer_offset0;
+    uint16_t mixer_offset0;
+    uint16_t mixer_offset1;
+    uint8_t  mixerbgn_inp;
+    uint8_t  mixerbgn_inn;
+    uint8_t  mixerbgn_refp;
+    uint8_t  mixerbgn_refn;
+    uint8_t  sel_slicer_lctrl_h;
+    uint8_t  sel_slicer_lctrl_l;
+    uint8_t  ref_mixer_vreg;
+    uint8_t  slicer_gctrl;
+    uint8_t  lctrl_input;
+    uint8_t  mixer_offset_cm1;
+    uint8_t  common_mode;
+    uint16_t mixer_offset_cm0;
+    uint16_t slicer_offset_cm;
+} sxd_slrp_slrp_40nm_28nm_t;
+
+typedef struct sxd_slrp_slrp_16nm {
+    uint8_t mixer_offset_up;
+    uint8_t mixer_offset_down;
+    uint8_t sel_enc;
+    uint8_t dp_sel;
+    uint8_t sel_ref_in_mixer_biasgen_up;
+    uint8_t sel_ref_in_mixer_biasgen_mid;
+    uint8_t sel_ref_in_mixer_biasgen_down;
+    uint8_t sel_ref_in_mixer_biasgen_eo;
+    uint8_t sel_ref_out_mixer_biasgen_up;
+    uint8_t sel_ref_out_mixer_biasgen_mid;
+    uint8_t sel_ref_out_mixer_biasgen_down;
+    uint8_t sel_ref_out_mixer_biasgen_eo;
+    uint8_t sel_amp_mixer_biasgen_up;
+    uint8_t sel_amp_mixer_biasgen_mid;
+    uint8_t sel_amp_mixer_biasgen_down;
+    uint8_t sel_amp_mixer_biasgen_eo;
+    uint8_t mixer_offset_eye_scan;
+    uint8_t gctrl_bin_bgn0_n;
+    uint8_t gctrl_bin_bgn0_p;
+    uint8_t gctrl_bin_bgn1_n;
+    uint8_t gctrl_bin_bgn1_p;
+    uint8_t sel_digital_gctrl;
+    uint8_t sel_bias2ctle;
+    uint8_t selgc_ref_op0_alev_ctle;
+    uint8_t selgc_ref_op1_alev_ctle;
+    uint8_t sel_bias_en_0;
+    uint8_t sel_bias_en_1;
+    uint8_t sel_bias_en_2;
+    uint8_t sel_bias_en_3;
+    uint8_t sel_bias_en_4;
+    uint8_t sel_bias_en_5;
+    uint8_t sel_bias_en_6;
+    uint8_t sel_gctrln_en_0;
+    uint8_t sel_gctrln_en_1;
+    uint8_t sel_gctrln_en_2;
+    uint8_t sel_gctrln_en_3;
+    uint8_t sel_gctrln_en_4;
+    uint8_t sel_gctrln_en_5;
+    uint8_t sel_gctrln_en_6;
+    uint8_t sel_gctrlp_en_0;
+    uint8_t sel_gctrlp_en_1;
+    uint8_t sel_gctrlp_en_2;
+    uint8_t sel_gctrlp_en_3;
+    uint8_t sel_gctrlp_en_4;
+    uint8_t sel_gctrlp_en_5;
+    uint8_t sel_gctrlp_en_6;
+    uint8_t crnt_bgn_offset_p1;
+    uint8_t crnt_bgn_offset_n1;
+    uint8_t crnt_bgn_offset_p0;
+    uint8_t crnt_bgn_offset_n0;
+} sxd_slrp_slrp_16nm_t;
+
+typedef struct sxd_slrp_slrp_gearbox {
+    uint8_t  ffe_tap_index;
+    uint8_t  ffe_sub_channel;
+    uint8_t  snr_en;
+    uint8_t  dsp_mode;
+    uint8_t  afe_trim;
+    uint8_t  ctle;
+    uint16_t raw_snr_value;
+    uint8_t  dsp_err_gen;
+    uint8_t  snr_sym_cnt;
+    uint32_t db_snr_value;
+    uint8_t  ffe_tap_value;
+} sxd_slrp_slrp_gearbox_t;
+
+typedef struct sxd_slrp_slrp_usr {
+    uint8_t mixer00;
+    uint8_t mixer90;
+    uint8_t termination;
+    uint8_t neg_cap_up;
+    uint8_t neg_cap_mid;
+    uint8_t neg_cap_dn;
+    uint8_t offset_coarse_polarity_up;
+    uint8_t offset_coarse_polarity_mid;
+    uint8_t offset_coarse_polarity_dn;
+    uint8_t offset_fine_polarity_up;
+    uint8_t offset_fine_polarity_mid;
+    uint8_t offset_fine_polarity_dn;
+    uint8_t amp_vga;
+    uint8_t amp_vga_last_stage;
+    uint8_t offset_coarse_up;
+    uint8_t offset_coarse_mid;
+    uint8_t offset_coarse_dn;
+    uint8_t offset_fine_up;
+    uint8_t offset_fine_mid;
+    uint8_t offset_fine_dn;
+} sxd_slrp_slrp_usr_t;
+
+typedef struct sxd_slrp_slrp_7nm {
+    uint8_t               adc_recording_admin;
+    uint8_t               adc_recording_status;
+    uint8_t               adc_rocording_lanes;
+    uint8_t               edge_vos_ccal_en;
+    uint8_t               adc_gain_shift_auto;
+    uint8_t               ccal_mode;
+    uint8_t               ctle_override_ctrl;
+    uint8_t               vga_override_ctrl;
+    uint8_t               adc_vos_override_ctrl;
+    uint8_t               adc_gain_override_ctrl;
+    uint8_t               phos_override_ctrl;
+    uint8_t               cal_error_cnt;
+    sxd_slrp_ccal_state_t ccal_state;
+    sxd_slrp_ccal_op_t    ccal_op;
+    uint8_t               phos;
+    uint8_t               vga_vos1;
+    uint8_t               vga_vos0;
+    uint8_t               ctle_vos0;
+    uint8_t               adc_vos[SXD_SLRP_ADC_VOS_NUM];
+    uint8_t               adc_gos[SXD_SLRP_ADC_GOS_NUM];
+    uint8_t               phos3;
+    uint8_t               phos2;
+    uint8_t               phos1;
+    uint8_t               phos0;
+    uint8_t               phos7;
+    uint8_t               phos6;
+    uint8_t               phos5;
+    uint8_t               phos4;
+} sxd_slrp_slrp_7nm_t;
+
+union slrp_page_data {
+    sxd_slrp_slrp_40nm_28nm_t slrp_40nm_28nm;
+    sxd_slrp_slrp_16nm_t      slrp_16nm;
+    sxd_slrp_slrp_gearbox_t   slrp_gearbox;
+    sxd_slrp_slrp_usr_t       slrp_usr;
+    sxd_slrp_slrp_7nm_t       slrp_7nm;
+};
+
+/**
+ * ku_slrp_reg structure is used to store the SLRP register parameters
+ */
+struct ku_slrp_reg {
+    uint8_t              status;
+    uint8_t              version;
+    uint8_t              local_port;
+    uint8_t              pnat;
+    uint8_t              lp_msb;
+    uint8_t              lane;
+    uint8_t              port_type;
+    union slrp_page_data page_data;
+};
+
+#define SXD_PEUCG_PAGE_DATA_NUM 47
+
+typedef struct sxd_peucg_page_data {
+    uint16_t payload_data;
+    uint8_t  rxtx;
+    uint16_t address;
+} sxd_peucg_page_data_t;
+
+/**
+ * ku_peucg_reg structure is used to store the PEUCG register parameters
+ */
+struct ku_peucg_reg {
+    uint8_t               unit;
+    uint8_t               local_port;
+    uint8_t               pnat;
+    uint8_t               lp_msb;
+    uint8_t               lane;
+    uint8_t               status;
+    uint8_t               payload_size;
+    uint8_t               db;
+    uint8_t               clr;
+    uint8_t               enum_init;
+    uint16_t              num_of_entries;
+    uint16_t              db_index;
+    sxd_peucg_page_data_t page_data[SXD_PEUCG_PAGE_DATA_NUM];
+};
+
+#define SXD_PPLL_PLL_STATUS_28NM_NUM 4
+
+#define SXD_PPLL_PLL_STATUS_16NM_NUM 4
+
+
+typedef enum sxd_ppll_pll_ugl_state {
+    SXD_PPLL_PLL_UGL_STATE_IDDQ_E            = 0x0,
+    SXD_PPLL_PLL_UGL_STATE_SLEEP_E           = 0x1,
+    SXD_PPLL_PLL_UGL_STATE_RCAL_DONE_WAIT1_E = 0x2,
+    SXD_PPLL_PLL_UGL_STATE_RCAL_DONE_WAIT0_E = 0x3,
+    SXD_PPLL_PLL_UGL_STATE_IDLE_E            = 0x4,
+    SXD_PPLL_PLL_UGL_STATE_CAL_DONE_WAIT1_E  = 0x5,
+    SXD_PPLL_PLL_UGL_STATE_CAL_DONE_WAIT0_E  = 0x6,
+    SXD_PPLL_PLL_UGL_STATE_ACTIVE_E          = 0x7,
+    SXD_PPLL_PLL_UGL_STATE_LOCK_E            = 0x8,
+    SXD_PPLL_PLL_UGL_STATE_SPEED_CHANGE_E    = 0x9,
+    SXD_PPLL_PLL_UGL_STATE_MIN               = SXD_PPLL_PLL_UGL_STATE_IDDQ_E,
+    SXD_PPLL_PLL_UGL_STATE_MAX               = SXD_PPLL_PLL_UGL_STATE_SPEED_CHANGE_E
+} sxd_ppll_pll_ugl_state_t;
+
+
+typedef enum sxd_ppll_version {
+    SXD_PPLL_VERSION_PRODUCTS_28NM_E = 0x0,
+    SXD_PPLL_VERSION_PRODUCTS_16NM_E = 0x3,
+    SXD_PPLL_VERSION_PRODUCTS_7NM_E  = 0x4,
+    SXD_PPLL_VERSION_MIN             = SXD_PPLL_VERSION_PRODUCTS_28NM_E,
+    SXD_PPLL_VERSION_MAX             = SXD_PPLL_VERSION_PRODUCTS_7NM_E
+} sxd_ppll_version_t;
+
+typedef struct sxd_ppll_pll_status_28nm {
+    uint8_t  lock_cal;
+    uint8_t  lock_status;
+    uint16_t algo_f_ctrl;
+    uint8_t  analog_algo_num_var;
+    uint16_t f_ctrl_measure;
+    uint8_t  analog_var;
+    uint8_t  high_var;
+    uint8_t  low_var;
+    uint8_t  mid_var;
+} sxd_ppll_pll_status_28nm_t;
+
+typedef struct sxd_ppll_ppll_28nm {
+    uint8_t                    ae;
+    sxd_ppll_pll_status_28nm_t pll_status_28nm[SXD_PPLL_PLL_STATUS_28NM_NUM];
+} sxd_ppll_ppll_28nm_t;
+
+typedef struct sxd_ppll_pll_status_16nm {
+    uint8_t  lock_status;
+    uint8_t  pll_pwrup;
+    uint8_t  lock_pulse;
+    uint16_t lock_lost_counter;
+    uint8_t  ae;
+    uint8_t  clear_cause;
+    uint8_t  lock_clk_val_cause;
+    uint8_t  plllock_clk_val;
+    uint8_t  clock_valid;
+    uint8_t  pll_speed;
+    uint8_t  lock;
+    uint8_t  analog_var;
+    uint8_t  high_var;
+    uint8_t  low_var;
+    uint8_t  mid_var;
+    uint16_t fctrl_measure;
+} sxd_ppll_pll_status_16nm_t;
+
+typedef struct sxd_ppll_ppll_reg_16nm {
+    sxd_ppll_pll_status_16nm_t pll_status_16nm[SXD_PPLL_PLL_STATUS_16NM_NUM];
+} sxd_ppll_ppll_reg_16nm_t;
+
+typedef struct sxd_ppll_ppll_reg_7nm {
+    sxd_ppll_pll_ugl_state_t pll_ugl_state;
+    uint16_t                 lokcdet_error_count;
+    uint8_t                  lockdet_err_measure_done;
+    uint8_t                  lockdet_err_state;
+    uint8_t                  lockdet_cnt_based_lock;
+    uint8_t                  lockdet_err_cnt_unlocked_sticky;
+    uint8_t                  lockdet_err_cnt_locked_sticky;
+    uint8_t                  lockdet_err_cnt_active_lock;
+    uint8_t                  cal_internal_state;
+    uint8_t                  cal_main_state;
+    uint8_t                  pll_lockdet_state;
+    uint8_t                  pwr_up_state;
+    uint8_t                  cal_abort_sticky;
+    uint8_t                  cal_abort;
+    uint8_t                  cal_valid_sticky;
+    uint8_t                  dco_coarse;
+    uint8_t                  cal_done;
+    uint8_t                  cal_en;
+    uint8_t                  dco_coarse_bin;
+    uint16_t                 cal_error_counter;
+    uint8_t                  lma_rcal_code;
+    uint8_t                  lma_rcal_tx_p_code;
+    uint8_t                  lma_rcal_tx_n_code;
+    uint8_t                  rcal_done_valid_sticky;
+    uint8_t                  rcal_tx_p_valid_sticky;
+    uint8_t                  rcal_tx_n_valid_sticky;
+    uint8_t                  rcal_fsm_done;
+    uint8_t                  speedo_valid;
+    uint8_t                  cvb_trim_valid;
+    uint8_t                  bg_trim_valid;
+    uint16_t                 speedo;
+    uint8_t                  cvb_trim;
+    uint8_t                  bg_trim;
+} sxd_ppll_ppll_reg_7nm_t;
+
+union ppll_page_data {
+    sxd_ppll_ppll_28nm_t     ppll_28nm;
+    sxd_ppll_ppll_reg_16nm_t ppll_reg_16nm;
+    sxd_ppll_ppll_reg_7nm_t  ppll_reg_7nm;
+};
+
+/**
+ * ku_ppll_reg structure is used to store the PPLL register parameters
+ */
+struct ku_ppll_reg {
+    uint8_t              num_pll_groups;
+    uint8_t              pll_group;
+    uint8_t              pci_oob_pll;
+    uint8_t              num_plls;
+    sxd_ppll_version_t   version;
+    union ppll_page_data page_data;
+};
+
+typedef enum sxd_slrg_fom_mode {
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEC_E    = 0x0,
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEO_E    = 0x1,
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEM_E    = 0x2,
+    SXD_SLRG_FOM_MODE_FOM_MODE_BER_E     = 0x3,
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEC_VN_E = 0x4,
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEC_VP_E = 0x5,
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEM_VN_E = 0x6,
+    SXD_SLRG_FOM_MODE_FOM_MODE_EYEM_VP_E = 0x7,
+    SXD_SLRG_FOM_MODE_MIN                = SXD_SLRG_FOM_MODE_FOM_MODE_EYEC_E,
+    SXD_SLRG_FOM_MODE_MAX                = SXD_SLRG_FOM_MODE_FOM_MODE_EYEM_VP_E
+} sxd_slrg_fom_mode_t;
+
+typedef struct sxd_slrg_slrg_40nm_28nm {
+    uint8_t  grade_lane_speed;
+    uint8_t  grade_version;
+    uint32_t grade;
+    uint8_t  offset_units;
+    uint8_t  phase_units;
+    uint8_t  height_grade_type;
+    uint32_t height_grade;
+    uint16_t height_dz;
+    uint16_t height_dv;
+    uint16_t height_sigma;
+    uint16_t height_eo_pos;
+    uint16_t height_eo_neg;
+    uint8_t  phase_grade_type;
+    uint32_t phase_grade;
+    uint8_t  phase_eo_pos;
+    uint8_t  phase_eo_neg;
+    uint16_t ffe_set_tested;
+    uint16_t test_errors_per_lane;
+} sxd_slrg_slrg_40nm_28nm_t;
+
+typedef struct sxd_slrg_slrg_16nm {
+    uint8_t  grade_lane_speed;
+    uint8_t  grade_version;
+    uint32_t grade;
+    uint16_t height_eo_pos_up;
+    uint16_t height_eo_neg_up;
+    uint8_t  phase_eo_pos_up;
+    uint8_t  phase_eo_neg_up;
+    uint16_t height_eo_pos_mid;
+    uint16_t height_eo_neg_mid;
+    uint8_t  phase_eo_pos_mid;
+    uint8_t  phase_eo_neg_mid;
+    uint16_t height_eo_pos_low;
+    uint16_t height_eo_neg_low;
+    uint8_t  phase_eo_pos_low;
+    uint8_t  phase_eo_neg_low;
+    uint16_t mid_eye_grade;
+    uint16_t up_eye_grade;
+    uint16_t dn_eye_grade;
+} sxd_slrg_slrg_16nm_t;
+
+typedef struct sxd_slrg_slrg_7nm {
+    uint8_t             fom_measurment;
+    sxd_slrg_fom_mode_t fom_mode;
+    uint8_t             initial_fom;
+    uint8_t             last_fom;
+    uint8_t             upper_eye;
+    uint8_t             mid_eye;
+    uint8_t             lower_eye;
+} sxd_slrg_slrg_7nm_t;
+
+typedef struct sxd_slrg_lane_meas_info {
+    uint8_t  upper_max;
+    uint8_t  mid_max;
+    uint8_t  lower_max;
+    uint8_t  comp_max;
+    uint8_t  upper_min;
+    uint8_t  mid_min;
+    uint8_t  lower_min;
+    uint8_t  comp_min;
+    uint16_t upper_std;
+    uint16_t mid_std;
+    uint16_t lower_std;
+    uint16_t comp_std;
+    uint16_t upper_avg;
+    uint16_t mid_avg;
+    uint16_t lower_avg;
+    uint16_t comp_avg;
+} sxd_slrg_lane_meas_info_t;
+
+typedef struct sxd_slrg_slrg_7nm_testing {
+    uint8_t                   status;
+    uint16_t                  iterations;
+    sxd_slrg_lane_meas_info_t lane_meas_info;
+} sxd_slrg_slrg_7nm_testing_t;
+
+union slrg_page_data {
+    sxd_slrg_slrg_40nm_28nm_t   slrg_40nm_28nm;
+    sxd_slrg_slrg_16nm_t        slrg_16nm;
+    sxd_slrg_slrg_7nm_t         slrg_7nm;
+    sxd_slrg_slrg_7nm_testing_t slrg_7nm_testing;
+};
+
+/**
+ * ku_slrg_reg structure is used to store the SLRG register parameters
+ */
+struct ku_slrg_reg {
+    uint8_t              status;
+    uint8_t              version;
+    uint8_t              local_port;
+    uint8_t              pnat;
+    uint8_t              lp_msb;
+    uint8_t              lane;
+    uint8_t              port_type;
+    uint8_t              test_mode;
+    union slrg_page_data page_data;
+};
+
+/**
+ * ku_access_slrg_reg structure is used to store the access register SLRG command parameters
+ */
+struct ku_access_slrg_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_slrg_reg      slrg_reg; /**< slrg_reg - slrg register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_slrp_reg structure is used to store the access register SLRP command parameters
+ */
+struct ku_access_slrp_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_slrp_reg      slrp_reg; /**< slrp_reg - slrp register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_peucg_reg structure is used to store the access register PEUCG command parameters
+ */
+struct ku_access_peucg_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_peucg_reg     peucg_reg; /**< peucg_reg - peucg register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_ppll_reg structure is used to store the access register PPLL command parameters
+ */
+struct ku_access_ppll_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_ppll_reg      ppll_reg; /**< ppll_reg - ppll register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
 /**
  * ku_access_slcr_v2_reg structure is used to store the access register SLCR_V2 command parameters
  */
@@ -6927,29 +7716,20 @@ struct ku_access_slcr_v2_reg {
 };
 
 /**
- * ku_access_ptys_reg structure is used to store the access register PTYS command parameters
+ * ku_access_sfn_reg structure is used to store the access register SFN command parameters
  */
-struct ku_access_ptys_reg {
+struct ku_access_sfn_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_ptys_reg      ptys_reg; /**< ptys_reg - ptys register tlv */
+    struct ku_sfn_reg       sfn_reg; /**< ku_sfn_reg - sfn register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
 /**
- * ku_access_qsptc_reg structure is used to store the access register QSPTC command parameters
+ * ku_access_spvtr_reg structure is used to store the access register SPVTR command parameters
  */
-struct ku_access_qsptc_reg {
+struct ku_access_spvtr_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_qsptc_reg     qsptc_reg; /**< qsptc_reg - qsptc register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_qstct_reg structure is used to store the access register QSTCT command parameters
- */
-struct ku_access_qstct_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_qstct_reg     qstct_reg; /**< qstct_reg - qstct_reg register tlv */
+    struct ku_spvtr_reg     spvtr_reg; /**< ku_spvtr_reg - spvtr register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -6972,15 +7752,6 @@ struct ku_access_pmlp_reg {
 };
 
 /**
- * ku_access_mgir_reg structure is used to store the access register MGIR command parameters
- */
-struct ku_access_mgir_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mgir_reg      mgir_reg; /**< mgir_reg - mgir register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_plib_reg structure is used to store the access register PLIB command parameters
  */
 struct ku_access_plib_reg {
@@ -6990,38 +7761,11 @@ struct ku_access_plib_reg {
 };
 
 /**
- * ku_access_spzr_reg structure is used to store the access register SPZR command parameters
- */
-struct ku_access_spzr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_spzr_reg      spzr_reg; /**< spzr_reg - spzr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_ppaos_reg structure is used to store the access register PPAOS command parameters
  */
 struct ku_access_ppaos_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_ppaos_reg     ppaos_reg; /**< ppaos_reg - ppaos register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_pptt_reg structure is used to store the access register PPTT command parameters
- */
-struct ku_access_pptt_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pptt_reg      pptt_reg; /**< pptt_reg - pptt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_pprt_reg structure is used to store the access register PPRT command parameters
- */
-struct ku_access_pprt_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pprt_reg      pprt_reg; /**< pprt_reg - pprt register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7062,29 +7806,11 @@ struct ku_access_pmpr_reg {
 };
 
 /**
- * ku_access_pmaos_reg structure is used to store the access register PMAOS command parameters
- */
-struct ku_access_pmaos_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pmaos_reg     pmaos_reg; /**< pmaos_reg - pmaos register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_pmtu_reg structure is used to store the access register PMTU command parameters
- */
-struct ku_access_pmtu_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pmtu_reg      pmtu_reg; /**< ku_pmtu_reg - pmtu register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_pcnr_reg structure is used to store the access register PCNR command parameters
  */
 struct ku_access_pcnr_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pcnr_reg      pcnr_reg; /**< ku_pmtu_reg - pmtu register tlv */
+    struct ku_pcnr_reg      pcnr_reg; /**< ku_pcnr_reg - pcnr register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7098,15 +7824,6 @@ struct ku_access_pcmr_reg {
 };
 
 /**
- * ku_access_pmcr_reg structure is used to store the access register PMCR command parameters
- */
-struct ku_access_pmcr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pmcr_reg      pmcr_reg; /**< pmcr_reg - pmcr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_pfsc_reg structure is used to store the access register PFSC command parameters
  */
 struct ku_access_pfsc_reg {
@@ -7115,24 +7832,6 @@ struct ku_access_pfsc_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-/**
- * ku_access_pmmp_reg structure is used to store the access register PMMP command parameters
- */
-struct ku_access_pmmp_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pmmp_reg      pmmp_reg; /**< pmmp_reg - pmmp register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_pplr_reg structure is used to store the access
- * register PPLR command parameters
- */
-struct ku_access_pplr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pplr_reg      pplr_reg; /**< ku_pplr_reg - pplr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_access_mfsc_reg structure is used to store the access register MFSC command parameters
@@ -7190,15 +7889,6 @@ struct ku_access_pelc_reg {
 };
 
 /**
- * ku_access_spad_reg structure is used to store the access register SPAD command parameters
- */
-struct ku_access_spad_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_spad_reg      spad_reg; /**< spad_reg - spad register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_pvlc_reg structure is used to store the access register PVLC command parameters
  */
 struct ku_access_pvlc_reg {
@@ -7225,14 +7915,6 @@ struct ku_access_fore_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-/**
- * ku_access_mtcap_reg structure is used to store the access register MTCAP command parameters
- */
-struct ku_access_mtcap_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mtcap_reg     mtcap_reg; /**< mtcap_reg - mtcap register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_access_mtbr_reg structure is used to store the access register MTBR command parameters
@@ -7240,15 +7922,6 @@ struct ku_access_mtcap_reg {
 struct ku_access_mtbr_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_mtbr_reg      mtbr_reg; /**< mtbr_reg - mtbr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_mtwe_reg structure is used to store the access register MTWE command parameters
- */
-struct ku_access_mtwe_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mtwe_reg      mtwe_reg; /**< mtwe_reg - mtwe register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7294,15 +7967,6 @@ struct ku_access_mfbe_reg {
 struct ku_access_mfba_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_mfba_reg      mfba_reg; /**< mfba_reg - mfba register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_qcap_reg structure is used to store the access register QCAP command parameters
- */
-struct ku_access_qcap_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_qcap_reg      qcap_reg; /**< qcap_reg - qcap register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7369,15 +8033,6 @@ struct ku_access_htgt_reg {
 };
 
 /**
- * ku_access_qprt_reg structure is used to store the access register QPRT command parameters
- */
-struct ku_access_qprt_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_qprt_reg      qprt_reg; /**< qprt_reg - qprt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_mfcr_reg structure is used to store the access register MFCR command parameters
  */
 struct ku_access_mfcr_reg {
@@ -7405,27 +8060,6 @@ struct ku_access_sspr_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-
-/**
- * ku_access_sfd_reg structure is used to store the access
- * register MFM command parameters
- */
-struct ku_access_sfd_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sfd_reg       sfd_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_ppad_reg structure is used to store the access
- * register ppad command parameters
- */
-struct ku_access_ppad_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_ppad_reg      ppad_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
 /**
  * ku_access_spmcr_reg structure is used to store the access
  * register spmcr command parameters
@@ -7437,82 +8071,12 @@ struct ku_access_spmcr_reg {
 };
 
 /**
- * ku_access_pbmc_reg structure is used to store the access
- * register pbmc command parameters
- */
-struct ku_access_pbmc_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pbmc_reg      pbmc_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_sbpr_reg structure is used to store the access
- * register sbpr command parameters
- */
-struct ku_access_sbpr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sbpr_reg      sbpr_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_sbsr_reg structure is used to store the access
- * register sbsr command parameters
- */
-struct ku_access_sbsr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sbsr_reg      sbsr_reg; /**< mfm_reg - sbsr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_pbsr_reg structure is used to store the access
- * register pbsr command parameters
- */
-struct ku_access_pbsr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pbsr_reg      pbsr_reg; /**< pbsr_reg - pbsr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_sbcm_reg structure is used to store the access
- * register sbcm command parameters
- */
-struct ku_access_sbcm_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sbcm_reg      sbcm_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_sbpm_reg structure is used to store the access
- * register sbpm command parameters
- */
-struct ku_access_sbpm_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sbpm_reg      sbpm_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_sbmm_reg structure is used to store the access
  * register sbmm command parameters
  */
 struct ku_access_sbmm_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_sbmm_reg      sbmm_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_pptb_reg structure is used to store the access
- * register pptb command parameters
- */
-struct ku_access_pptb_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pptb_reg      pptb_reg; /**< mfm_reg - hpkt register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7533,16 +8097,6 @@ struct ku_access_smid_reg {
 struct ku_access_spms_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_spms_reg      spms_reg; /**< mfm_reg - hpkt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_spvid_reg structure is used to store the access
- * register spvid command parameters
- */
-struct ku_access_spvid_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_spvid_reg     spvid_reg; /**< mfm_reg - hpkt register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7576,6 +8130,17 @@ struct ku_access_qpbr_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
+
+/**
+ * ku_access_qpem_reg structure is used to store the access
+ * register qpem command parameters
+ */
+struct ku_access_qpem_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_qpem_reg      qpem_reg; /**< qpem_reg - qpem register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
 /**
  * ku_access_plbf_reg structure is used to store the access
  * register PLBF command parameters
@@ -7583,16 +8148,6 @@ struct ku_access_qpbr_reg {
 struct ku_access_plbf_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_plbf_reg      plbf_reg; /**< plbf_reg - plbf register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_sgcr_reg structure is used to store the access
- * register SGCR command parameters
- */
-struct ku_access_sgcr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sgcr_reg      sgcr_reg; /**< sgcr_reg - sgcr register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -7627,16 +8182,6 @@ struct ku_access_mpsc_reg {
 };
 
 /**
- * ku_access_mpsc_reg structure is used to store the access
- * register MPSC command parameters
- */
-struct ku_access_mprs_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mprs_reg      mprs_reg; /**< mprs_reg - mprs register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_mlcr_reg structure is used to store the access
  * register MLCR command parameters
  */
@@ -7662,23 +8207,23 @@ typedef enum sxd_init_rr {
 } sxd_init_rr_t;
 
 typedef enum sxd_rr_status {
-    SXD_RR_STATUS_NONE = 0,
+    SXD_RR_STATUS_NONE    = 0,
     SXD_RR_STATUS_ONGOING = 1
 } sxd_rr_status_t;
 
 typedef enum sxd_iedr_resource_type {
-    SXD_IEDR_RESOURCE_TYPE_ADJACENCY_E = 0x21,
-    SXD_IEDR_RESOURCE_TYPE_NVE_DECAP_E = 0x21,
-    SXD_IEDR_RESOURCE_TYPE_IPINIP_DECAP_E = 0x21,
-    SXD_IEDR_RESOURCE_TYPE_MPLS_NHLFE_E = 0x22,
-    SXD_IEDR_RESOURCE_TYPE_ACL_ACTION_SET_E = 0x23,
-    SXD_IEDR_RESOURCE_TYPE_PBS_E = 0x24,
-    SXD_IEDR_RESOURCE_TYPE_CPU_SEND_MC_IDS_E = 0x24,
-    SXD_IEDR_RESOURCE_TYPE_MPLS_ILM_E = 0x25,
-    SXD_IEDR_RESOURCE_TYPE_RIGRV2_E = 0x26,
+    SXD_IEDR_RESOURCE_TYPE_ADJACENCY_E             = 0x21,
+    SXD_IEDR_RESOURCE_TYPE_NVE_DECAP_E             = 0x21,
+    SXD_IEDR_RESOURCE_TYPE_IPINIP_DECAP_E          = 0x21,
+    SXD_IEDR_RESOURCE_TYPE_MPLS_NHLFE_E            = 0x22,
+    SXD_IEDR_RESOURCE_TYPE_ACL_ACTION_SET_E        = 0x23,
+    SXD_IEDR_RESOURCE_TYPE_PBS_E                   = 0x24,
+    SXD_IEDR_RESOURCE_TYPE_CPU_SEND_MC_IDS_E       = 0x24,
+    SXD_IEDR_RESOURCE_TYPE_MPLS_ILM_E              = 0x25,
+    SXD_IEDR_RESOURCE_TYPE_RIGRV2_E                = 0x26,
     SXD_IEDR_RESOURCE_TYPE_MC_EXPECTED_IRIF_LIST_E = 0x27,
-    SXD_IEDR_RESOURCE_TYPE_IPV6_E = 0x28,
-    SXD_IEDR_RESOURCE_TYPE_TNUMT_E = 0x29
+    SXD_IEDR_RESOURCE_TYPE_IPV6_E                  = 0x28,
+    SXD_IEDR_RESOURCE_TYPE_TNUMT_E                 = 0x29
 } sxd_iedr_resource_type_e;
 
 typedef enum sxd_iedr_delete_mode {
@@ -7687,7 +8232,7 @@ typedef enum sxd_iedr_delete_mode {
 } sxd_iedr_delete_mode_e;
 
 typedef enum sxd_ieds_bg_delete_status {
-    SXD_IEDS_BG_DELETE_NONE_E = 0,
+    SXD_IEDS_BG_DELETE_NONE_E    = 0,
     SXD_IEDS_BG_DELETE_ONGOING_E = 1
 } sxd_ieds_bg_delete_status_e;
 
@@ -7736,25 +8281,12 @@ struct ku_access_mpilm_reg {
 };
 
 /**
- * ku_access_mpnhlfe_reg structure is used to store the access
- * register MPNHLFE command parameters
+ * ku_access_slrip_reg structure is used to store the access register SLRIP command parameters
  */
-struct ku_access_mpnhlfe_reg {
+struct ku_access_slrip_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mpnhlfe_reg   mpnhlfe_reg; /**< mpnhlfe_reg - mpnhlfe register tlv */
+    struct ku_slrip_reg     slrip_reg; /**< slrip_reg - slrip register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_cwgc_reg structure is used to store the access
- * register cwgc command parameters
- */
-struct ku_cwgcr_reg {
-    uint8_t en;
-    uint8_t scd;
-    uint8_t aqs_weight;
-    uint8_t aqs_time;
-    uint8_t cece;
 };
 
 /**
@@ -7772,27 +8304,48 @@ struct ku_cw_profile {
  */
 struct ku_cwtp_reg {
     uint8_t              local_port;
+    uint8_t              lp_msb;    /**< local_port msb */
     uint8_t              traffic_class;
     uint8_t              mode;
     struct ku_cw_profile profiles[REDECN_NUM_HW_PROFILES];
 };
 
 /**
- * ku_access_cwcpm_reg structure is used to store the access
- * register ku_access_cwcpm_reg command parameters
+ * ku_access_cwtp_reg structure is used to store the access register CWTP command parameters
  */
-struct ku_cwtpm_reg {
-    uint8_t local_port;
-    uint8_t traffic_class;
-    uint8_t ew;
-    uint8_t ee;
-    uint8_t tcp_g;
-    uint8_t tcp_y;
-    uint8_t tcp_r;
-    uint8_t ntcp_g;
-    uint8_t ntcp_y;
-    uint8_t ntcp_r;
+struct ku_access_cwtp_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_cwtp_reg      cwtp_reg; /**< ku_cwtp_reg - cwtp register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
 };
+
+/**
+ * ku_access_pfcc_reg structure is used to store the access register PFCC command parameters
+ */
+struct ku_access_pfcc_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_pfcc_reg      pfcc_reg; /**< ku_pfcc_reg - pfcc register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_qppm_reg structure is used to store the access register QPPM command parameters
+ */
+struct ku_access_qppm_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_qppm_reg      qppm_reg; /**< ku_qppm_reg - qppm register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_slecr_reg structure is used to store the access register SLECR command parameters
+ */
+struct ku_access_slecr_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_slecr_reg     slecr_reg; /**< ku_slecr_reg - slecr register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
 /**
  * ku_access_cwpp_reg structure is used to store the access
  * register cwpp command parameters
@@ -7814,17 +8367,6 @@ struct ku_cwppm_reg {
     uint8_t ntcp_g;
     uint8_t ntcp_y;
     uint8_t ntcp_r;
-};
-
-/**
- * ku_access_cwprp_reg structure is used to store the access
- * register cwprp command parameters
- */
-struct ku_cpqe_reg {
-    uint8_t egress_local_port;
-    uint8_t element_hierarchy;
-    uint8_t element_index;
-    uint8_t profile_percent;
 };
 
 /**
@@ -7858,16 +8400,6 @@ struct ku_access_rtca_reg {
 };
 
 /**
- * ku_access_ritr_reg structure is used to store the access
- * register RITR command parameters
- */
-struct ku_access_ritr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_ritr_reg      ritr_reg; /**< ritr_reg - ritr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
  * ku_access_ruft_reg structure is used to store the access
  * register RUFT command parameters
  */
@@ -7884,6 +8416,7 @@ struct ku_access_ruft_reg {
 struct ku_sbhbr_reg {
     uint8_t  opcode;
     uint8_t  local_port;
+    uint8_t  lp_msb;    /**< local_port msb */
     uint8_t  hist_id;
     uint16_t hist_type;
     uint32_t hist_parameters;
@@ -7964,8 +8497,8 @@ struct ku_access_sbdcm_reg {
  * sxd_sbctc_event_t enumerated type used in SBCTC register event field
  */
 typedef enum sxd_sbctc_event {
-    SXD_SBCTC_EVENT_NO_EVENT = 0,
-    SXD_SBCTC_EVENT_EVENTS = 1,
+    SXD_SBCTC_EVENT_NO_EVENT     = 0,
+    SXD_SBCTC_EVENT_EVENTS       = 1,
     SXD_SBCTC_EVENT_SINGLE_EVENT = 2,
 } sxd_sbctc_event_t;
 
@@ -7974,11 +8507,17 @@ typedef enum sxd_sbctc_event {
  * register sbctc command parameters
  */
 struct ku_sbctc_reg {
+    uint8_t                              dir_ing;
     uint8_t                              local_port;
+    uint8_t                              lp_msb;    /**< local_port msb */
+    uint8_t                              res;
+    uint8_t                              mode;
     uint8_t                              en_config;
     uint8_t                              event;
     uint64_t __attribute__((aligned(8))) tclass_en;
     uint32_t                             thr_max;
+    uint32_t                             thr_min;
+    uint8_t                              is_port_profile;
 };
 
 /**
@@ -7988,28 +8527,6 @@ struct ku_sbctc_reg {
 struct ku_access_sbctc_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_sbctc_reg     sbctc_reg;  /**< sbctc_reg - sbctc register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_sbctr_reg structure is used to store the access
- * register sbctr command parameters
- */
-struct ku_sbctr_reg {
-    uint8_t                              ievent;
-    uint8_t                              local_port;
-    uint8_t                              fp;
-    uint8_t                              entity;
-    uint64_t __attribute__((aligned(8))) tclass_vec;
-};
-
-/**
- * ku_access_sbctr_reg structure is used to store the access
- * register SBCTR command parameters
- */
-struct ku_access_sbctr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sbctr_reg     sbctr_reg;  /**< sbctr_reg - sbctr register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -8088,6 +8605,8 @@ struct ku_swid_config {
     uint8_t           properties; /**< properties - For IB switch partition bit 0 - IPoIB Router Port Enable */
 };
 
+#define SX_INDEPENDENT_MODULE_MASK ((uint64_t)(1ULL << 40)) /* Set bit 40 in profile mask - set module master */
+
 /**
  * ku_profile structure is used to store the profile attributes for the set profile command
  */
@@ -8113,9 +8632,11 @@ struct ku_profile {
     uint16_t                             max_fid; /**< max_fid - Maximum number of virtual FIDs */
     uint16_t                             max_ib_mc; /**< max_ib_mc - Maximum number of multicast FDB records for IB FDB (in 512 chunks) per IB Switch Partition */
     uint16_t                             max_pkey; /**< max_pkey - Maximum per port pkey table size (for pkey enforcement) */
+    uint8_t                              hsba_status;  /**< Shared buffer hierarchical admission status */
     uint8_t                              ar_sec; /**< ar_sec - Primary / Secondary Capability */
     uint16_t                             adaptive_routing_group_cap; /**< adaptive_routing_group_cap - Adaptive Routing Group Capability */
     uint8_t                              arn; /**< arn - Adaptive Routing Notification Enable */
+    uint8_t                              lag_mode; /**< Who manages PGT LAG Table. '0' - FW; '1' - SW (rm_lag_table_mngr_e)*/
     uint32_t                             kvd_linear_size; /**The size of KVD linear*/
     uint32_t                             kvd_hash_single_size; /**The size of KVD hash single*/
     uint32_t                             kvd_hash_double_size; /**The size of KVD hash single*/
@@ -8132,14 +8653,23 @@ struct ku_profile {
     uint8_t                              ib_router_mcf; /**< IB Router multicast filter */
     uint16_t                             ib_router_ecmp_lid_range; /**< IB router ECMP LID range */
     uint32_t                             reserved1; /**< reserved1 */
-    uint8_t                              ubridge_mode;
-
+    uint8_t                              ubridge_mode; /**< Use is deprecated. Always equal to 1. */
+    uint8_t                              umlabel;   /**< user mirror label port */
+    uint8_t                              port_profile_num;  /**< Number of port profiles */
 
     /* this array will contain supported revisions per type */
-    uint64_t __attribute__((aligned(8))) sup_revs_by_type[SXD_CHIP_TYPES_MAX];
+    uint64_t __attribute__((aligned(8))) sup_revs_by_type[SXD_CHIP_TYPES_MAX_ISSU];
     enum sxd_chip_types                  chip_type;
     uint8_t                              do_not_config_profile_to_device;
     uint8_t                              split_ready; /**< split_ready - Support split ports */
+    uint8_t                              module_master_fw_default; /**< Module Master FW Default. 0 - FW control, 1 - SW control, 2 - SW control (no I2C connectivity) */
+};
+
+/**
+ * ku_profile structure is used to store the kvh configuration parameters
+ */
+struct profile_kvh_params {
+    uint8_t kvh_xlt_cache_mode;
 };
 
 /**
@@ -8173,10 +8703,7 @@ struct ku_default_vid_data {
     uint16_t default_vid;    /**< default_vid - the new default VLAN ID of the port/lag */
 };
 
-#if defined(PD_BU) && defined(SPECTRUM3_BU)
-/* Part of the PUDE WA for MLNX OS (PUDE events are handled manually):
- * - should be removed before Phoenix bring up;
- */
+#ifdef SW_PUDE_EMULATION /* PUDE WA for NOS (PUDE events are handled by SDK). Needed for BU. */
 /**
  * ku_admin_status_data is used to store the data of the port
  * admin status ioctl
@@ -8186,7 +8713,7 @@ struct ku_admin_status_data {
     uint16_t sysport;      /**< sysport - system port */
     uint8_t  admin_status; /**< admin_status - port admin status */
 };
-#endif
+#endif /* SW_PUDE_EMULATION */
 
 /**
  * ku_default_vid_data is used to store the data of the default vid change ioctl
@@ -8304,7 +8831,8 @@ struct ku_sgmii_init_dev {
  * ku_sgmii_default_dev is used to set SGMII default device
  */
 struct ku_sgmii_default_dev {
-    uint8_t dev_id;
+    uint8_t       dev_id;
+    sxd_boolean_t hopf_on_remote_mgmt;
 };
 
 
@@ -8322,6 +8850,12 @@ struct ku_get_counters {
     uint64_t __attribute__((aligned(8))) trap_id_packet[NUM_HW_SYNDROMES]; /**< number of packet received for a trap_id */
     uint64_t __attribute__((aligned(8))) trap_id_byte[NUM_HW_SYNDROMES];   /**< number of bytes received for a trap_id  */
     uint64_t __attribute__((aligned(8))) trap_id_events[NUM_HW_SYNDROMES]; /**< number of events received for a trap_id */
+    uint64_t __attribute__((aligned(8))) trap_id_drops[NUM_HW_SYNDROMES]; /**< number of drops for a trap_id */
+
+
+    /* per-rdq counter */
+    uint64_t __attribute__((aligned(8))) trap_group_packet[NUMBER_OF_RDQS]; /**< number of packet received for a trap group */
+    uint64_t __attribute__((aligned(8))) trap_group_byte[NUMBER_OF_RDQS];   /**< number of bytes received for a trap group  */
 };
 
 
@@ -8330,9 +8864,9 @@ struct ku_get_counters {
  */
 
 typedef enum {
+    KU_PTP_MODE_DISABLED,
     KU_PTP_MODE_EVENTS,
-    KU_PTP_MODE_POLLING,
-    KU_PTP_MODE_DISABLED
+    KU_PTP_MODE_POLLING
 } ptp_mode_t;
 
 struct ku_ptp_mode {
@@ -8364,23 +8898,26 @@ struct ku_lag_oper_state_data {
  *  ku_ber_monitor_state_data is used to store the data of port ber monitor state update ioctl
  */
 struct ku_ber_monitor_state_data {
-    uint8_t local_port;
-    uint8_t ber_monitor_state;
+    uint8_t  dev_id;
+    uint16_t local_port;
+    uint8_t  ber_monitor_state;
 };
 
 /**
  * ku_ber_monitor_bitmask_data is used to store the data of port ber monitor bitmask update ioctl
  */
 struct ku_ber_monitor_bitmask_data {
-    uint8_t local_port;
-    uint8_t bitmask;
+    uint8_t  dev_id;
+    uint16_t local_port;
+    uint8_t  bitmask;
 };
 
 /**
  * ku_tele_threshold_data is used to store the data of telemetry threshold set ioctl
  */
 struct ku_tele_threshold_data {
-    uint8_t                              local_port;
+    uint16_t                             local_port;
+    uint8_t                              dir_ing;
     uint64_t __attribute__((aligned(8))) tc_vec;
 };
 
@@ -8402,12 +8939,21 @@ struct ku_vid2ip_data {
     uint8_t  valid;     /**< valid bit which define if valid */
 };
 
+/**
+ * ku_sdk_health_event_control is sued to enable/disable sdk_health_event per device id
+ */
+struct ku_sdk_health_event_control {
+    uint8_t       dev_id;         /**< Device ID */
+    sxd_boolean_t enable;             /**< TRUE - enable sdk_health_event; FALSE - disable sdk_health_event */
+    sxd_boolean_t get_and_disable;    /**< TRUE - disable sdk_health_event after getting status; FALSE- no change in status after get. Valid for GET */
+};
+
 
 /**
  * sxd_tunnel_flc_type_t enumerated flow label copy type.
  */
 typedef enum sxd_tunnel_flc_type {
-    SXD_TUNNEL_FLC_CALCULATE = 0,
+    SXD_TUNNEL_FLC_CALCULATE     = 0,
     SXD_TUNNEL_FLC_COPY_FROM_PKT = 1
 } sxd_tunnel_flc_type_t;
 
@@ -8415,7 +8961,7 @@ typedef enum sxd_tunnel_flc_type {
  * sxd_tunnel_flc_type_t enumerated tigcr flow label type.
  */
 typedef enum sxd_tunnel_flh_type {
-    SXD_TUNNEL_FLH_NO_LABEL = 0,
+    SXD_TUNNEL_FLH_NO_LABEL  = 0,
     SXD_TUNNEL_FLH_CALCULATE = 1
 } sxd_tunnel_flh_type_t;
 
@@ -8423,90 +8969,27 @@ typedef enum sxd_tunnel_flh_type {
  * sxd_tunnel_sport_type_t enumerated udp sport type.
  */
 typedef enum sxd_tunnel_sport_type {
-    SXD_TUNNEL_SPORT_SET_ZERO = 0,
-    SXD_TUNNEL_SPORT_CALCULATE = 1,
+    SXD_TUNNEL_SPORT_SET_FIX_BITS_E          = 0,
+    SXD_TUNNEL_SPORT_USE_HASH_TO_CALCULATE_E = 1,
 } sxd_tunnel_sport_type_t;
 
 /**
  * sxd_tca_log_pstate_type_t enumerated type is used to indicates the TCA logical port state type
  */
 typedef enum sxd_tunnel_nve_type {
-    SXD_TUNNEL_NVE_VXLAN = 0,
+    SXD_TUNNEL_NVE_VXLAN     = 0,
     SXD_TUNNEL_NVE_VXLAN_GPE = 1,
-    SXD_TUNNEL_NVE_GENEVE = 2,
-    SXD_TUNNEL_NVE_NVGRE = 3,
+    SXD_TUNNEL_NVE_GENEVE    = 2,
+    SXD_TUNNEL_NVE_NVGRE     = 3,
 } sxd_tunnel_nve_type_t;
 
-/**
- * ku_tngcr_reg structure is used to store the TNGCR register parameters
- */
-struct ku_tngcr_reg {
-    sxd_tunnel_nve_type_t   type;
-    uint8_t                 nve_valid;
-    uint8_t                 nve_ttl_uc;
-    uint8_t                 nve_ttl_mc;
-    sxd_tunnel_flc_type_t   nve_flc;
-    sxd_tunnel_flh_type_t   nve_flh;
-    uint16_t                nve_fl_prefix;
-    uint8_t                 nve_enc_orig;
-    uint8_t                 nve_enc_orig_we;
-    sxd_tunnel_sport_type_t nve_udp_sport_type;
-    uint8_t                 et_vlan;
-    uint8_t                 nve_udp_sport_prefix;
-    uint16_t                nve_udp_dport;
-    uint8_t                 nve_group_size_mc;
-    uint8_t                 nve_group_size_flood;
-    uint8_t                 learn_enable;
-    uint16_t                underlay_virtual_router;
-    uint16_t                underlay_rif;
-    uint32_t                usipv4;
-    uint32_t                usipv6[4];
-};
-
-/**
- * sxd_tunnel_tnumt_type enumerated tnumt record type.
- */
-typedef enum sxd_tunnel_tnumt_type {
-    SXD_TNUMT_TYPE_IPV4 = 0,
-    SXD_TNUMT_TYPE_IPV6 = 1
-} sxd_tunnel_tnumt_type_t;
-
-/**
- * ku_nve_mc_ipv4 structure is used for Tunneling Underlay Multicast Record for IPV4 type
- */
-struct ku_nve_mc_ipv4 {
-    uint8_t  size;
-    uint32_t udip[3];
-};
-
-/**
- * ku_nve_mc_ipv6 structure is used for Tunneling Underlay Multicast Record for IPV6 type
- */
-struct ku_nve_mc_ipv6 {
-    uint8_t  size;
-    uint32_t udip_ptr[5];
-};
-
-/**
- * ku_tnumt_reg structure is used to store the TNUMT register parameters
- */
-struct ku_tnumt_reg {
-    sxd_tunnel_tnumt_type_t record_type;
-    uint32_t                underlay_mc_ptr;
-    uint8_t                 vnext;
-    uint32_t                next_underlay_mc_ptr;
-    union {
-        struct ku_nve_mc_ipv4 mc_ipv4;
-        struct ku_nve_mc_ipv6 mc_ipv6;
-    } record;
-};
 
 /**
  * sxd_tunnel_enc_set_dscp_t structure enumerates types how to set DSCP field for encapsulation
  */
 typedef enum sxd_tunnel_enc_set_dscp {
     SXD_TUNNEL_ENC_DSCP_COPY = 0,
-    SXD_TUNNEL_ENC_DSCP_SET = 1
+    SXD_TUNNEL_ENC_DSCP_SET  = 1
 } sxd_tunnel_enc_set_dscp_t;
 
 /**
@@ -8514,7 +8997,7 @@ typedef enum sxd_tunnel_enc_set_dscp {
  */
 typedef enum sxd_tunnel_enc_set_sp {
     SXD_TUNNEL_ENC_SP_PRESERVE = 0,
-    SXD_TUNNEL_ENC_SP_SET = 1
+    SXD_TUNNEL_ENC_SP_SET      = 1
 } sxd_tunnel_enc_set_sp_t;
 
 /**
@@ -8522,7 +9005,7 @@ typedef enum sxd_tunnel_enc_set_sp {
  */
 typedef enum sxd_tunnel_dec_set_dscp {
     SXD_TUNNEL_DEC_DSCP_PRESERVE = 0,
-    SXD_TUNNEL_DEC_DSCP_COPY = 1
+    SXD_TUNNEL_DEC_DSCP_COPY     = 1
 } sxd_tunnel_dec_set_dscp_t;
 
 /**
@@ -8530,7 +9013,7 @@ typedef enum sxd_tunnel_dec_set_dscp {
  */
 typedef enum sxd_tunnel_dec_set_sp {
     SXD_TUNNEL_DEC_SP_PRESERVE = 0,
-    SXD_TUNNEL_DEC_SP_SET = 1
+    SXD_TUNNEL_DEC_SP_SET      = 1
 } sxd_tunnel_dec_set_sp_t;
 
 /**
@@ -8538,7 +9021,7 @@ typedef enum sxd_tunnel_dec_set_sp {
  */
 typedef enum sxd_tunnel_dec_set_pcp {
     SXD_TUNNEL_DEC_PCP_PRESERVE = 0,
-    SXD_TUNNEL_DEC_PCP_COPY = 1
+    SXD_TUNNEL_DEC_PCP_COPY     = 1
 } sxd_tunnel_dec_set_pcp_t;
 
 /**
@@ -8546,8 +9029,8 @@ typedef enum sxd_tunnel_dec_set_pcp {
  */
 typedef enum sxd_tunnel_dscp_rw {
     SXD_TUNNEL_DSCP_RW_PRESERVE = 0,
-    SXD_TUNNEL_DSCP_RW_CLEAR = 2,
-    SXD_TUNNEL_DSCP_RW_SET = 3
+    SXD_TUNNEL_DSCP_RW_CLEAR    = 2,
+    SXD_TUNNEL_DSCP_RW_SET      = 3
 } sxd_tunnel_dscp_rw_t;
 
 /**
@@ -8555,8 +9038,8 @@ typedef enum sxd_tunnel_dscp_rw {
  */
 typedef enum sxd_tunnel_pcp_rw {
     SXD_TUNNEL_PCP_RW_PRESERVE = 0,
-    SXD_TUNNEL_PCP_RW_CLEAR = 2,
-    SXD_TUNNEL_PCP_RW_SET = 3
+    SXD_TUNNEL_PCP_RW_CLEAR    = 2,
+    SXD_TUNNEL_PCP_RW_SET      = 3
 } sxd_tunnel_pcp_rw_t;
 
 /**
@@ -8567,59 +9050,64 @@ typedef enum sxd_tunnel_pcp_rw {
 typedef enum sxd_rm_duplication_table_type {
     SXD_RM_DUPLICATION_TABLE_TYPE_INVALID_E = 0x00,
     /* HASH-BASED */
-    SXD_RM_DUPLICATION_TABLE_TYPE_VID_TO_FID_E = 0x01,
-    SXD_RM_DUPLICATION_TABLE_TYPE_RQ_VID_TO_FID_E = 0x02,
-    SXD_RM_DUPLICATION_TABLE_TYPE_FID_E = 0x03,
-    SXD_RM_DUPLICATION_TABLE_TYPE_NVI_TO_FID_E = 0x04,
+    SXD_RM_DUPLICATION_TABLE_TYPE_VID_TO_FID_E        = 0x01,
+    SXD_RM_DUPLICATION_TABLE_TYPE_RQ_VID_TO_FID_E     = 0x02,
+    SXD_RM_DUPLICATION_TABLE_TYPE_FID_E               = 0x03,
+    SXD_RM_DUPLICATION_TABLE_TYPE_NVI_TO_FID_E        = 0x04,
     SXD_RM_DUPLICATION_TABLE_TYPE_MAC_L2_FORWARDING_E = 0x05,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_LPM_HIGH_E = 0x06,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_LPM_LOW_E = 0x07,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_LPM_LPM0_E = 0x08,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_LPM_HIGH_E = 0x09,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_LPM_LOW_E = 0x0A,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_LPM_LPM0_E = 0x0B,
-    SXD_RM_DUPLICATION_TABLE_TYPE_MPLS_ILM_E = 0x0C,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_HOST_TABLE_E = 0x0D,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_HOST_TABLE_E = 0x0E,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_LPM_HIGH_E     = 0x06,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_LPM_LOW_E      = 0x07,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_LPM_LPM0_E     = 0x08,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_LPM_HIGH_E     = 0x09,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_LPM_LOW_E      = 0x0A,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_LPM_LPM0_E     = 0x0B,
+    SXD_RM_DUPLICATION_TABLE_TYPE_MPLS_ILM_E          = 0x0C,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV4_HOST_TABLE_E   = 0x0D,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_HOST_TABLE_E   = 0x0E,
     SXD_RM_DUPLICATION_TABLE_TYPE_TUNNEL_IPV6_LEARN_E = 0x0F,
-    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_1_KEY_E = 0x10,
-    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_2_KEY_E = 0x11,
-    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_4_KEY_E = 0x12,
-    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_6_KEY_E = 0x13,
+    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_1_KEY_E      = 0x10,
+    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_2_KEY_E      = 0x11,
+    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_4_KEY_E      = 0x12,
+    SXD_RM_DUPLICATION_TABLE_TYPE_A_TCAM_6_KEY_E      = 0x13,
 
     /* linear */
-    SXD_RM_DUPLICATION_TABLE_TYPE_ADJACENCY_E = 0x21,
-    SXD_RM_DUPLICATION_TABLE_TYPE_NVE_DECAP_E = SXD_RM_DUPLICATION_TABLE_TYPE_ADJACENCY_E,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IP_IN_IP_DECAP_E = SXD_RM_DUPLICATION_TABLE_TYPE_ADJACENCY_E,
-    SXD_RM_DUPLICATION_TABLE_TYPE_MPLS_NHLFE_E = 0x22,
+    SXD_RM_DUPLICATION_TABLE_TYPE_ADJACENCY_E                = 0x21,
+    SXD_RM_DUPLICATION_TABLE_TYPE_NVE_DECAP_E                = SXD_RM_DUPLICATION_TABLE_TYPE_ADJACENCY_E,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IP_IN_IP_DECAP_E           = SXD_RM_DUPLICATION_TABLE_TYPE_ADJACENCY_E,
+    SXD_RM_DUPLICATION_TABLE_TYPE_MPLS_NHLFE_E               = 0x22,
     SXD_RM_DUPLICATION_TABLE_TYPE_ACL_ACTION_SET_EXTENSION_E = 0x23,
-    SXD_RM_DUPLICATION_TABLE_TYPE_POLICY_BASED_SWITCHING_E = 0x24,
-    SXD_RM_DUPLICATION_TABLE_TYPE_POLICY_BASED_MPLS_ILM_E = 0x25,
-    SXD_RM_DUPLICATION_TABLE_TYPE_MC_ROUTER_INTF_GROUP_E = 0x26,
-    SXD_RM_DUPLICATION_TABLE_TYPE_MC_EXPECTED_IRIF_LIST_E = 0x27,
-    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_IP_ADDRESS_E = 0x28,
-    SXD_RM_DUPLICATION_TABLE_TYPE_TUNNEL_UNDERLAY_MC_E = 0x29
+    SXD_RM_DUPLICATION_TABLE_TYPE_POLICY_BASED_SWITCHING_E   = 0x24,
+    SXD_RM_DUPLICATION_TABLE_TYPE_POLICY_BASED_MPLS_ILM_E    = 0x25,
+    SXD_RM_DUPLICATION_TABLE_TYPE_MC_ROUTER_INTF_GROUP_E     = 0x26,
+    SXD_RM_DUPLICATION_TABLE_TYPE_MC_EXPECTED_IRIF_LIST_E    = 0x27,
+    SXD_RM_DUPLICATION_TABLE_TYPE_IPV6_IP_ADDRESS_E          = 0x28,
+    SXD_RM_DUPLICATION_TABLE_TYPE_TUNNEL_UNDERLAY_MC_E       = 0x29
 } sxd_rm_duplication_table_type_e;
 
 /**
  * sxd_tunnel_tigcr_ttlc enumerated tigcr ttlc type.
  */
 typedef enum sxd_tunnel_tigcr_ttlc {
-    SXD_TIGCR_TTLC_USE_CONFIG = 0,
+    SXD_TIGCR_TTLC_USE_CONFIG    = 0,
     SXD_TIGCR_TTLC_COPY_FROM_PKT = 1
 } sxd_tunnel_tigcr_ttlc_t;
 
 /**
- * ku_tigcr_reg structure is used to store the TIGCR register parameters
+ * sxd_tunnel_tngcr_ttlc enumerated TNGCR nve_ttlc type.
  */
-struct ku_tigcr_reg {
-    sxd_tunnel_tigcr_ttlc_t ipip_ttlc;
-    uint8_t                 ipip_ttl_uc;
-    sxd_tunnel_flc_type_t   ipip_flc;
-    sxd_tunnel_flh_type_t   ipip_flh;
-    uint16_t                ipip_fl_prefix;
-    uint32_t                ipip_gre_key_for_hash;
-};
+typedef enum sxd_tunnel_tngcr_ttlc {
+    SXD_TNGCR_TTLC_USE_CONFIG    = 0,
+    SXD_TNGCR_TTLC_COPY_FROM_PKT = 1
+} sxd_tunnel_tngcr_ttlc_t;
+
+/**
+ * sxd_tunnel_tngcr_ttlc enumerated TNGCR nve_decap_ttl type.
+ */
+typedef enum sxd_tunnel_tngcr_decap_ttl {
+    SXD_TNGCR_NVE_DECAP_TTL_PRESERVE_E = 0,
+    SXD_TNGCR_NVE_DECAP_TTL_COPY_E     = 1,
+    SXD_TNGCR_NVE_DECAP_TTL_MINIMUM_E  = 2
+} sxd_tunnel_tngcr_nve_decap_ttl_t;
 
 /**
  * ku_vrpa_details is used to store the vrpa details for the vrpa create ioctls
@@ -8636,530 +9124,74 @@ struct ku_vrpa_details {
 typedef enum {
     PORT_ACCESS_TYPE_LOCAL_E = 0,
     PORT_ACCESS_TYPE_LABEL_E = 1,
-    PORT_ACCESS_TYPE_PCI_E = 2,
+    PORT_ACCESS_TYPE_PCI_E   = 2,
     PORT_ACCESS_TYPE_LAST_E
 } port_access_type_t;
 
-typedef enum {
-    PDDR_PAGE_OPT_OPR_INFO_E = 0,
-    PDDR_PAGE_OPT_TROUBLESHOOT_E = 1,
-    PDDR_PAGE_OPT_PHY_INFO_E = 2,
-    PDDR_PAGE_OPT_MODULE_INFO_E = 3,
-    PDDR_PAGE_OPT_MODULE_LAST_E
-} pddr_page_options_t;
-
-
-/**
- * pddr register use to request port diagnostic information
- */
-
-typedef enum {
-    PORT_PROTOCOL_IB_E = (1 << 0),
-    PORT_PROTOCOL_ETH_E = (1 << 2)
-} port_protocol_t;
-
-typedef enum {
-    NEG_MODE_NOT_NEG_E = 0,
-    NEG_MODE_MLPN_REV_0_E = 1,
-    NEG_MODE_CL73_ETH_E = 2,
-    NEG_MODE_PARALLEL_DETECT_E = 3,
-    NEG_MODE_STANDART_IB_E = 4
-} neg_mode_t;
-
-typedef enum {
-    PHY_MGR_FSM_DISABLED_E,
-    PHY_MGR_FSM_OPEN_PORT_E,
-    PHY_MGR_FSM_POLLING_E,
-    PHY_MGR_FSM_ACTIVE_E,
-    PHY_MGR_FSM_CLOSE_PORT_E
-} phy_mgr_fsm_state_t;
-
-typedef enum {
-    AUTONEG_FSM_ENABLE_E,
-    AUTONEG_FSM_XMIT_DISABLE_E,
-    AUTONEG_FSM_ABILITY_DETECT_E,
-    AUTONEG_FSM_ACK_DETECT_E,
-    AUTONEG_FSM_COMPLETE_ACK_E,
-    AUTONEG_FSM_GOOD_CHECK_E,
-    AUTONEG_FSM_GOOD_E,
-    AUTONEG_FSM_NEXT_PAGE_WAIT_E,
-    AUTONEG_FSM_LINK_STATE_CHECK_E,
-    AUTONEG_FSM_EXTRA_TUNE_E,
-    AUTONEG_FSM_FIX_REVERSALS_E,
-    AUTONEG_FSM_IB_FAIL_E,
-} autoneg_fsm_state_t;
-
-typedef enum {
-    RETRANSMIT_MODE_NONE_E = 0,
-    RETRANSMIT_MODE_LLR_E = (1 << 0),
-    RETRANSMIT_MODE_PLR_E = (1 << 1),
-    RETRANSMIT_MODE_LLR_AND_PLR_E = (RETRANSMIT_MODE_LLR_E | RETRANSMIT_MODE_PLR_E)
-} retransmit_mode_t;
-
-typedef enum {
-    LOOPBACK_MODE_PHY_REMOTE_E = 0,
-    LOOPBACK_MODE_LOCAL_E = 2,
-    LOOPBACK_MODE_EXTERNAL_LOCAL_E = 4
-} loopback_mode_t;
-
-typedef enum {
-    FEC_MODE_NONE_E = 0,
-    FEC_MODE_FIRE_CODE_E = 1,
-    FEC_MODE_RS_FEC_E = 2,
-    FEC_LL_RS_E = 3,
-    FEC_MLX_STRONG_LL_RS_E = 4,
-    FEC_MLX_LL_RS_E = 5,
-    FEC_ZERO_LATENCY_E = 6
-} fec_mode_t;
-
-typedef enum {
-    FEC_PROFILE_IB_SPEC_E = 0,
-    FEC_PROFILE_INTERNAL_PORTS_E = (1 << 0),
-    FEC_PROFILE_PASSIVE_COPPER_SHORT_E = (1 << 1),
-    FEC_PROFILE_PASSIVE_COPPER_MEDIUM_E = (1 << 2),
-    FEC_PROFILE_PASSIVE_COPPER_LONGE_E = (1 << 3),
-    FEC_PROFILE_ACTIVE_OPTICS_E = (1 << 4),
-    FEC_PROFILE_OPTIC_LONG_REACH_E = (1 << 5),
-    FEC_PROFILE_NO_FEC_E = (1 << 6),
-    FEC_PROFILE_FEC_ONE_E = (1 << 7)
-} profile_fec_in_use_t;
-
-typedef enum {
-    REMOTE_DEVICE_UNKNOWN_E = 0,
-    REMOTE_DEVICE_CX4_E = 1,
-    REMOTE_DEVICE_CX4LX_E = 2,
-    REMOTE_DEVICE_CX5_E = 3,
-    REMOTE_DEVICE_CX5_LX_E = 4,
-    REMOTE_DEVICE_CX6_E = 5,
-    REMOTE_DEVICE_CX6_LX_E = 6,
-    REMOTE_DEVICE_SWITCH_IB_E = 100,
-    REMOTE_DEVICE_SPECTRUM_E = 101,
-    REMOTE_DEVICE_SWITCH_IB_2_E = 102,
-    REMOTE_DEVICE_SWITCH_IB_3_E = 103,
-    REMOTE_DEVICE_SPECTRUME_2_E = 104,
-} remote_device_type_t;
-
-typedef enum {
-    PORT_NOTIF_NONE_E = 0,
-    PORT_NOTIF_LINK_PARTNER_ADV_CPBILITY_E = (1 << 0),
-    PORT_NOTIF_SPEED_DECLR_E = (1 << 1)
-} port_notifications_t;
-
-typedef enum {
-    PHY_MGR_DISABLE_MASK_NONE_E = 0,
-    PHY_MGR_DISABLE_MASK_MODULE_NOT_PERESENT_E = (1 << 0),
-    PHY_MGR_DISABLE_MASK_PAOS_COMMANDS_E = (1 << 1),
-    PHY_MGR_DISABLE_MASK_MAD_IB_PORT_INFO_DOWN_CMD = (1 << 2),
-    PHY_MGR_DISABLE_MASK_LONG_RANGE_CABLE_E = (1 << 3),
-    PHY_MGR_DISABLE_MASK_VERIFICATION_COMMAND_E = (1 << 4),
-    PHY_MGR_DISABLE_MASK_EKEY_COMMAND_E = (1 << 5),
-    PHY_MGR_DISABLE_MASK_HIGH_POWER_E = (1 << 6),
-    PHY_MGR_DISABLE_MASK_UNKNOWN_IDNTIFIER_E = (1 << 7),
-    PHY_MGR_DISABLE_MASK_PAOS_UP_ONCE_E = (1 << 8),
-    PHY_MGR_DISABLE_MASK_STAMPING_FAILURE_E = (1 << 9),
-    PHY_MGR_DISABLE_MASK_CALIBRATION_NOT_DONE_E = (1 << 10)
-} phy_mgr_disable_mask_t;
-
-typedef enum {
-    PCS_PHY_STATE_BLOCK_LOCK_E = (1 << 0),
-    PCS_PHY_STATE_AM_LOCK_E = (1 << 1),
-    PCS_PHY_STATE_FEC_LOCK_E = (1 << 2),
-    PCS_PHY_STATE_ALIGN_STATUS_E = (1 << 3),
-} pcs_phy_lock_t;
-
-typedef enum {
-    LINK_DOWN_LANE_NONE = 0,
-    LINK_DOWN_LANE_BLOCK_LOCK_FAILED = (1 << 0),
-    LINK_DOWN_LANE_SKIP_DETECTED = (1 << 1),
-    LINK_DOWN_LANE_FEC_SYNC_FAILED = (1 << 2),
-    LINK_DOWN_LANE_FEC_BLOCK_SYNC_E = (1 << 3),
-    LINK_DOWN_LANE_FEC_BLOCK_SYNC_LOST_E = (1 << 4)
-} link_down_lane_fec_t;
-
-typedef enum {
-    SPEED_DEG_DB_VALID = (1 << 0),
-    SPEED_DEG_DB_SERDES_RX_DB_VALID = (1 << 1),
-    SPEED_DEG_DB_RX_RESERVED = (1 << 2),
-    SPEED_DEG_DB_RX_REVERSAL = (1 << 3),
-    SPEED_DEG_DB_TX_REVERSAL = (1 << 4),
-    SPEED_DEG_DB_FAILED_QDR = (1 << 5),
-    SPEED_DEG_DB_FAILED_EDR = (1 << 6),
-    SPEED_DEG_DB_PEER_TEST = (1 << 7),
-    SPEED_DEG_DB_FIRST_TEST_SPEED = (1 << 8)
-} speed_deg_db_t;
-
-typedef enum {
-    KR_FSM_INITIALIZED_E = 0,
-    KR_FSM_SEND_TRAINING_E = 1,
-    KR_FSM_TRAIN_LOCAL_TX_E = 2,
-    KR_FSM_TRAIN_LOCAL_RX = 3,
-    KR_FSM_TRAIN_REMOTE_E = 4,
-    KR_FSM_LINK_READY_E = 5,
-    KR_FSM_SEND_DATA_E = 6
-} kr_fsm_t;
-
-typedef enum {
-    ETH_AN_DEBUG_FORCE_LINK_UP_E = (1 << 0),
-    ETH_AN_DEBUG_NO_HCD_E = (1 << 1),
-    ETH_AN_DEBUG_ENTERED_ACK_DETECTED_E = (1 << 2),
-    ETH_AN_DEBUG_ENTERED_GOOD_E = (1 << 3),
-    ETH_AN_DEBUG_ENTERED_GOOD_CHECK_E = (1 << 4),
-    ETH_AN_DEBUG_ENTERED_EXTRA_TUNE_E = (1 << 5),
-    ETH_AN_DEBUG_ENTERED_FIX_REVERSALS_E = (1 << 6),
-    ETH_AN_DEBUG_ENTERED_NEXT_PAGE_E = (1 << 7),
-    ETH_AN_DEBUG_ENTERED_SUB_FSM_FAIL_E = (1 << 8),
-    ETH_AN_DEBUG_TUNING_TIMEOUT_E = (1 << 9),
-    ETH_AN_DEBUG_NO_MARKED_DETECTED = (1 << 10),
-    ETH_AN_DEBUG_DO_KR_STARTUP = (1 << 11),
-} eth_an_debug_indication_t;
-
-struct eth_an_debug_indication {
-    eth_an_debug_indication_t debug_indication;
-    sxd_boolean_t             kr_strtup_failure_mask[NUMBER_OF_SERDESES];
-};
-
-typedef enum {
-    KR_DEBUG_INDIC_NONE_E = 0,
-    KR_DEBUG_INDIC_PRBS_LOCK_FAILED_E = (1 << 0),
-    KR_DEBUG_INDIC_SEND_TRAINING_E = (1 << 1),
-    KR_DEBUG_INDIC_ENT_TRAIN_LOCAL_RX_E = (1 << 2),
-    KR_DEBUG_INDIC_ENT_TRAIN_REMOTE_E = (1 << 3),
-    KR_DEBUG_INDIC_ENT_LINK_READY_E = (1 << 4),
-    KR_DEBUG_INDIC_SEND_DATA_E = (1 << 5),
-    KR_DEBUG_INDIC_DIDNT_GET_RECV_READY_E = (1 << 6),
-    KR_DEBUG_INDIC_TUNING_TIMEOUT_E = (1 << 7),
-    KR_DEBUG_INDIC_NO_FRAME_LOCK_E = (1 << 8),
-    KR_DEBUG_INDIC_NO_RESP_FROM_USER_E = (1 << 9),
-    KR_DEBUG_INDIC_FRAME_LOCK_TUNING_NOT_DONE_E = (1 << 10)
-} kr_debug_indication_t;
-
-typedef enum {
-    STAMPING_REASON_NONE_E = 0,
-    STAMPING_REASON_COM_CODE_IS_ZERO_E = (1 << 0),
-    STAMPING_REASON_RX_CDR_CHECK_FORCE_MODE_E = (1 << 1),
-    STAMPING_REASON_COM_CODE_COMPLAINCE_E = (1 << 2),
-    STAMPING_REASON_ETH_56G_STAMPED_E = (1 << 3),
-    STAMPING_REASON_NON_MLX_QSFP_TRANC_E = (1 << 4),
-    STAMPING_REASON_NON_MLX_SFP_TRANC_E = (1 << 5),
-    STAMPING_REASON_IB_COMP_CODES_E = (1 << 6),
-    STAMPING_REASON_EDR_COMP_E = (1 << 7),
-    STAMPING_REASON_FDR_COMP_E = (1 << 8)
-} stamping_reason_t;
-
-typedef enum {
-    HW_LINK_PHY_STATE_SLEEPING_DELAY = 0x10,
-    HW_LINK_PHY_STATE_SLEEPING_QUIET = 0x11,
-    HW_LINK_PHY_STATE_POLLING_ACTIVE = 0x20,
-    HW_LINK_PHY_STATE_POLLING_QUIET = 0x21,
-    HW_LINK_PHY_STATE_DISABLE = 0x30,
-    HW_LINK_PHY_STATE_CONFIG_DEBOUNCE = 0x40,
-    HW_LINK_PHY_STATE_CONFIG_RECEIVER = 0x41,
-    HW_LINK_PHY_STATE_CONFIG_WAIT_REMOTE = 0x42,
-    HW_LINK_PHY_STATE_CONFIG_TX_REVERSE_LANES = 0x43,
-    HW_LINK_PHY_STATE_CONFIG_ENHANCED = 0x44,
-    HW_LINK_PHY_STATE_HW_LINK_PHY_STATE_CONFIG_TEST = 0x45,
-    HW_LINK_PHY_STATE_CONFIG_WAIT_REMOTE_TEST = 0x46,
-    HW_LINK_PHY_STATE_WAIT_CONFIG_ENAHNCED = 0x47,
-    HW_LINK_PHY_STATE_CONFIG_IDLE = 0x48,
-    HW_LINK_PHY_STATE_LINKUP = 0x50,
-    HW_LINK_PHY_STATE_RECOVER_RETRAIN = 0x60,
-    HW_LINK_PHY_STATE_RECOVER_WAIT_REMOTE = 0x61,
-    HW_LINK_PHY_STATE_RECOVER_IDLE = 0x62,
-    HW_LINK_PHY_STATE_TEST = 0x70,
-    HW_LINK_PHY_STATE_FORCE = 0x80,
-    HW_LINK_PHY_STATE_FORCE_SEND_TS2 = 0x90,
-    HW_LINK_PHY_STATE_FORCE_SENT_IDLE = 0xA2,
-    HW_LINK_PHY_STATE_FORCE_SEND_TS_MLNX = 0xB0,
-    HW_LINK_PHY_STATE_FORCE_SEND_TS3 = 0xC0,
-    HW_LINK_PHY_STATE_FORCE_LINK_UP = 0xD0
-} hw_link_phy_state_t;
-
-typedef enum {
-    IB_LAST_LINK_DOWN_HEARTBEAT_ACK_RECVED_E = (1 << 0),
-    IB_LAST_LINK_DOWN_HEARTBEAT_SEND_RECVED_E = (1 << 1),
-    IB_LAST_LINK_DOWN_HEARTBEAT_HEARTBEAT_ERR_E = (1 << 2),
-    IB_LAST_LINK_DOWN_TX_WIDTH_REDUCT_DONE_1X_E = (1 << 3),
-    IB_LAST_LINK_DOWN_RX_WIDTH_REDUCT_DONE_FULL_E = (1 << 4),
-    IB_LAST_LINK_DOWN_RX_WIDTH_REDUC_DONE_1X_E = (1 << 5),
-    IB_LAST_LINK_DOWN_RX_WIDTH_REDUC_DONE_FULL_E = (1 << 6),
-    IB_LAST_LINK_DOWN_WIDTH_REDUC_TIMEOUT_E = (1 << 7),
-    IB_LAST_LINK_DOWN_IBL_LINK_RETAIN_E = (1 << 8),
-    IB_LAST_LINK_DOWN_RX_COMPSKP_TIMEOUT_E = (1 << 9),
-    IB_LAST_LINK_DOWN_FIFO_FULL_ERR_E = (1 << 10),
-    IB_LAST_LINK_DOWN_TS_AT_LINK_UP_E = (1 << 11),
-    IB_LAST_LINK_DOWN_MINOR_THRESHOLD_REACHED_E = (1 << 12),
-    IB_LAST_LINK_DOWN_LINK_FAIL_E = (1 << 13),
-    IB_LAST_LINK_DOWN_RX_EB_FULL_R_E = (1 << 14),
-    IB_LAST_LINK_DOWN_8_10_LANE_ERR_E = (1 << 15),
-    IB_LAST_LINK_DOWN_LLR_LINK_RETRAIN_SET_E = (1 << 16),
-    IB_LAST_LINK_DOWN_FC_TIMEOUT_E = (1 << 17),
-    IB_LAST_LINK_DOWN_PHY_ERR_E = (1 << 18),
-    IB_LAST_LINK_DOWN_LLI_ERR_E = (1 << 19),
-    IB_LAST_LINK_DOWN_EXESSIVE_BUFFER_ERR_E = (1 << 20),
-    IB_LAST_LINK_DOWN_REMOTE_INIT_E = (1 << 21),
-} ib_last_link_down_reason_t;
-
-typedef enum {
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_DISABLE = (1 << 0),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_INITIALY = (1 << 1),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_RCVR_CFG = (1 << 2),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_CFG_TEST = (1 << 3),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_WAIT_RMT_TEST = (1 << 4),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_WAIT_CFG_ENHANCED = (1 << 5),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_CFG_IDLE = (1 << 6),
-    IB_PHY_FSM_STATE_TRACE_AN_FSM_LINK_UP = (1 << 7),
-    IB_PHY_FSM_STATE_TRACE_FAILED_FROM_CFG_IDLE = (1 << 8),
-} ib_phy_fsm_state_trace;
-
-typedef enum {
-    CABLE_TYPE_UNIDENTIFIED_E = 0,
-    CABLE_TYPE_ACTIVE_CABLE_E = 1,
-    CABLE_TYPE_OPTICAL_MODULE = 2,
-    CABLE_TYPE_PASSIVE_COPPER_E = 3,
-    CABLE_TYPE_UNPLAGGED_E = 4
-} cable_type_t;
-
-typedef enum {
-    CABLE_VENDOR_OTHER_E = 0,
-    CABLE_VENDOR_MELLANOX_E = 1,
-    CABLE_VENDOR_KNOWN_OUI_E = 2
-} cable_vendor_t;
-
-typedef enum {
-    CABLE_IDENT_OSFP28_E = 0,
-    CABLE_IDENT_OSFP_PLUS_E = 1,
-    CABLE_IDENT_SFP28_SFP_PLUS_E = 2,
-    CABLE_IDENT_QSA_E = 3,
-    CABLE_IDENT_BACKPLANE_E = 4
-} cable_identifier_t;
-
-typedef enum {
-    CABLE_POWER_CLASS_0_E = 0,
-    CABLE_POWER_CLASS_1_E = 1,
-    CABLE_POWER_CLASS_2_E = 2,
-    CABLE_POWER_CLASS_3_E = 3,
-    CABLE_POWER_CLASS_4_E = 4,
-    CABLE_POWER_CLASS_5_E = 5,
-    CABLE_POWER_CLASS_6_E = 6,
-    CABLE_POWER_CLASS_7_E = 7,
-} cable_power_class_t;
-
-typedef enum {
-    CDR_CAP_NONE = 0,
-    CDR_CAP_BUILD_IN_WITH_ON_OFF_E = 1,
-    CDR_CAP_BUILD_IN_WITHOUT_ON_OFF_E = 2,
-} cdr_cap_t;
-
-typedef enum {
-    CDR_STATE_ON_OFF_ON_CHANNEL_0_E = (1 << 0),
-    CDR_STATE_ON_OFF_ON_CHANNEL_1_E = (1 << 1),
-    CDR_STATE_ON_OFF_ON_CHANNEL_2_E = (1 << 2),
-    CDR_STATE_ON_OFF_ON_CHANNEL_3_E = (1 << 3),
-} cdr_state_t;
-
 enum {
     SX_EVENT_LIST_SIZE = 2000,
-    ISX_HDR_SIZE = 16,
-    SX_MAX_MSG_SIZE = 10240
-};
+    ISX_HDR_SIZE       = 16,
 
-struct pddr_oper_info_resp {
-    port_protocol_t     port_protocol;
-    neg_mode_t          port_neg_mode;
-    phy_mgr_fsm_state_t phy_mgr_fsm_state;
-    autoneg_fsm_state_t autoneg_fsm_state;
-    uint8_t             ib_phy_fsm_state;
-    union {
-        struct eth {
-            uint32_t eth_phy_mgr_admin_state;
-            uint32_t eth_core_admin_state;
-            uint32_t eth_proto_active_state;
-        } eth_admin;
-        struct ib {
-            uint16_t phy_mgr_link_width_enabled;
-            uint16_t phy_manager_link_proto_enabled;
-            uint16_t core_to_phy_link_width_enabled;
-            uint16_t core_to_phy_link_proto_enabled;
-            uint16_t link_width_active;
-            uint16_t link_speed_active;
-        } ib_admin;
-    } admin_state;
-    uint32_t          cable_proto_cap;
-    retransmit_mode_t retransmit_mode_active;
-    retransmit_mode_t retransmit_mode_requested;
-    loopback_mode_t   loopback_mode;
-    fec_mode_t        fec_mode_active;
-    fec_mode_t        fec_mode_req;
-    uint8_t           profile_fec_in_use; /** see profile_fec_in_use_t **/
-    uint8_t           eth_25g_50g_fec_support;
-    uint8_t           eth_100g_fec_support;
+    /* SPC1 and SX support up to 10K packets    */
+    SX_ETH_RDQ_MAX_MSG_SIZE_LEGACY = 10 * 1024,
+
+    /* SPC2 and later support up to 12K packets */
+    SX_ETH_RDQ_MAX_MSG_SIZE_SPC2 = 12 * 1024,
+
+    /* Maximum of all ETH_RDQ_MSG_SIZE maximums (for static allocations) */
+    SX_ETH_RDQ_MAX_MSG_SIZE = SX_ETH_RDQ_MAX_MSG_SIZE_SPC2
 };
 
 typedef enum {
-    LANE_FAILURE_QDR_E = (1 << 0),
-    LANE_FAILURE_FDR_E = (1 << 1),
-    LANE_FAILURE_EDR_E = (1 << 2),
-    LANE_FAILURE_PEER_TEST_E = (1 << 3)
-} lane_failure_t;
-
-struct pddr_speed_deg_db {
-    sxd_boolean_t  speed_degr_db_valid;
-    sxd_boolean_t  speed_degr_serdes_rx_db_valid;
-    sxd_boolean_t  rx_reversal;
-    sxd_boolean_t  tx_reversal;
-    sxd_boolean_t  first_test_speed;
-    lane_failure_t lane_failure[NUMBER_OF_SERDESES];
-};
-struct pcs_phy_state {
-    pcs_phy_lock_t state_bitmap[NUMBER_OF_SERDESES];
-    sxd_boolean_t  align_state;
-    sxd_boolean_t  hi_ber;
-};
-struct pddr_phy_info_resp {
-    remote_device_type_t   remote_device;
-    port_notifications_t   port_notifications;
-    uint16_t               neg_attempts;
-    uint8_t                ib_revision;
-    uint8_t                lp_ib_revision;
-    hw_link_phy_state_t    hw_link_phy_state;
-    phy_mgr_disable_mask_t phy_mgr_disable_mask_bitmap;
-    struct pcs_phy_state   pcs_phy_state;
-    union {
-        sxd_port_eth_proto_t eth;
-        sxd_port_ib_proto_t  ib;
-    } lp_proto_enabled;
-    fec_mode_t                     lp_fec_mode_supported;
-    fec_mode_t                     lp_fec_mode_req;
-    ib_last_link_down_reason_t     ib_last_link_down_reason;
-    link_down_lane_fec_t           eth_lastlink_down_lane[NUMBER_OF_SERDESES];
-    struct pddr_speed_deg_db       speed_deg;
-    uint32_t                       degrade_grade_lane[NUMBER_OF_SERDESES];
-    kr_fsm_t                       kr_startup_fsm_lane[NUMBER_OF_SERDESES];
-    struct eth_an_debug_indication eth_an_debug_indication;
-    ib_phy_fsm_state_trace         ib_phy_fsm_state_trace;
-    kr_debug_indication_t          kr_startup_debug_indication[NUMBER_OF_SERDESES];
-    uint8_t                        irisc_status;
-    stamping_reason_t              stamping_reason;
-};
-struct pddr_module_info_resp {
-    uint8_t             cable_technology;
-    uint8_t             cable_breakout;
-    uint8_t             ext_ethernet_compliance_code;
-    uint8_t             ethernet_compliance_code;
-    cable_type_t        cable_type;
-    cable_vendor_t      cable_vendor;
-    uint8_t             cable_length;
-    cable_identifier_t  cable_identifier;
-    cable_power_class_t cable_power_class;
-    uint8_t             cable_rx_amp;
-    uint8_t             cable_rx_emphasis;
-    uint8_t             cable_tx_equalization;
-    uint8_t             cable_attenuation_12g;
-    uint8_t             cable_attenuation_7g;
-    uint8_t             cable_attenuation_5g;
-    cdr_cap_t           rx_cdr_cap;
-    cdr_cap_t           tx_cdr_cap;
-    cdr_state_t         rx_cdr_state;
-    cdr_state_t         tx_cdr_state;
-    uint32_t            vendor_name;
-    uint32_t            vendor_pn;
-    uint16_t            fw_version;
-    uint16_t            vendor_rev;
-    uint32_t            vendor_sn;
-    uint16_t            temperature;
-    uint16_t            voltage;
-    uint16_t            rx_power_lane[NUMBER_OF_SERDESES];
-    uint16_t            tx_power_lane[NUMBER_OF_SERDESES];
-    uint16_t            temperature_high_th;
-    uint16_t            temperature_low_th;
-    uint16_t            voltage_high_th;
-    uint16_t            voltage_low_th;
-    uint16_t            rx_power_high_th;
-    uint16_t            rx_power_low_th;
-    uint16_t            tx_power_high_th;
-    uint16_t            tx_power_low_th;
-    uint16_t            tx_bias_high_th;
-    uint16_t            tx_bias_low_th;
-    uint16_t            wavelength;
-};
-
-typedef enum {
-    GROUP_OPCODE_MONITOR = 0,
-    GROUP_OPCODE_ADVANCE = 1
-} group_opcode_t;
-
-typedef enum {
-    STATUS_OPCODE_NO_ISSUE = 0,
-    STATUS_OPCODE_PORT_IS_CLOSE_BY_COMMAND = 1,
-    STATUS_OPCODE_AN_NO_PARTNER_DETECTED = 2,
-    STATUS_OPCODE_AN_ACK_NOT_RECEIVED = 3,
-    STATUS_OPCODE_AN_NEXT_PAGE_EXCHANGE_FAILED = 4,
-    STATUS_OPCODE_KR_FRAME_LOCK_NOT_ACQUIREED = 5,
-    STATUS_OPCODE_KR_LINK_INHIBIT_TIMEOUT = 6,
-    STATUS_OPCODE_KR_LINK_PARTNER_DIDNT_SET_RECEIVER_READY = 7,
-    STATUS_OPCODE_KR_TUNING_DIDNT_COMPLETE = 8,
-    STATUS_OPCODE_PCS_DIDNT_ACQUIRE_BLOCK_LOCK = 9,
-    STATUS_OPCODE_PCS_DIDNT_ACQUIRE_AM_LOCK = 10,
-    STATUS_OPCODE_PCS_DIDNT_GET_ALIGN_STATUS = 11,
-    STATUS_OPCODE_FC_FEC_ISNT_LOCKED = 12,
-    STATUS_OPCODE_RS_FEC_ISNT_LOCKED = 13,
-    STATUS_OPCODE_REMOTE_FAULT_RECEIVED = 14,
-    STATUS_OPCODE_BAD_SIGNAL_INTEGRITY = 15,
-    STATUS_OPCODE_CABLE_COMPLIANCE_CODE_MISMATCH = 16,
-    STATUS_OPCODE_STAMPING_OF_NON_MELLANOX_CABLE_MODULE = 20,
-    STATUS_OPCODE_CALIBRATION_FAILURE = 23,
-    STATUS_OPCODE_EDR_STAMPING = 24,
-    STATUS_OPCODE_FDR10_STAMPING = 25,
-    STATUS_OPCODE_ETHERNET_COMPLIANCE_CODE_ZERO = 26,
-    STATUS_OPCODE_56GE_STAMPING = 27,
-    STATUS_OPCODE_NON_MELLANOX_QSFP28 = 28,
-    STATUS_OPCODE_NON_MELLANOX_SFP28 = 29,
-    STATUS_OPCODE_NO_BACKPLANE_ENABLED = 30,
-    STATUS_OPCODE_NO_PASSIVE_PROTOCOL_ENABLED = 31,
-    STATUS_OPCODE_NO_ACTIVE_PROTOCOL_ENABLED = 32,
-    STATUS_OPCODE_AN_FEC_MISMATCH_DURING_OVERRIDE = 38,
-    STATUS_OPCODE_AN_NO_HCD = 39,
+    STATUS_OPCODE_NO_ISSUE                                       = 0,
+    STATUS_OPCODE_PORT_IS_CLOSE_BY_COMMAND                       = 1,
+    STATUS_OPCODE_AN_NO_PARTNER_DETECTED                         = 2,
+    STATUS_OPCODE_AN_ACK_NOT_RECEIVED                            = 3,
+    STATUS_OPCODE_AN_NEXT_PAGE_EXCHANGE_FAILED                   = 4,
+    STATUS_OPCODE_KR_FRAME_LOCK_NOT_ACQUIREED                    = 5,
+    STATUS_OPCODE_KR_LINK_INHIBIT_TIMEOUT                        = 6,
+    STATUS_OPCODE_KR_LINK_PARTNER_DIDNT_SET_RECEIVER_READY       = 7,
+    STATUS_OPCODE_KR_TUNING_DIDNT_COMPLETE                       = 8,
+    STATUS_OPCODE_PCS_DIDNT_ACQUIRE_BLOCK_LOCK                   = 9,
+    STATUS_OPCODE_PCS_DIDNT_ACQUIRE_AM_LOCK                      = 10,
+    STATUS_OPCODE_PCS_DIDNT_GET_ALIGN_STATUS                     = 11,
+    STATUS_OPCODE_FC_FEC_ISNT_LOCKED                             = 12,
+    STATUS_OPCODE_RS_FEC_ISNT_LOCKED                             = 13,
+    STATUS_OPCODE_REMOTE_FAULT_RECEIVED                          = 14,
+    STATUS_OPCODE_BAD_SIGNAL_INTEGRITY                           = 15,
+    STATUS_OPCODE_CABLE_COMPLIANCE_CODE_MISMATCH                 = 16,
+    STATUS_OPCODE_LARGE_NUMBER_OF_PHYSICAL_ERRORS                = 17,
+    STATUS_OPCODE_STAMPING_OF_NON_MELLANOX_CABLE_MODULE          = 20,
+    STATUS_OPCODE_CALIBRATION_FAILURE                            = 23,
+    STATUS_OPCODE_EDR_STAMPING                                   = 24,
+    STATUS_OPCODE_FDR10_STAMPING                                 = 25,
+    STATUS_OPCODE_ETHERNET_COMPLIANCE_CODE_ZERO                  = 26,
+    STATUS_OPCODE_56GE_STAMPING                                  = 27,
+    STATUS_OPCODE_NON_MELLANOX_QSFP28                            = 28,
+    STATUS_OPCODE_NON_MELLANOX_SFP28                             = 29,
+    STATUS_OPCODE_NO_BACKPLANE_ENABLED                           = 30,
+    STATUS_OPCODE_NO_PASSIVE_PROTOCOL_ENABLED                    = 31,
+    STATUS_OPCODE_NO_ACTIVE_PROTOCOL_ENABLED                     = 32,
+    STATUS_OPCODE_NO_PARTNER_DETECTED_DURING_FORCE_MODE          = 36,
+    STATUS_OPCODE_PARTIAL_LINK_INDICATION_DURING_FORCE_MODE      = 37,
+    STATUS_OPCODE_AN_FEC_MISMATCH_DURING_OVERRIDE                = 38,
+    STATUS_OPCODE_AN_NO_HCD                                      = 39,
     STATUS_OPCODE_BAD_SI_CABLE_IS_CONFIGURED_TO_NON_OPTIMAL_RATE = 42,
-    STATUS_OPCODE_INFO_NOT_AVAILABLE = 1023,
-    STATUS_OPCODE_CABLE_IS_UNPLUGGED = 1024,
-    STATUS_OPCODE_LONG_RANGE_FOR_NON_MLNX_CABLE = 1025,
-    STATUS_OPCODE_BUS_STUCK = 1026,
-    STATUS_OPCODE_BAD_EEPROM = 1027,
-    STATUS_OPCODE_PART_NUMBER_LIST = 1028,
-    STATUS_OPCODE_UNSUPPORTED_CABLE = 1029,
-    STATUS_OPCODE_MODULE_TEMP_SHUTDOWN = 1030,
-    STATUS_OPCODE_SHORTED_CABLE = 1031,
-    STATUS_OPCODE_POWER_BUDGET_EXCEEDED = 1032,
-    STATUS_OPCODE_MGMT_FORCED_DOWN_THE_PORT = 1033,
-    STATUS_OPCODE_MODULE_DISABLED_BY_COMMAND = 1034
+    STATUS_OPCODE_INFO_NOT_AVAILABLE                             = 1023,
+    STATUS_OPCODE_CABLE_IS_UNPLUGGED                             = 1024,
+    STATUS_OPCODE_LONG_RANGE_FOR_NON_MLNX_CABLE                  = 1025,
+    STATUS_OPCODE_BUS_STUCK                                      = 1026,
+    STATUS_OPCODE_BAD_EEPROM                                     = 1027,
+    STATUS_OPCODE_PART_NUMBER_LIST                               = 1028,
+    STATUS_OPCODE_UNSUPPORTED_CABLE                              = 1029,
+    STATUS_OPCODE_MODULE_TEMP_SHUTDOWN                           = 1030,
+    STATUS_OPCODE_SHORTED_CABLE                                  = 1031,
+    STATUS_OPCODE_POWER_BUDGET_EXCEEDED                          = 1032,
+    STATUS_OPCODE_MGMT_FORCED_DOWN_THE_PORT                      = 1033,
+    STATUS_OPCODE_MODULE_DISABLED_BY_COMMAND                     = 1034,
+    STATUS_OPCODE_MODULE_PMD_TYPE_IS_NOT_ENABLED                 = 1036
 } status_opcode_t;
 
-struct pddr_troubleshooting_info_resp {
-    group_opcode_t group_opcode;
-    uint32_t       status_opcode;
-    uint8_t        status_message[256];
-};
-struct ku_pddr_reg {
-    uint8_t             local_port;
-    port_access_type_t  pnat;
-    pddr_page_options_t page_select;
-    union {
-        struct pddr_oper_info_resp            oper_info;
-        struct pddr_module_info_resp          module_info;
-        struct pddr_phy_info_resp             phy_info;
-        struct pddr_troubleshooting_info_resp troubleshooting_info;
-    } response;
-};
-
-/**
- * ku_mogcr_reg structure is used to store the access
- * register MOGCR command parameters
- */
-struct ku_mogcr_reg {
-    uint8_t  ptp_iftc;
-    uint8_t  ptp_eftc;
-    uint16_t mirror_latency_scale;
-};
 
 /**
  * ku_mtpppc_reg structure is used to store the access
@@ -9192,41 +9224,13 @@ struct mtpptr_record {
  */
 struct ku_mtpptr_reg {
     uint8_t              local_port;
+    uint8_t              lp_msb;    /**< local_port msb */
     uint8_t              dir;
     uint8_t              clr;
     uint8_t              read_one;
     uint8_t              ovf;
     uint8_t              num_record;
     struct mtpptr_record records[4];
-};
-
-
-/**
- * ku_mtpps_reg structure is used to store the access
- * register MTPPS command parameters
- */
-struct ku_mtpps_reg {
-    uint8_t  cap_max_num_of_pps_out_pins;
-    uint8_t  cap_max_num_of_pps_in_pins;
-    uint8_t  cap_number_of_pps_pins;
-    uint8_t  cap_pin_0_mode;
-    uint8_t  cap_pin_1_mode;
-    uint8_t  cap_pin_2_mode;
-    uint8_t  cap_pin_3_mode;
-    uint8_t  cap_pin_4_mode;
-    uint8_t  cap_pin_5_mode;
-    uint8_t  cap_pin_6_mode;
-    uint8_t  cap_pin_7_mode;
-    uint32_t field_select;
-    uint8_t  pin;
-    uint8_t  pin_mode;
-    uint8_t  pattern;
-    uint8_t  enable;
-    uint64_t time_stamp;
-    uint16_t out_periodic_adjustment;
-    uint16_t out_pulse_duration;
-    uint32_t enhanced_out_periodic_adjustment;
-    uint8_t  npps;
 };
 
 /**
@@ -9238,15 +9242,6 @@ struct ku_mtptpt_reg {
     uint16_t message_type;
 };
 
-/**
- * ku_access_mogcr_reg structure is used to store the access
- * register MOGCR command parameters
- */
-struct ku_access_mogcr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mogcr_reg     mogcr_reg; /**< mogcr_reg - mogcr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_access_mtpppc_reg structure is used to store the access
@@ -9268,6 +9263,7 @@ struct ku_access_mtptpt_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
+
 /**
  * ku_access_mtpptr_reg structure is used to store the access
  * register MTPPTR command parameters
@@ -9278,46 +9274,6 @@ struct ku_access_mtpptr_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-
-/**
- * ku_access_mtpps_reg structure is used to store the access
- * register MTPPS command parameters
- */
-struct ku_access_mtpps_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mtpps_reg     mtpps_reg; /**< mtpps_reg - mtpps register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_sbgcr_reg structure is used to store the SBGCR register parameters
- */
-struct ku_sbgcr_reg {
-    uint8_t tele_entity; /**< tele_entity - telemetry entity
-                          *   0 - TCLASS, 1 - PORT */
-    uint8_t cong_fp; /**< cong_fp - congestion false positive */
-};
-
-/**
- * ku_access_sbgcr_reg structure is used to store the access
- * register SBGCR command parameters
- */
-struct ku_access_sbgcr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_sbgcr_reg     sbgcr_reg; /**< sbgcr_reg - sbgcr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-
-/**
- * ku_access_pddr_reg structure is used to store the access
- * register PDDR command parameters
- */
-struct ku_access_pddr_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_pddr_reg      pddr_reg; /**< pddr_reg - pddr register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 struct ppbmp_monitor_params {
     uint8_t alarm_th_mantissa;
     uint8_t alarm_th_exp;
@@ -9333,6 +9289,7 @@ struct ppbmp_monitor_params {
  */
 struct ku_ppbmp_reg {
     uint8_t                     local_port;
+    uint8_t                     lp_msb;    /**< local_port msb */
     uint8_t                     pnat;
     uint8_t                     monitor_group;
     struct ppbmp_monitor_params monitor_params;
@@ -9349,8 +9306,8 @@ struct ku_access_ppbmp_reg {
 };
 
 typedef enum ku_ppbmp_monitor_type {
-    KU_PPBMP_MONITOR_GROUP_RS_PRE_FEC_E = 0, /**< Pre RS FEC */
-    KU_PPBMP_MONITOR_GROUP_FC_PRE_FEC_E = 1, /**< Pre FC FEC */
+    KU_PPBMP_MONITOR_GROUP_RS_PRE_FEC_E     = 0, /**< Pre RS FEC */
+    KU_PPBMP_MONITOR_GROUP_FC_PRE_FEC_E     = 1, /**< Pre FC FEC */
     KU_PPBMP_MONITOR_GROUP_NO_FEC_PRE_FEC_E = 2, /**< No FEC/Post FEC */
 } ku_ppbmp_monitor_type_e;
 
@@ -9360,6 +9317,7 @@ typedef enum ku_ppbmp_monitor_type {
  */
 struct ku_ppbmc_reg {
     uint8_t local_port;
+    uint8_t lp_msb;    /**< local_port msb */
     uint8_t pnat;
     uint8_t monitor_type;
     uint8_t event_ctrl;
@@ -9384,6 +9342,7 @@ struct ku_access_ppbmc_reg {
  */
 struct ku_ppbme_reg {
     uint8_t local_port;
+    uint8_t lp_msb;    /**< local_port msb */
     uint8_t pnat;
     uint8_t monitor_type;
     uint8_t monitor_state;
@@ -9414,16 +9373,6 @@ struct ku_perpt_reg {
     uint8_t  erp_index_in_vector;
     uint16_t erp_vector;
     uint8_t  mask[SXD_ACL_FLEX_KEY_BLOCK_SIZE_BYTES];
-};
-
-/**
- * ku_perar_reg structure is used to store the access
- * register PERAR command parameters
- */
-struct ku_perar_reg {
-    uint16_t region_id;
-    uint8_t  inkbr;
-    uint16_t hw_region;
 };
 
 /**
@@ -9460,16 +9409,6 @@ struct ku_pererp_reg {
 struct ku_access_perpt_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
     struct ku_perpt_reg     perpt_reg; /**< perpt_reg - perpt register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
-
-/**
- * ku_access_perar_reg structure is used to store the access
- * register perar command parameters
- */
-struct ku_access_perar_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_perar_reg     perar_reg; /**< perar_reg - perar register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -9547,26 +9486,6 @@ struct ku_access_peabfe_reg {
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
-/**
- * ku_mcion_reg structure is used to store the access
- * register MCION command parameters
- */
-struct ku_mcion_reg {
-    uint8_t  module;
-    uint16_t module_status_bits;
-    uint8_t  module_inputs;
-    uint8_t  module_inputs_mask;
-};
-
-/**
- * ku_access_mcion_reg structure is used to store the access
- * register MCION command parameters
- */
-struct ku_access_mcion_reg {
-    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_mcion_reg     mcion_reg; /**< mcion_reg - mcion register tlv */
-    uint8_t                 dev_id; /**< dev_id - device id */
-};
 
 /**
  * ku_moni_reg structure is used to store the access
@@ -9574,16 +9493,13 @@ struct ku_access_mcion_reg {
  */
 struct ku_moni_reg {
     uint8_t local_port;     /**< local_port - local port number */
+    uint8_t lp_msb;         /**< local_port msb */
     uint8_t en;             /**< en - enable monitoring on network interface */
 };
 
-/**
- * ku_access_moni_reg structure is used to store the access
- * register MONI command parameters
- */
 struct ku_access_moni_reg {
     struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
-    struct ku_moni_reg      moni_reg; /**< mcion_reg - mcion register tlv */
+    struct ku_moni_reg      moni_reg; /**< moni_reg - moni register tlv */
     uint8_t                 dev_id; /**< dev_id - device id */
 };
 
@@ -9592,10 +9508,10 @@ struct ku_access_moni_reg {
  * mtutc OPs.
  */
 typedef enum sx_mtutc_op {
-    SX_MTUTC_OP_SET_TIME_NEXT_SEC_E = SXD_MTUTC_OP_SET_TIME_NEXT_SEC,
+    SX_MTUTC_OP_SET_TIME_NEXT_SEC_E  = SXD_MTUTC_OP_SET_TIME_NEXT_SEC,
     SX_MTUTC_OP_SET_TIME_IMMEDIATE_E = SXD_MTUTC_OP_SET_TIME_IMMEDIATE,
-    SX_MTUTC_OP_ADJUST_TIME_E = SXD_MTUTC_OP_ADJUST_TIME,
-    SX_MTUTC_OP_ADJUST_FREQ_E = SXD_MTUTC_OP_ADJUST_FREQ,
+    SX_MTUTC_OP_ADJUST_TIME_E        = SXD_MTUTC_OP_ADJUST_TIME,
+    SX_MTUTC_OP_ADJUST_FREQ_E        = SXD_MTUTC_OP_ADJUST_FREQ,
 } sx_mtutc_op_e;
 
 /**
@@ -9612,12 +9528,19 @@ struct ku_dpt_info {
     struct ku_dpt_pcie_info  sx_pcie_info;
     struct ku_dpt_sgmii_info sx_sgmii_info;
 };
+struct ku_psample_port_sample_rate {
+    uint16_t local_port;
+    uint32_t rate;
+};
+
+#define NUMBER_OF_BITS_IN_SX_BITMAP 256
+
 /**
  * ku_sx_bitmap is used to store the bitmap.
  */
 struct ku_sx_bitmap {
     uint32_t max;
-    uint8_t  table[NUMBER_OF_BITS_IN_BITMAP];
+    uint8_t  table[NUMBER_OF_BITS_IN_SX_BITMAP];
 };
 
 /**
@@ -9652,27 +9575,27 @@ struct ku_sx_core_db {
     uint8_t                              port_prio2tc[MAX_PHYPORT_NUM + 1][MAX_PRIO_NUM + 1];
     uint8_t                              lag_prio2tc[MAX_LAG_NUM + 1][MAX_PRIO_NUM + 1];
     uint8_t                              local_to_swid_db[MAX_PHYPORT_NUM + 1];
-    uint8_t                              ib_to_local_db[MAX_IBPORT_NUM + 1];
-    uint8_t                              system_to_local_db[MAX_SYSPORT_NUM];
+    uint16_t                             ib_to_local_db[MAX_IBPORT_NUM + 1];
+    uint16_t                             system_to_local_db[MAX_SYSPORT_NUM];
     uint16_t                             local_to_system_db[MAX_PHYPORT_NUM + 1];
     uint8_t                              lag_is_rp[MAX_LAG_NUM];
     uint16_t                             lag_rp_vid[MAX_LAG_NUM];
     uint16_t                             lag_rp_rif[MAX_LAG_NUM][SXD_MAX_VLAN_NUM];
     uint8_t                              lag_rp_rif_valid[MAX_LAG_NUM][SXD_MAX_VLAN_NUM];
     uint8_t                              lag_member_to_local_db[MAX_LAG_NUM][MAX_LAG_MEMBERS_NUM];
-    uint8_t                              local_is_rp[MAX_PHYPORT_NUM + 1];
     uint16_t                             local_rp_vid[MAX_PHYPORT_NUM + 1];
     uint16_t                             port_rp_rif[MAX_PHYPORT_NUM + 1][SXD_MAX_VLAN_NUM];
     uint8_t                              port_rp_rif_valid[MAX_PHYPORT_NUM + 1][SXD_MAX_VLAN_NUM];
     uint8_t                              lag_oper_state[MAX_LAG_NUM];
-    uint8_t                              port_ber_monitor_state[MAX_PHYPORT_NUM + 1];
-    uint8_t                              port_ber_monitor_bitmask[MAX_PHYPORT_NUM + 1];
+    uint8_t                              port_ber_monitor_state[MAX_NUM_OF_REMOTE_SWITCHES + 1][MAX_PHYPORT_NUM + 1];
+    uint8_t                              port_ber_monitor_bitmask[MAX_NUM_OF_REMOTE_SWITCHES + 1][MAX_PHYPORT_NUM + 1];
     uint8_t                              tele_thrs_state[MAX_PHYPORT_NUM + 1];
     uint64_t __attribute__((aligned(8))) tele_thrs_tc_vec[MAX_PHYPORT_NUM + 1];
     uint16_t                             truncate_size_db[NUMBER_OF_RDQS];
     uint32_t                             icmp_vlan2ip_db[SXD_MAX_VLAN_NUM];
     uint16_t                             port_vid_to_fid[MAX_PHYPORT_NUM + 1][SXD_MAX_VLAN_NUM];
     struct ku_sx_bitmap                  ts_bitmap;
+    struct ku_sx_bitmap                  ts_hw_utc_bitmap;
     struct ku_sx_bitmap                  high_prio_cq_bitmap;
     uint16_t                             fid_to_hwfid[MAX_FIDS_NUM];
     uint16_t                             rif_id_to_hwfid[MAX_RIFS_NUM];
@@ -9685,160 +9608,201 @@ struct ku_sx_core_db {
 
 typedef enum sxd_trap_id {
     /* GENERAL */
-    SXD_TRAP_ID_GENERAL_FDB = 0x01,
-    SXD_TRAP_ID_GENERAL_DR_IPC = 0x02,
-    SXD_TRAP_ID_GENERAL_DR_RES = 0x04,
+    SXD_TRAP_ID_GENERAL_FDB      = 0x01,
+    SXD_TRAP_ID_GENERAL_DR_IPC   = 0x02,
+    SXD_TRAP_ID_GENERAL_DR_RES   = 0x04,
     SXD_TRAP_ID_GENERAL_ETH_EMAD = 0x05,
-    SXD_TRAP_ID_FDB = 0x06,
+    SXD_TRAP_ID_FDB              = 0x06,
 
     /* EVENTS */
-    SXD_TRAP_ID_PUDE = 0x08,
-    SXD_TRAP_ID_PMPE = 0x09,
-    SXD_TRAP_ID_FLAE = 0x0A,
-    SXD_TRAP_ID_FORE = 0x0B,
-    SXD_TRAP_ID_TMPW = 0x0C,
-    SXD_TRAP_ID_CPUWD = 0x0D,
-    SXD_TRAP_ID_PPMBE = 0x101, /* Keep for legacy */
-    SXD_TRAP_ID_PPBME = 0x101,
+    SXD_TRAP_ID_PUDE            = 0x08,
+    SXD_TRAP_ID_PMPE            = 0x09,
+    SXD_TRAP_ID_FLAE            = 0x0A,
+    SXD_TRAP_ID_FORE            = 0x0B,
+    SXD_TRAP_ID_TMPW            = 0x0C,
+    SXD_TRAP_ID_CPUWD           = 0x0D,
+    SXD_TRAP_ID_PPIR            = 0x26,
+    SXD_TRAP_ID_ACCU_FLOW_INC   = 0x27,
+    SXD_TRAP_ID_PLLP            = 0x2A,
+    SXD_TRAP_ID_PPMBE           = 0x101, /* Keep for legacy */
+    SXD_TRAP_ID_PPBME           = 0x101,
     SXD_TRAP_ID_PACKET_RECEIVED = 0x103,
+    SXD_TRAP_ID_MFDE            = 0x003,
+    SXD_TRAP_ID_MOCS_DONE       = 0x106,
+    SXD_TRAP_ID_PPCNT           = 0x107,
+    SXD_TRAP_ID_MGPCB           = 0x108,
+    SXD_TRAP_ID_PBSR            = 0x109,
+    SXD_TRAP_ID_SBSRD           = 0x10A,
+    SXD_TRAP_ID_CEER            = 0x10B,
+    SXD_TRAP_ID_MAFBI           = 0x10C,
+    SXD_TRAP_ID_IPAC_DONE       = 0x10F,
+    SXD_TRAP_ID_MAFRI           = 0x10E,
+    SXD_TRAP_ID_UTFD            = 0x228,
+    SXD_TRAP_ID_MOFRB           = 0x235,
+    SXD_TRAP_ID_MOPCE           = 0x1B2,
+    SXD_TRAP_ID_MECCC           = 0x1B3,
+    SXD_TRAP_ID_FSED            = 0x1B5,
+    SXD_TRAP_ID_MFRI            = 0x1BA,
+    SXD_TRAP_ID_SB_SNAPSHOT     = 0x230,
+    SXD_TRAP_ID_USACN           = 0x231,
+    SXD_TRAP_ID_UTCC            = 0x232,
+    SXD_TRAP_ID_UPCNT           = 0x233,
+    SXD_TRAP_ID_MTPPST          = 0x280,
+    SXD_TRAP_ID_FSHE            = 0x281,
+    SXD_TRAP_ID_FSPS            = 0x282,
+    SXD_TRAP_ID_MCION           = 0x295,
+    SXD_TRAP_ID_PTSE            = 0x297,
 
     /* ETHERNET L2 */
-    SXD_TRAP_ID_ETH_L2_STP = 0x10,
-    SXD_TRAP_ID_ETH_L2_LACP = 0x11,
+    SXD_TRAP_ID_ETH_L2_STP   = 0x10,
+    SXD_TRAP_ID_ETH_L2_LACP  = 0x11,
     SXD_TRAP_ID_ETH_L2_EAPOL = 0x12,
-    SXD_TRAP_ID_ETH_L2_LLDP = 0x13,
-    SXD_TRAP_ID_ETH_L2_MMRP = 0x14,
-    SXD_TRAP_ID_ETH_L2_MVRP = 0x15,
+    SXD_TRAP_ID_ETH_L2_LLDP  = 0x13,
+    SXD_TRAP_ID_ETH_L2_MMRP  = 0x14,
+    SXD_TRAP_ID_ETH_L2_MVRP  = 0x15,
     SXD_TRAP_ID_ETH_L2_RPVST = 0x16,
 
     /* PTP */
-    SXD_TRAP_ID_PTP_PTP0 = 0x28,
-    SXD_TRAP_ID_PTP_PTP1 = 0x29,
+    SXD_TRAP_ID_PTP_PTP0      = 0x28,
+    SXD_TRAP_ID_PTP_PTP1      = 0x29,
     SXD_TRAP_ID_PTP_ING_EVENT = 0x2D,
     SXD_TRAP_ID_PTP_EGR_EVENT = 0x2E,
 
-    SXD_TRAP_ID_ETH_L2_IGMP_TYPE_QUERY = 0x30,
+    SXD_TRAP_ID_ETH_L2_IGMP_TYPE_QUERY     = 0x30,
     SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V1_REPORT = 0x31,
     SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V2_REPORT = 0x32,
     SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V3_REPORT = 0x34,
-    SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V2_LEAVE = 0x33,
-    SXD_TRAP_ID_ETH_L2_UDLD = 0x18,
-    SXD_TRAP_ID_ETH_L2_DHCP = 0x19,
-    SXD_TRAP_ID_ETH_CONF_TYPE0 = 0x35,
-    SXD_TRAP_ID_ETH_CONF_TYPE1 = 0x36,
-    SXD_TRAP_ID_ETH_L2_PKT_SAMPLE = 0x38,
-    SXD_TRAP_ID_ETH_L2_PACKET_SAMPLING = 0x38, /* Keep for legacy */
-    SXD_TRAP_ID_FDB_MISS = 0x3a,
-    SXD_TRAP_ID_FDB_MISMATCH = 0x3b,
-    SXD_TRAP_ID_ICMPV6_CONF_TYPE0 = 0x48,
-    SXD_TRAP_ID_ICMPV6_CONF_TYPE1 = 0x49,
-    SXD_TRAP_ID_OVERLAY_ICMPV6_CONF_TYPE = 0x4a,
-    SXD_TRAP_ID_RARP_OPCODES = 0x4f,
+    SXD_TRAP_ID_ETH_L2_IGMP_TYPE_V2_LEAVE  = 0x33,
+    SXD_TRAP_ID_ETH_L2_UDLD                = 0x18,
+    SXD_TRAP_ID_ETH_L2_DHCP                = 0x19,
+    SXD_TRAP_ID_ETH_L2_DHCPV6              = 0x1A,
+    SXD_TRAP_ID_ETH_CONF_TYPE0             = 0x35,
+    SXD_TRAP_ID_ETH_CONF_TYPE1             = 0x36,
+    SXD_TRAP_ID_ETH_L2_PKT_SAMPLE          = 0x38,
+    SXD_TRAP_ID_ETH_L2_PACKET_SAMPLING     = 0x38, /* Keep for legacy */
+    SXD_TRAP_ID_FDB_MISS                   = 0x3a,
+    SXD_TRAP_ID_FDB_MISMATCH               = 0x3b,
+    SXD_TRAP_ID_FID_MISS                   = 0x3d,
+    SXD_TRAP_ID_ICMPV6_CONF_TYPE0          = 0x48,
+    SXD_TRAP_ID_ICMPV6_CONF_TYPE1          = 0x49,
+    SXD_TRAP_ID_OVERLAY_ICMPV6_CONF_TYPE   = 0x4a,
+    SXD_TRAP_ID_RARP_OPCODES               = 0x4f,
 
     /* FCoE */
     SXD_TRAP_ID_FCOE_FIP = 0x20,
 
-    /* Telemetry threshold crossing */
-    SXD_TRAP_ID_SB_CONG_TX_PORT = 0x2F,
+    /* Telemetry */
+    SXD_TRAP_ID_SB_CONG_TX_PORT = 0x2F,   /* Telemetry threshold crossing */
+    SXD_TRAP_ID_HTACG_DONE      = 0x296,  /* Telemetry TAC action done event */
 
     /* ECN */
     SXD_TRAP_ID_DECAP_ECN0 = 0x40,
     SXD_TRAP_ID_DECAP_ECN1 = 0x41,
 
     /* Router */
-    SXD_TRAP_ID_ARP_REQUEST = 0x50,
-    SXD_TRAP_ID_ARP_RESPONSE = 0x51,
-    SXD_TRAP_ID_ETH_L3_MTUERROR = 0x52,
-    SXD_TRAP_ID_ETH_L3_TTLERROR = 0x53,
-    SXD_TRAP_ID_ETH_L3_LBERROR = 0x54,
-    SXD_TRAP_ID_OSPF = 0x55,
-    SXD_TRAP_ID_RIP_V1 = 0x56,
-    SXD_TRAP_ID_RIP_V2 = 0x57,
-    SXD_TRAP_ID_PIM = 0x58,
-    SXD_TRAP_ID_VRRP = 0x59,
-    SXD_TRAP_ID_VRRP_IPV6 = 0x7a,
-    SXD_TRAP_ID_RESERVED_MC = 0x5A,
-    SXD_TRAP_ID_IPBC = 0x5B,
-    SXD_TRAP_ID_ETH_L3_RPF = 0x5C,
-    SXD_TRAP_ID_ETH_L3_ASSERT = 0x5D,
-    SXD_TRAP_ID_IP2ME = 0x5F,
-    SXD_TRAP_ID_IPTRAP_MIN = 0x1c0,
-    SXD_TRAP_ID_IPTRAP_MAX = 0x1ff,
-    SXD_TRAP_ID_RTR_INGRESS0 = 0x70,
-    SXD_TRAP_ID_RTR_INGRESS1 = 0x71,
-    SXD_TRAP_ID_RTR_INGRESS2 = 0x72,
-    SXD_TRAP_ID_RTR_INGRESS3 = 0x73,
-    SXD_TRAP_ID_RTR_EGRESS0 = 0x80,
-    SXD_TRAP_ID_RTR_EGRESS1 = 0x81,
-    SXD_TRAP_ID_RTR_EGRESS2 = 0x82,
-    SXD_TRAP_ID_RTR_EGRESS3 = 0x83,
-    SXD_TRAP_ID_HOST_MISS_IPV4 = 0x90,
-    SXD_TRAP_ID_HOST_MISS_IPV6 = 0x92,
-    SXD_TRAP_ID_BFD_IPV4 = 0xd0,
-    SXD_TRAP_ID_BFD_IPV6 = 0xd1,
-    SXD_TRAP_ID_SSH_IPV4 = 0xd2,
-    SXD_TRAP_ID_SSH_IPV6 = 0xd3,
-    SXD_TRAP_ID_PING_IPV4 = 0xd4,
-    SXD_TRAP_ID_PING_IPV6 = 0xd5,
-    SXD_TRAP_ID_ROUTER_ALERT_IPV4 = 0xd6,
-    SXD_TRAP_ID_ROUTER_ALERT_IPV6 = 0xd7,
-    SXD_TRAP_ID_IPV4_DHCP = 0x8f,
-    SXD_TRAP_ID_IPV4_SNMP = 0xda,
-    SXD_TRAP_ID_IPV6_SNMP = 0xdb,
-    SXD_TRAP_ID_ROUTER_ARPBC = 0xe0,
-    SXD_TRAP_ID_ROUTER_ARPUC = 0xe1,
-    SXD_TRAP_ID_ROUTER_RARP_OPCODES = 0xe2,
+    SXD_TRAP_ID_ARP_REQUEST            = 0x50,
+    SXD_TRAP_ID_ARP_RESPONSE           = 0x51,
+    SXD_TRAP_ID_ETH_L3_MTUERROR        = 0x52,
+    SXD_TRAP_ID_ETH_L3_TTLERROR        = 0x53,
+    SXD_TRAP_ID_ETH_L3_LBERROR         = 0x54,
+    SXD_TRAP_ID_OSPF                   = 0x55,
+    SXD_TRAP_ID_RIP_V1                 = 0x56,
+    SXD_TRAP_ID_RIP_V2                 = 0x57,
+    SXD_TRAP_ID_PIM                    = 0x58,
+    SXD_TRAP_ID_VRRP                   = 0x59,
+    SXD_TRAP_ID_VRRP_IPV6              = 0x7a,
+    SXD_TRAP_ID_RESERVED_MC            = 0x5A,
+    SXD_TRAP_ID_IPBC                   = 0x5B,
+    SXD_TRAP_ID_ETH_L3_RPF             = 0x5C,
+    SXD_TRAP_ID_ETH_L3_URPF_PROTECTION = 0x7f,
+    SXD_TRAP_ID_ETH_L3_ASSERT          = 0x5D,
+    SXD_TRAP_ID_IP2ME                  = 0x5F,
+    SXD_TRAP_ID_IPTRAP_MIN             = 0x1c0,
+    SXD_TRAP_ID_IPTRAP_MAX             = 0x1ff,
+    SXD_TRAP_ID_RTR_INGRESS0           = 0x70,
+    SXD_TRAP_ID_RTR_INGRESS1           = 0x71,
+    SXD_TRAP_ID_RTR_INGRESS2           = 0x72,
+    SXD_TRAP_ID_RTR_INGRESS3           = 0x73,
+    SXD_TRAP_ID_RTR_EGRESS0            = 0x80,
+    SXD_TRAP_ID_RTR_EGRESS1            = 0x81,
+    SXD_TRAP_ID_RTR_EGRESS2            = 0x82,
+    SXD_TRAP_ID_RTR_EGRESS3            = 0x83,
+    SXD_TRAP_ID_HOST_MISS_IPV4         = 0x90,
+    SXD_TRAP_ID_HOST_MISS_IPV6         = 0x92,
+    SXD_TRAP_ID_BFD_IPV4               = 0xd0,
+    SXD_TRAP_ID_BFD_IPV6               = 0xd1,
+    SXD_TRAP_ID_SSH_IPV4               = 0xd2,
+    SXD_TRAP_ID_SSH_IPV6               = 0xd3,
+    SXD_TRAP_ID_PING_IPV4              = 0xd4,
+    SXD_TRAP_ID_PING_IPV6              = 0xd5,
+    SXD_TRAP_ID_ROUTER_ALERT_IPV4      = 0xd6,
+    SXD_TRAP_ID_ROUTER_ALERT_IPV6      = 0xd7,
+    SXD_TRAP_ID_IPV4_DHCP              = 0x8f,
+    SXD_TRAP_ID_IPV4_SNMP              = 0xda,
+    SXD_TRAP_ID_IPV6_SNMP              = 0xdb,
+    SXD_TRAP_ID_ROUTER_ARPBC           = 0xe0,
+    SXD_TRAP_ID_ROUTER_ARPUC           = 0xe1,
+    SXD_TRAP_ID_ROUTER_RARP_OPCODES    = 0xe2,
 
     /* IPv6 L3 */
-    SXD_TRAP_ID_IPV6_UNSPECIFIED_ADDRESS = 0x60,
-    SXD_TRAP_ID_IPV6_LINK_LOCAL_DST = 0x61,
-    SXD_TRAP_ID_IPV6_LINK_LOCAL_SRC = 0x62,
-    SXD_TRAP_ID_IPV6_ALL_NODES_LINK = 0x63,
-    SXD_TRAP_ID_IPV6_OSPF = 0x64,
-    SXD_TRAP_ID_IPV6_DHCP = 0x69,
+    SXD_TRAP_ID_IPV6_UNSPECIFIED_SIP = 0x7b,
+    SXD_TRAP_ID_IPV6_UNSPECIFIED_DIP = 0x7c,
+    SXD_TRAP_ID_IPV6_LINK_LOCAL_DST  = 0x61,
+    SXD_TRAP_ID_IPV6_LINK_LOCAL_SRC  = 0x62,
+    SXD_TRAP_ID_IPV6_ALL_NODES_LINK  = 0x63,
+    SXD_TRAP_ID_IPV6_OSPF            = 0x64,
+    SXD_TRAP_ID_IPV6_DHCP            = 0x69,
 
     /* IPv6 (SwitchX) */
-    SXD_TRAP_ID_IPV6_ROUTER_SOLICITATION = 0x6a,
-    SXD_TRAP_ID_IPV6_ROUTER_ADVERTISEMENT = 0x6b,
-    SXD_TRAP_ID_IPV6_NEIGHBOR_SOLICITATION = 0x6c,
+    SXD_TRAP_ID_IPV6_ROUTER_SOLICITATION    = 0x6a,
+    SXD_TRAP_ID_IPV6_ROUTER_ADVERTISEMENT   = 0x6b,
+    SXD_TRAP_ID_IPV6_NEIGHBOR_SOLICITATION  = 0x6c,
     SXD_TRAP_ID_IPV6_NEIGHBOR_ADVERTISEMENT = 0x6d,
-    SXD_TRAP_ID_IPV6_REDIRECTION = 0x6e,
+    SXD_TRAP_ID_IPV6_REDIRECTION            = 0x6e,
 
     /* IPv6 (Spectrum) */
-    SXD_TRAP_ID_IPV6_ALL_ROUTERS_LINK = 0x6f,
-    SXD_TRAP_ID_L3_IPV6_ROUTER_SOLICITATION = 0x8a,
-    SXD_TRAP_ID_L3_IPV6_ROUTER_ADVERTISEMENT = 0x8b,
-    SXD_TRAP_ID_L3_IPV6_NEIGHBOR_SOLICITATION = 0x8c,
+    SXD_TRAP_ID_IPV6_ALL_ROUTERS_LINK          = 0x6f,
+    SXD_TRAP_ID_L3_IPV6_ROUTER_SOLICITATION    = 0x8a,
+    SXD_TRAP_ID_L3_IPV6_ROUTER_ADVERTISEMENT   = 0x8b,
+    SXD_TRAP_ID_L3_IPV6_NEIGHBOR_SOLICITATION  = 0x8c,
     SXD_TRAP_ID_L3_IPV6_NEIGHBOR_ADVERTISEMENT = 0x8d,
-    SXD_TRAP_ID_L3_IPV6_REDIRECTION = 0x8e,
+    SXD_TRAP_ID_L3_IPV6_REDIRECTION            = 0x8e,
 
     /* IPv6 L2 */
-    SXD_TRAP_ID_IPV6_MLD_V1_V2 = 0x65,
+    SXD_TRAP_ID_IPV6_MLD_V1_V2     = 0x65,
     SXD_TRAP_ID_IPV6_MLD_V1_REPORT = 0x66,
-    SXD_TRAP_ID_IPV6_MLD_V1_DONE = 0x67,
+    SXD_TRAP_ID_IPV6_MLD_V1_DONE   = 0x67,
     SXD_TRAP_ID_IPV6_MLD_V2_REPORT = 0x68,
 
     /* InfiniBand */
-    SXD_TRAP_ID_INFINIBAND_QP0 = 0xf0,
-    SXD_TRAP_ID_INFINIBAND_QP1 = 0xf1,
-    SXD_TRAP_ID_INFINIBAND_OTHER_QPS = 0xf2,
-    SXD_TRAP_ID_INFINIBAND_EXTERNAL_SMA = 0x5e,
+    SXD_TRAP_ID_INFINIBAND_QP0              = 0xf0,
+    SXD_TRAP_ID_INFINIBAND_QP1              = 0xf1,
+    SXD_TRAP_ID_INFINIBAND_OTHER_QPS        = 0xf2,
+    SXD_TRAP_ID_INFINIBAND_EXTERNAL_SMA     = 0x5e,
     SXD_TRAP_ID_INFINIBAND_IN_NV_ACCESS_REG = 0xf7,
-    SXD_TRAP_ID_INFINIBAND_IB_FMAD_RCV = 0xf8,
-    SXD_TRAP_ID_INFINIBAND_RESET_CMD = 0x102,
+    SXD_TRAP_ID_INFINIBAND_IB_FMAD_RCV      = 0xf8,
+    SXD_TRAP_ID_INFINIBAND_RESET_CMD        = 0x102,
 
     /* ACL */
     SXD_TRAP_ID_ACL_MIN = 0x1c0,
     SXD_TRAP_ID_ACL_MAX = 0x1ef,
 
+    /* ACL Drop */
+    SXD_TRAP_ID_ACL_DROP     = SXD_TRAP_ID_ACL_MAX - 4,
+    SXD_TRAP_ID_SYS_ACL_DROP = SXD_TRAP_ID_ACL_MAX - 5,
+
     /* MPLS */
-    SXD_TRAP_ID_MPLS_ILM_MISS = 0x98,
-    SXD_TRAP_ID_MPLS_LDP = 0x99,
+    SXD_TRAP_ID_MPLS_ILM_MISS    = 0x98,
+    SXD_TRAP_ID_MPLS_LDP         = 0x99,
     SXD_TRAP_ID_MPLS_LB_LSP_PING = 0x9a,
-    SXD_TRAP_ID_MPLS_ILM0 = 0xa0,
-    SXD_TRAP_ID_MPLS_ILM1 = 0xa1,
-    SXD_TRAP_ID_MPLS_NHLFE0 = 0xa8,
-    SXD_TRAP_ID_MPLS_NHLFE1 = 0xa9,
+    SXD_TRAP_ID_MPLS_ILM0        = 0xa0,
+    SXD_TRAP_ID_MPLS_ILM1        = 0xa1,
+    SXD_TRAP_ID_MPLS_ILM2        = 0xa2,
+    SXD_TRAP_ID_MPLS_ILM3        = 0xa3,
+    SXD_TRAP_ID_MPLS_NHLFE0      = 0xa8,
+    SXD_TRAP_ID_MPLS_NHLFE1      = 0xa9,
+    SXD_TRAP_ID_MPLS_NHLFE2      = 0xaa,
+    SXD_TRAP_ID_MPLS_NHLFE3      = 0xab,
 
     /* BGP */
     SXD_TRAP_ID_IPV4_BGP = 0x88,
@@ -9846,7 +9810,7 @@ typedef enum sxd_trap_id {
 
 
     /* SPAN */
-    SXD_TRAP_ID_MIRROR = 0x3f,
+    SXD_TRAP_ID_MIRROR        = 0x3f,
     SXD_TRAP_ID_MIRROR_AGENT0 = 0x220,
     SXD_TRAP_ID_MIRROR_AGENT1 = 0x221,
     SXD_TRAP_ID_MIRROR_AGENT2 = 0x222,
@@ -9857,122 +9821,1552 @@ typedef enum sxd_trap_id {
     SXD_TRAP_ID_MIRROR_AGENT7 = 0x227,
 
     /* Tunneling */
-    SXD_TRAP_ID_DECAP_ENCAP = 0xb0,
-    SXD_TRAP_ID_IPIP_DECAP_ERROR = 0xb1,
-    SXD_TRAP_ID_IPIP_ERROR = 0xb2,
-    SXD_TRAP_ID_NVE_DECAP_IGMP = 0xb6,
-    SXD_TRAP_ID_NVE_DECAP_ARP = 0xb8,
-    SXD_TRAP_ID_NVE_DECAP_TAG_ERROR = 0xb9,
-    SXD_TRAP_ID_NVE_IPV4_DHCP = 0xba,
-    SXD_TRAP_ID_NVE_IPV6_DHCP = 0xbb,
+    SXD_TRAP_ID_DECAP_ENCAP          = 0xb0,
+    SXD_TRAP_ID_IPIP_DECAP_ERROR     = 0xb1,
+    SXD_TRAP_ID_IPIP_ERROR           = 0xb2,
+    SXD_TRAP_ID_NVE_DECAP_IGMP       = 0xb6,
+    SXD_TRAP_ID_NVE_DECAP_ARP        = 0xb8,
+    SXD_TRAP_ID_NVE_DECAP_TAG_ERROR  = 0xb9,
+    SXD_TRAP_ID_NVE_IPV4_DHCP        = 0xba,
+    SXD_TRAP_ID_NVE_IPV6_DHCP        = 0xbb,
     SXD_TRAP_ID_NVE_DECAP_FRAG_ERROR = 0xbc,
-    SXD_TRAP_ID_NVE_ENCAP_ARP = 0xbd,
-    SXD_TRAP_ID_NVE_DECAP_ETH = 0xbe,
-    SXD_TRAP_ID_NVE_DECAP_MLD = 0xbf,
+    SXD_TRAP_ID_NVE_ENCAP_ARP        = 0xbd,
+    SXD_TRAP_ID_NVE_DECAP_ETH        = 0xbe,
+    SXD_TRAP_ID_NVE_DECAP_MLD        = 0xbf,
 
     /* Discards */
-    SXD_TRAP_ID_DISCARD_ING_PACKET = 0x110,
-    SXD_TRAP_ID_DISCARD_ING_SWITCH = 0x111,
-    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH = 0x112,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER = 0x113,
-    SXD_TRAP_ID_DISCARD_ING_LSR = 0x114,
-    SXD_TRAP_ID_DISCARD_ROUTER = 0x115,
-    SXD_TRAP_ID_DISCARD_LSR = 0x116,
-    SXD_TRAP_ID_DISCARD_DEC = 0x117,
+    SXD_TRAP_ID_DISCARD_ING_PACKET     = 0x110,
+    SXD_TRAP_ID_DISCARD_ING_SWITCH     = 0x111,
+    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH  = 0x112,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER     = 0x113,
+    SXD_TRAP_ID_DISCARD_ING_LSR        = 0x114,
+    SXD_TRAP_ID_DISCARD_ROUTER         = 0x115,
+    SXD_TRAP_ID_DISCARD_LSR            = 0x116,
+    SXD_TRAP_ID_DISCARD_DEC            = 0x117,
     SXD_TRAP_ID_DISCARD_OVERLAY_SWITCH = 0x118,
-    SXD_TRAP_ID_DISCARD_ISOLATION = 0x119,
-    SXD_TRAP_ID_DISCARD_NON_ROUTED = 0x11a,
-    SXD_TRAP_ID_DISCARD_EGR_LSR = 0x11b,
-    SXD_TRAP_ID_DISCARD_MC_SCOPE = 0x11c,
-    SXD_TRAP_ID_DISCARD_ROUTER2 = 0x130,
-    SXD_TRAP_ID_DISCARD_ROUTER3 = 0x131,
-    SXD_TRAP_ID_DISCARD_LSR2 = 0x132,
-    SXD_TRAP_ID_DISCARD_LSR3 = 0x133,
+    SXD_TRAP_ID_DISCARD_ISOLATION      = 0x119,
+    SXD_TRAP_ID_DISCARD_NON_ROUTED     = 0x11a,
+    SXD_TRAP_ID_DISCARD_EGR_LSR        = 0x11b,
+    SXD_TRAP_ID_DISCARD_MC_SCOPE       = 0x11c,
+    SXD_TRAP_ID_DISCARD_ROUTER2        = 0x130,
+    SXD_TRAP_ID_DISCARD_ROUTER3        = 0x131,
+    SXD_TRAP_ID_DISCARD_LSR2           = 0x132,
+    SXD_TRAP_ID_DISCARD_LSR3           = 0x133,
 
     /* Extended Discards */
-    SXD_TRAP_ID_DISCARD_ING_PACKET_SMAC_MC = 0x140,
-    SXD_TRAP_ID_DISCARD_ING_PACKET_SMAC_DMAC = 0x141,
-    SXD_TRAP_ID_DISCARD_ING_PACKET_RSV_MAC = 0x142,
-    SXD_TRAP_ID_DISCARD_ING_SWITCH_VTAG_ALLOW = 0x148,
-    SXD_TRAP_ID_DISCARD_ING_SWITCH_VLAN = 0x149,
-    SXD_TRAP_ID_DISCARD_ING_SWITCH_STP = 0x14A,
-    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_UC = 0x150,
-    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_MC_NULL = 0x151,
-    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_LB = 0x152,
+    SXD_TRAP_ID_DISCARD_ING_PACKET_SMAC_MC     = 0x140,
+    SXD_TRAP_ID_DISCARD_ING_PACKET_SMAC_DMAC   = 0x141,
+    SXD_TRAP_ID_DISCARD_ING_PACKET_RSV_MAC     = 0x142,
+    SXD_TRAP_ID_DISCARD_ING_PACKET_SMAC0       = 0x143,
+    SXD_TRAP_ID_DISCARD_ING_SWITCH_VTAG_ALLOW  = 0x148,
+    SXD_TRAP_ID_DISCARD_ING_SWITCH_VLAN        = 0x149,
+    SXD_TRAP_ID_DISCARD_ING_SWITCH_STP         = 0x14A,
+    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_UC       = 0x150,
+    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_MC_NULL  = 0x151,
+    SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_LB       = 0x152,
     SXD_TRAP_ID_DISCARD_LOOKUP_SWITCH_NO_PORTS = 0x153,
 
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_NO_HDR = 0x160,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_NO_HDR         = 0x160,
     SXD_TRAP_ID_DISCARD_ING_ROUTER_UC_DIP_MC_DMAC = 0x161,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_DIP_LB = 0x162,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_MC = 0x163,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_CLASS_E = 0x164,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_LB = 0x165,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_UNSP = 0x166,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_IP_HDR = 0x167,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_MC_DMAC = 0x168,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_DIP = 0x169,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_BC = 0x16A,
-    SXD_TRAP_ID_DISCARD_ING_ROUTER_DIP_LOCAL_NET = 0x16B,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_DIP_LB         = 0x162,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_MC         = 0x163,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_CLASS_E    = 0x164,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_LB         = 0x165,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_UNSP       = 0x166,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_IP_HDR         = 0x167,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_MC_DMAC        = 0x168,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_DIP        = 0x169,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_BC         = 0x16A,
+    SXD_TRAP_ID_DISCARD_ING_ROUTER_DIP_LOCAL_NET  = 0x16B,
     SXD_TRAP_ID_DISCARD_ING_ROUTER_DIP_LINK_LOCAL = 0x16C,
     SXD_TRAP_ID_DISCARD_ING_ROUTER_SIP_LINK_LOCAL = 0x16D,
 
     SXD_TRAP_ID_DISCARD_ING_LSR_NO_LABEL = 0x170,
-    SXD_TRAP_ID_DISCARD_ING_LSR_UC_ET = 0x171,
-    SXD_TRAP_ID_DISCARD_ING_LSR_MC_DMAC = 0x172,
+    SXD_TRAP_ID_DISCARD_ING_LSR_UC_ET    = 0x171,
+    SXD_TRAP_ID_DISCARD_ING_LSR_MC_DMAC  = 0x172,
 
-    SXD_TRAP_ID_DISCARD_ROUTER_IRIF_EN = 0x178,
-    SXD_TRAP_ID_DISCARD_ROUTER_ERIF_EN = 0x179,
+    SXD_TRAP_ID_DISCARD_ROUTER_IRIF_EN  = 0x178,
+    SXD_TRAP_ID_DISCARD_ROUTER_ERIF_EN  = 0x179,
     SXD_TRAP_ID_DISCARD_ROUTER_ERIF_FWD = 0x17A,
-    SXD_TRAP_ID_DISCARD_ROUTER_LPM4 = 0x17B,
-    SXD_TRAP_ID_DISCARD_ROUTER_LPM6 = 0x17C,
+    SXD_TRAP_ID_DISCARD_ROUTER_LPM4     = 0x17B,
+    SXD_TRAP_ID_DISCARD_ROUTER_LPM6     = 0x17C,
 
     SXD_TRAP_ID_DISCARD_LSR_MIN_LABEL = 0x180,
     SXD_TRAP_ID_DISCARD_LSR_MAX_LABEL = 0x181,
-    SXD_TRAP_ID_DISCARD_LSR_LB = 0x182,
+    SXD_TRAP_ID_DISCARD_LSR_LB        = 0x182,
 
-    SXD_TRAP_ID_DISCARD_DEC_PKT = 0x188,
-    SXD_TRAP_ID_DISCARD_DEC_DIS = 0x189,
-    SXD_TRAP_ID_DISCARD_OVERLAY_SWITCH_SMAC_MC = 0x190,
+    SXD_TRAP_ID_DISCARD_DEC_PKT                  = 0x188,
+    SXD_TRAP_ID_DISCARD_DEC_DIS                  = 0x189,
+    SXD_TRAP_ID_DISCARD_OVERLAY_SWITCH_SMAC_MC   = 0x190,
     SXD_TRAP_ID_DISCARD_OVERLAY_SWITCH_SMAC_DMAC = 0x191,
+    SXD_TRAP_ID_DISCARD_ENC_ISOLATION            = 0x192,
+    SXD_TRAP_ID_DISCARD_DEC_NVE_OPTIONS          = 0x193,
+    SXD_TRAP_ID_DISCARD_OVERLAY_SWITCH_SMAC0     = 0x194,
 
-    SXD_TRAP_ID_DISCARD_EGR_LSR_NO_LABEL = 0x1A8,
-    SXD_TRAP_ID_DISCARD_EGR_LSR_NO_IP = 0x1A9,
+
+    SXD_TRAP_ID_DISCARD_EGR_LSR_NO_LABEL  = 0x1A8,
+    SXD_TRAP_ID_DISCARD_EGR_LSR_NO_IP     = 0x1A9,
     SXD_TRAP_ID_DISCARD_EGR_LSR_PHP_NO_IP = 0x1AA,
 
     SXD_TRAP_ID_DISCARD_MC_SCOPE_IPV6_0 = 0x1B0,
     SXD_TRAP_ID_DISCARD_MC_SCOPE_IPV6_1 = 0x1B1,
 
-    /* SW Generated Events */
-    SXD_TRAP_ID_SIGNAL = 0x200,
-    SXD_TRAP_ID_NEW_DEVICE_ADD = 0x201,                  /**< device add event */
-    SXD_TRAP_ID_MAC_LEARNING_EVENT = 0x202,              /**< mac learning event */
-    SXD_TRAP_ID_MAC_AGING_EVENT = 0x203,                 /**< mac aging event */
-    SXD_TRAP_ID_NEED_TO_RESOLVE_ARP = 0x204,             /**< need to resolve ARP  */
-    SXD_TRAP_ID_NO_NEED_TO_RESOLVE_ARP = 0x205,          /**< no need to resolve ARP  */
-    SXD_TRAP_ID_FDB_EVENT = 0x206,                       /**< FDB event */
-    SXD_TRAP_ID_RM_SDK_TABLE_THRESHOLD_EVENT = 0x207,
-    SXD_TRAP_ID_RM_HW_TABLE_THRESHOLD_EVENT = 0x208,
-    SXD_TRAP_ID_FDB_SRC_MISS = 0x209,                    /**< FDB SRC MISS trap */
-    SXD_TRAP_ID_ROUTER_NEIGH_ACTIVITY = 0x20a,
-    SXD_TRAP_ID_ASYNC_API_COMPLETE_EVENT = 0x20b,
-    SXD_TRAP_ID_ROUTER_MC_ACTIVITY = 0x20c,              /**< router mc activity */
-    SXD_TRAP_ID_FDB_IP_ADDR_ACTIVITY = 0x20d,
-    SXD_TRAP_ID_TRANSACTION_ERROR = 0x20e,
-    SXD_TRAP_ID_BFD_TIMEOUT_EVENT = 0x20f,
-    SXD_TRAP_ID_BFD_PACKET_EVENT = 0x210,
-    SXD_TRAP_ID_OBJECT_DELETED_EVENT = 0x211,
-    SXD_TRAP_ID_PORT_ADDED = 0x231,
-    SXD_TRAP_ID_PORT_DELETED = 0x232,
-    SXD_TRAP_ID_PORT_ADDED_TO_LAG = 0x233,
-    SXD_TRAP_ID_PORT_REMOVED_FROM_LAG = 0x234,
-
     /* User defined trap ID */
     SXD_TRAP_ID_IP2ME_CUSTOM0 = 0xc0,
     SXD_TRAP_ID_IP2ME_CUSTOM1 = 0xc1,
+    /* Host Configurable Traps */
+    SXD_TRAP_ID_CONFT_SWITCH0     = 0x240,
+    SXD_TRAP_ID_CONFT_SWITCH1     = 0x241,
+    SXD_TRAP_ID_CONFT_SWITCH2     = 0x242,
+    SXD_TRAP_ID_CONFT_SWITCH3     = 0x243,
+    SXD_TRAP_ID_CONFT_ROUTER0     = 0x250,
+    SXD_TRAP_ID_CONFT_ROUTER1     = 0x251,
+    SXD_TRAP_ID_CONFT_ROUTER2     = 0x252,
+    SXD_TRAP_ID_CONFT_ROUTER3     = 0x253,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC0 = 0x260,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC1 = 0x261,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC2 = 0x262,
+    SXD_TRAP_ID_CONFT_SWITCH_ENC3 = 0x263,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC0 = 0x270,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC1 = 0x271,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC2 = 0x272,
+    SXD_TRAP_ID_CONFT_SWITCH_DEC3 = 0x273,
+
+    /* Management and Peripherals control traps */
+    SXD_TRAP_ID_TSDE  = 0x320,      /**< Temperature Shut-Down Event */
+    SXD_TRAP_ID_DSDSC = 0x321,      /**< Downstream Device Status Change */
+    SXD_TRAP_ID_BCTOE = 0x322,      /**< Binary code transfer operation executed. */
+    SXD_TRAP_ID_PMLPE = 0x32e,      /**< Port mapping change trap */
+
+    /* SDK Test Traps */
+    SXD_TRAP_ID_SDK_TEST1 = 0x3fe,
+    SXD_TRAP_ID_SDK_TEST2 = 0x3ff,
+
+    /* SW Generated Events */
+    SXD_TRAP_ID_SIGNAL                          = 0x400,
+    SXD_TRAP_ID_NEW_DEVICE_ADD                  = 0x401, /**< device add event */
+    SXD_TRAP_ID_NEED_TO_RESOLVE_ARP             = 0x404, /**< need to resolve ARP  */
+    SXD_TRAP_ID_NO_NEED_TO_RESOLVE_ARP          = 0x405, /**< no need to resolve ARP  */
+    SXD_TRAP_ID_FDB_EVENT                       = 0x406, /**< FDB event */
+    SXD_TRAP_ID_RM_SDK_TABLE_THRESHOLD_EVENT    = 0x407,
+    SXD_TRAP_ID_RM_HW_TABLE_THRESHOLD_EVENT     = 0x408,
+    SXD_TRAP_ID_FDB_SRC_MISS                    = 0x409, /**< FDB SRC MISS trap */
+    SXD_TRAP_ID_ROUTER_NEIGH_ACTIVITY           = 0x40a,
+    SXD_TRAP_ID_ASYNC_API_COMPLETE_EVENT        = 0x40b,
+    SXD_TRAP_ID_ROUTER_MC_ACTIVITY              = 0x40c, /**< router mc activity */
+    SXD_TRAP_ID_FDB_IP_ADDR_ACTIVITY            = 0x40d,
+    SXD_TRAP_ID_TRANSACTION_ERROR               = 0x40e,
+    SXD_TRAP_ID_BFD_TIMEOUT_EVENT               = 0x40f,
+    SXD_TRAP_ID_BFD_PACKET_EVENT                = 0x410,
+    SXD_TRAP_ID_OBJECT_DELETED_EVENT            = 0x411,
+    SXD_TRAP_ID_SDK_HEALTH_EVENT                = 0x412,
+    SXD_TRAP_ID_API_LOGGER_EVENT                = 0x413,
+    SXD_TRAP_ID_BULK_COUNTER_DONE_EVENT         = 0x414,
+    SXD_TRAP_ID_PORT_PROFILE_APPLY_DONE         = 0x415,
+    SXD_TRAP_ID_PORT_ADDED                      = 0x431,
+    SXD_TRAP_ID_PORT_DELETED                    = 0x432,
+    SXD_TRAP_ID_PORT_ADDED_TO_LAG               = 0x433,
+    SXD_TRAP_ID_PORT_REMOVED_FROM_LAG           = 0x434,
+    SXD_TRAP_ID_BULK_COUNTER_REFRESH_DONE_EVENT = 0x435,
+    SXD_TRAP_ID_ACL_ACTIVITY                    = 0x436,
 
     SXD_TRAP_ID_MIN = SXD_TRAP_ID_GENERAL_FDB,
-    SXD_TRAP_ID_MAX = SXD_TRAP_ID_TRANSACTION_ERROR,
+    SXD_TRAP_ID_MAX = SXD_TRAP_ID_ACL_ACTIVITY,
 } sxd_trap_id_t;
+
+/**
+ * Health severity
+ * SXD_HEALTH_SEVERITY_ERR and SXD_HEALTH_SEVERITY_CRIT obsolete, replaced
+ * by health monitor functionality from 4.5.1200
+ */
+#define SXD_FOREACH_OBJECT_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY) \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_CRIT, , "critical") \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_FATAL, , "fatal")   \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_ERR, , "error")     \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_WARN, , "warning")  \
+    SXD_HEALTH_SEVERITY(SXD_HEALTH_SEVERITY_NOTICE, , "notice") \
+
+/**
+ * sx_health_severity_t is used to distinguish between different SDK health event severities
+ */
+typedef enum sxd_health_severity {
+    SXD_FOREACH_OBJECT_HEALTH_SEVERITY(SXD_GENERATE_ENUM)
+} sxd_health_severity_t;
+
+#define SXD_FOREACH_OBJECT_HEALTH_CAUSE(SXD_HEALTH_TYPE)                                 \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_NONE, , "None")                                     \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW, , "FW health")                                  \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_GO_BIT, , "Go-bit not cleared")                     \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_NO_CMDIFC_COMPLETION, , "CmdIfc timeout")           \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_EMAD_TIMEOUT, , "EMAD timeout")                     \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_CATAS, , "FW CATAS event")                          \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_DUMP_COMPLETED, , "Extended dump completed")        \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_DUMP_FAILED, , "Extended dump failed")              \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_RDQ, , "RDQ is stuck")                              \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_SDQ, , "SDQ is stuck")                              \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_SDK_THREADS, , "SDK thread error")                  \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_KERNEL_THREADS, , "Kernel thread error")            \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_SDK_WD, , "SDK watchdog")                           \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW_HETT, , "HETT timeout")                          \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_STATEFUL_DB_ORDERING_E, , "Flex stateful HW error") \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_ECC_E, , "ECC event(s)")                            \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_GENERIC_E, , "Generic error")                       \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_PLL_E, , "PLL lock failure")                        \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW_LONG_COMMAND, , "FW Long Command")               \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_FW_MFGD, , "Failed to send MFGD")                   \
+    SXD_HEALTH_TYPE(SXD_HEALTH_CAUSE_MAX_E, = SXD_HEALTH_CAUSE_FW_MFGD, "")              \
+
+/**
+ * sx_health_cause_t is used to distinguish between different SDK health event causes
+ */
+typedef enum sxd_health_event_cause {
+    SXD_FOREACH_OBJECT_HEALTH_CAUSE(SXD_GENERATE_ENUM)
+} sxd_health_cause_t;
+
+typedef union sxd_event_health_ecc_stats {
+    uint32_t ecc_corrected;
+    uint32_t ecc_uncorrected;
+} sxd_event_health_ecc_stats_t;
+
+typedef struct sxd_event_health_ecc_data {
+    uint16_t                     slot_index;
+    uint16_t                     device_index;
+    sxd_event_health_ecc_stats_t ecc_stats;
+} sxd_event_health_ecc_data_t;
+
+/* this structure is accessible by NOS (included in health event metadata) */
+typedef union sxd_event_health_data {
+    sxd_event_health_ecc_data_t ecc_data;
+} sxd_event_health_data_t;
+
+/**
+ * This event is generated by the SDK to notify the user that an SDK monitored event has occurred
+ * Supported devices: Pelican, Eagle, Spectrum, Spectrum2, Quantum
+ *
+ */
+typedef struct sxd_event_health_notification {
+    uint8_t                 device_id;
+    sxd_health_severity_t   severity;
+    sxd_health_cause_t      cause;
+    int                     was_debug_started; /* according to policy, see: sx_api_dbg_policy */
+    uint8_t                 irisc_id; /*< which IRISC triggered the event, in case the event is SDK and not FW should be DBG_ALL_IRISCS  */
+    sxd_event_health_data_t data;
+} sxd_event_health_notification_t;
+
+#define THREAD_STR_LEN 256
+
+enum sxd_health_fatal_failure_detect_cmd_e {
+    SXD_HEALTH_FATAL_FAILURE_ENABLE_E,
+    SXD_HEALTH_FATAL_FAILURE_DISABLE_E,
+    SXD_HEALTH_FATAL_FAILURE_ADD_TRAP_GROUP_E,
+    SXD_HEALTH_FATAL_FAILURE_DELETE_TRAP_GROUP_E,
+    SXD_HEALTH_FATAL_FAILURE_UPDATE_SAMPLE_PARAMS_E,
+    SXD_HEALTH_FATAL_FAILURE_ADD_SDK_THREAD_FAILRE_E,
+    SXD_HEALTH_FATAL_FAILURE_ADD_EMAD_TIMEOUT_FAILURE_E,
+    SXD_HEALTH_FATAL_FAILURE_ISSU_ON_E,
+    SXD_HEALTH_FATAL_FAILURE_ISSU_OFF_E
+};
+
+#define SXD_FOREACH_OBJECT_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_FAILURE_ID)                           \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_EMAD_TX_E, , "Emad tx thread error")                     \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_EMAD_RX_E, , "Emad rx thread error")                     \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_GC_POST_QUEUE_TIME_E, , "GcPostTime thread error")       \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_HLFC_RSM_TMR_E, , "HlfcRsmTmr thread error")             \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_HLFC_EVENTS_E, , "HlfcEvents thread error")              \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_TIMERS_E, , "Timers thread error")                       \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_FDB_UC_POLLING_E, , "FdbUcPoliing thread error")         \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_MAIN_CORE_HANDLER_E, , "Main core handler thread error") \
+    SXD_HEALTH_THREAD_FAILURE_ID(SXD_HEALTH_THREAD_MAX_E, = SXD_HEALTH_THREAD_MAIN_CORE_HANDLER_E, "")
+
+/**
+ * sxd_thread_failure_t is used to distinguish between different SDK thread with errors
+ */
+typedef enum sxd_thread_failure {
+    SXD_FOREACH_OBJECT_HEALTH_THREAD_FAILURE_ID(SXD_GENERATE_ENUM)
+} sxd_thread_failure_e;
+
+typedef struct tg_params {
+    int hw_trap_group;
+} tg_params_t;
+
+typedef struct sampling_params {
+    uint32_t              check_interval;
+    uint32_t              alert_threshold;
+    uint64_t              hw_groups_curr_status;
+    sxd_health_severity_t min_severity;
+    sxd_boolean_t         issu_on;
+} sampling_params_t;
+
+typedef struct sdk_threads_info {
+    sxd_thread_failure_e  sdk_thread_id;
+    sxd_health_severity_t severity;
+    char                  error_msg[THREAD_STR_LEN];
+} sdk_threads_info_t;
+
+typedef struct emad_timeout_info {
+    uint16_t reg_id;
+    uint32_t usecs;
+} emad_timeout_info_t;
+
+typedef struct ku_dbg_health_check_params {
+    enum sxd_health_fatal_failure_detect_cmd_e sxd_health_fatal_failure_detect_cmd;
+    uint8_t                                    dev_id;
+    union {
+        tg_params_t         tg_params;
+        sampling_params_t   sampling_params;
+        sdk_threads_info_t  sdk_threads_info;
+        emad_timeout_info_t emad_timeout_info;
+    } params;
+    sxd_boolean_t fatal_error_mode_active;
+} ku_dbg_health_check_params_t;
+
+
+/*
+ * Note:editing this enum requires edit FOREACH_SPICE_BULK_COUNTER_TYPEMASK
+ * */
+enum sxd_bulk_cntr_key_type_e {
+    SXD_BULK_CNTR_KEY_TYPE_PORT_E,
+    SXD_BULK_CNTR_KEY_TYPE_FLOW_E,
+    SXD_BULK_CNTR_KEY_TYPE_SHARED_BUFFER_E,
+    SXD_BULK_CNTR_KEY_TYPE_HEADROOM_E,
+    SXD_BULK_CNTR_KEY_TYPE_ELEPHANT_E,
+    SXD_BULK_CNTR_KEY_TYPE_STATEFUL_DB_E,
+    SXD_BULK_CNTR_KEY_TYPE_ACCUFLOW_E, /*< for internal use only */
+    SXD_BULK_CNTR_KEY_TYPE_ISSU_E, /*< for internal use only */
+    SXD_BULK_CNTR_KEY_TYPE_PERFORMANCE_E,
+    SXD_BULK_CNTR_KEY_TYPE_FLOW_ESTIMATOR_E,
+    SXD_BULK_CNTR_KEY_TYPE_MACSEC_PORT_E,
+    SXD_BULK_CNTR_KEY_TYPE_MACSEC_SA_E,
+    SXD_BULK_CNTR_KEY_TYPE_MACSEC_ACL_FLOW_E,
+    SXD_BULK_CNTR_KEY_TYPE_LAST_E
+};
+enum sxd_bulk_cntr_shared_buffer_attr_type_e {
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_RX_PG_E         = 1,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_TX_TC_E         = 2,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_CPU_TX_TC_E     = 3,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_RX_POOL_E       = 4,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_TX_POOL_E       = 5,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_MC_SWITH_PRIO_E = 6,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_RX_PER_POOL_E   = 7,
+    SXD_BULK_CNTR_SHARED_BUFFER_ATTR_TYPE_TX_PER_POOL_E   = 8,
+};
+enum sxd_bulk_cntr_headroom_buffer_type_e {
+    SXD_BULK_CNTR_HEADROOM_BUFFER_TYPE_MASTER_E = 1,
+    SXD_BULK_CNTR_HEADROOM_BUFFER_TYPE_SLAVE_E  = 2,
+};
+
+typedef struct sxd_flow_counter_set {
+    /*
+     *   ATTENTION:
+     *   SWIG does not let sx_flow_counter_set_t to be a typedef of sxd_flow_counter_set_t.
+     *   Therefore, any changes to this struct MUST be applied to sx_flow_counter_set_t as well!
+     */
+
+    uint64_t flow_counter_packets;
+    uint64_t flow_counter_bytes;
+} sxd_flow_counter_set_t;
+
+typedef struct sxd_buffer_occupancy {
+    uint32_t curr_occupancy;
+    uint32_t watermark;
+} sxd_buffer_occupancy_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_common {
+    uint32_t type; /**< SXD_BULK_CNTR_KEY_TYPE_PORT_E, SXD_BULK_CNTR_KEY_TYPE_FLOW_E */
+    uint32_t buff_size; /**< total buffer size, including this header */
+    uint32_t num_of_counters; /**< number of expected counters (registers TLVs) from the operation */
+    uint32_t counters_received_so_far; /**< number of counters (register TLVs) received so far during the operation */
+    uint32_t cookie; /**< User cookie */
+    uint32_t reserved; /**< to keep alignment to 64bit */
+} sxd_bulk_cntr_buffer_layout_common_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_flow {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint32_t                             base_counter_id; /**< base counter ID of the range of flow counters */
+    uint32_t                             reserved; /**< to keep alignment to 64bit */
+    sxd_flow_counter_set_t               counters[0]; /**< set of counters */
+} sxd_bulk_cntr_buffer_layout_flow_t;
+
+#define FLOW_ESTIMATOR_BINS_PER_FLOW_COUNTER 4
+
+typedef struct sxd_flow_counter_estimator_set {
+    /*
+     *   ATTENTION:
+     *   SWIG does not let sx_flow_estimator_counter_set_t to be a typedef of sxd_flow_estimator_counter_set_t.
+     *   Therefore, any changes to this struct MUST be applied to sx_flow_estimator_counter_set_t as well!
+     */
+
+    uint32_t flow_estimator_records[FLOW_ESTIMATOR_BINS_PER_FLOW_COUNTER];
+} sxd_flow_estimator_counter_set_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_flow_estimator {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint32_t                             base_counter_id; /**< base counter ID of the range of flow counters */
+    sxd_flow_estimator_counter_set_t     counter_sets[0]; /**< set of flow bin counters */
+} sxd_bulk_cntr_buffer_layout_flow_estimator_t;
+
+typedef enum sxd_bulk_cntr_port_grp {
+    SXD_BULK_CNTR_PORT_GRP_IEEE_802_DOT_3_E  = 1,
+    SXD_BULK_CNTR_PORT_GRP_RFC_2863_E        = 2,
+    SXD_BULK_CNTR_PORT_GRP_RFC_2819_E        = 4,
+    SXD_BULK_CNTR_PORT_GRP_RFC_3635_E        = 8,
+    SXD_BULK_CNTR_PORT_GRP_PRIO_E            = 16,
+    SXD_BULK_CNTR_PORT_GRP_TC_E              = 32,
+    SXD_BULK_CNTR_PORT_GRP_BUFF_E            = 64,
+    SXD_BULK_CNTR_PORT_GRP_PERF_E            = 128,
+    SXD_BULK_CNTR_PORT_GRP_DISCARD_E         = 256,
+    SXD_BULK_CNTR_PORT_GRP_PHY_LAYER_E       = 512,
+    SXD_BULK_CNTR_PORT_GRP_PHY_LAYER_STATS_E = 1024,
+    SXD_BULK_CNTR_PORT_GRP_MAX_E             = SXD_BULK_CNTR_PORT_GRP_PHY_LAYER_STATS_E
+} sxd_bulk_cntr_port_grp_t;
+
+typedef uint64_t sxd_port_cntr_t;
+typedef uint32_t sxd_port_cntr32_t;
+
+/**
+ *   ATTENTION:
+ *   SWIG does not let sx_port_cntr_xxx_t to be a typedef of sxd_port_cntr_xxx_t.
+ *   Therefore, any changes to sxd_port_cntr_xxx_t MUST be applied to sx_port_cntr_xxx_t as well!
+ */
+typedef struct sxd_port_cntr_ieee_802_dot_3 {
+    sxd_port_cntr_t a_frames_transmitted_ok;
+    sxd_port_cntr_t a_frames_received_ok;
+    sxd_port_cntr_t a_frame_check_sequence_errors;
+    sxd_port_cntr_t a_alignment_errors;
+    sxd_port_cntr_t a_octets_transmitted_ok;
+    sxd_port_cntr_t a_octets_received_ok;
+    sxd_port_cntr_t a_multicast_frames_xmitted_ok;
+    sxd_port_cntr_t a_broadcast_frames_xmitted_ok;
+    sxd_port_cntr_t a_multicast_frames_received_ok;
+    sxd_port_cntr_t a_broadcast_frames_recieved_ok;
+    sxd_port_cntr_t a_in_range_length_errors;
+    sxd_port_cntr_t a_out_of_range_length_field;
+    sxd_port_cntr_t a_frame_too_long_errors;
+    sxd_port_cntr_t a_symbol_error_during_carrier;
+    sxd_port_cntr_t a_mac_control_frames_transmitted;
+    sxd_port_cntr_t a_mac_control_frames_received;
+    sxd_port_cntr_t a_unsupported_opcodes_received;
+    sxd_port_cntr_t a_pause_mac_ctrl_frames_received;
+    sxd_port_cntr_t a_pause_mac_ctrl_frames_transmitted;
+} __attribute__((packed)) sxd_port_cntr_ieee_802_dot_3_t;
+
+typedef struct sxd_port_cntr_rfc_2863 {
+    sxd_port_cntr_t if_in_octets;
+    sxd_port_cntr_t if_in_ucast_pkts;
+    sxd_port_cntr_t if_in_discards;
+    sxd_port_cntr_t if_in_errors;
+    sxd_port_cntr_t if_in_unknown_protos;
+    sxd_port_cntr_t if_out_octets;
+    sxd_port_cntr_t if_out_ucast_pkts;
+    sxd_port_cntr_t if_out_discards;
+    sxd_port_cntr_t if_out_errors;
+    sxd_port_cntr_t if_in_multicast_pkts;
+    sxd_port_cntr_t if_in_broadcast_pkts;
+    sxd_port_cntr_t if_out_multicast_pkts;
+    sxd_port_cntr_t if_out_broadcast_pkts;
+} __attribute__((packed)) sxd_port_cntr_rfc_2863_t;
+
+typedef struct sxd_port_cntr_rfc_2819 {
+    sxd_port_cntr_t ether_stats_drop_events;
+    sxd_port_cntr_t ether_stats_octets;
+    sxd_port_cntr_t ether_stats_pkts;
+    sxd_port_cntr_t ether_stats_broadcast_pkts;
+    sxd_port_cntr_t ether_stats_multicast_pkts;
+    sxd_port_cntr_t ether_stats_crc_align_errors;
+    sxd_port_cntr_t ether_stats_undersize_pkts;
+    sxd_port_cntr_t ether_stats_oversize_pkts;
+    sxd_port_cntr_t ether_stats_fragments;
+    sxd_port_cntr_t ether_stats_jabbers;
+    sxd_port_cntr_t ether_stats_collisions;
+    sxd_port_cntr_t ether_stats_pkts64octets;
+    sxd_port_cntr_t ether_stats_pkts65to127octets;
+    sxd_port_cntr_t ether_stats_pkts128to255octets;
+    sxd_port_cntr_t ether_stats_pkts256to511octets;
+    sxd_port_cntr_t ether_stats_pkts512to1023octets;
+    sxd_port_cntr_t ether_stats_pkts1024to1518octets;
+    sxd_port_cntr_t ether_stats_pkts1519to2047octets;
+    sxd_port_cntr_t ether_stats_pkts2048to4095octets;
+    sxd_port_cntr_t ether_stats_pkts4096to8191octets;
+    sxd_port_cntr_t ether_stats_pkts8192to10239octets;
+} __attribute__((packed)) sxd_port_cntr_rfc_2819_t;
+
+typedef struct sxd_port_cntr_phy_layer {
+    sxd_port_cntr_t   time_since_last_clear;
+    sxd_port_cntr_t   symbol_errors;
+    sxd_port_cntr_t   sync_headers_errors;
+    sxd_port_cntr_t   edpl_bip_errors_lane0;
+    sxd_port_cntr_t   edpl_bip_errors_lane1;
+    sxd_port_cntr_t   edpl_bip_errors_lane2;
+    sxd_port_cntr_t   edpl_bip_errors_lane3;
+    sxd_port_cntr_t   fc_fec_corrected_blocks_lane0;
+    sxd_port_cntr_t   fc_fec_corrected_blocks_lane1;
+    sxd_port_cntr_t   fc_fec_corrected_blocks_lane2;
+    sxd_port_cntr_t   fc_fec_corrected_blocks_lane3;
+    sxd_port_cntr_t   fc_fec_uncorrectable_blocks_lane0;
+    sxd_port_cntr_t   fc_fec_uncorrectable_blocks_lane1;
+    sxd_port_cntr_t   fc_fec_uncorrectable_blocks_lane2;
+    sxd_port_cntr_t   fc_fec_uncorrectable_blocks_lane3;
+    sxd_port_cntr_t   rs_fec_corrected_blocks;
+    sxd_port_cntr_t   rs_fec_uncorrectable_blocks;
+    sxd_port_cntr_t   rs_fec_no_errors_blocks;
+    sxd_port_cntr_t   rs_fec_single_error_blocks;
+    sxd_port_cntr_t   rs_fec_corrected_symbols_total;
+    sxd_port_cntr_t   rs_fec_corrected_symbols_lane0;
+    sxd_port_cntr_t   rs_fec_corrected_symbols_lane1;
+    sxd_port_cntr_t   rs_fec_corrected_symbols_lane2;
+    sxd_port_cntr_t   rs_fec_corrected_symbols_lane3;
+    sxd_port_cntr32_t link_down_events;
+    sxd_port_cntr32_t successful_recovery_events;
+} __attribute__((packed)) sxd_port_cntr_phy_layer_t;
+
+typedef struct sxd_port_cntr_phy_layer_statistics {
+    sxd_port_cntr_t time_since_last_clear;   /**< The time passed since the last counters clear event in msec */
+    sxd_port_cntr_t phy_received_bits;       /**< Total number of bits which were received for all lanes */
+    sxd_port_cntr_t phy_symbol_errors;       /**< Total number of symbol errors for all lanes */
+    sxd_port_cntr_t phy_corrected_bits;      /**< Total number of corrected bits for all lanes */
+    sxd_port_cntr_t phy_raw_errors_lane0;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 0 */
+    sxd_port_cntr_t phy_raw_errors_lane1;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 1 */
+    sxd_port_cntr_t phy_raw_errors_lane2;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 2 */
+    sxd_port_cntr_t phy_raw_errors_lane3;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 3 */
+    sxd_port_cntr_t phy_raw_errors_lane4;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 4 */
+    sxd_port_cntr_t phy_raw_errors_lane5;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 5 */
+    sxd_port_cntr_t phy_raw_errors_lane6;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 6 */
+    sxd_port_cntr_t phy_raw_errors_lane7;    /**< Depending on FEC mode and link_side type may hold 'NO FEC', 'FC FEC', 'RS FEC', or 'ZL FEC corrected' counter value on Lane 7 */
+    sxd_port_cntr_t raw_ber_magnitude;       /**< BER magnitude value for total number of errors. Used for BER calculation - Raw_BER = raw_ber_coef * 10^(-raw_ber_magnitude) */
+    sxd_port_cntr_t raw_ber_coef;            /**< BER coefficient value for total number of errors */
+    sxd_port_cntr_t effective_ber_magnitude; /**< BER magnitude value for effective number of errors. Used for BER calculation - Effective_BER = effective_ber_coef * 10^(-effective_ber_magnitude) */
+    sxd_port_cntr_t effective_ber_coef;      /**< BER coefficient value for effective number of errors */
+} __attribute__((packed)) sxd_port_cntr_phy_layer_statistics_t;
+
+typedef struct sxd_port_cntr_rfc_3635 {
+    sxd_port_cntr_t dot3stats_alignment_errors;
+    sxd_port_cntr_t dot3stats_fcs_errors;
+    sxd_port_cntr_t dot3stats_single_collision_frames;
+    sxd_port_cntr_t dot3stats_multiple_collision_frames;
+    sxd_port_cntr_t dot3stats_sqe_test_errors;
+    sxd_port_cntr_t dot3stats_deferred_transmissions;
+    sxd_port_cntr_t dot3stats_late_collisions;
+    sxd_port_cntr_t dot3stats_excessive_collisions;
+    sxd_port_cntr_t dot3stats_internal_mac_transmit_errors;
+    sxd_port_cntr_t dot3stats_carrier_sense_errors;
+    sxd_port_cntr_t dot3stats_frame_too_longs;
+    sxd_port_cntr_t dot3stats_internal_mac_receive_errors;
+    sxd_port_cntr_t dot3stats_symbol_errors;
+    sxd_port_cntr_t dot3control_in_unknown_opcodes;
+    sxd_port_cntr_t dot3in_pause_frames;
+    sxd_port_cntr_t dot3out_pause_frames;
+} __attribute__((packed)) sxd_port_cntr_rfc_3635_t;
+
+typedef struct sxd_port_cntr_discard {
+    sxd_port_cntr_t ingress_general;
+    sxd_port_cntr_t ingress_policy_engine;
+    sxd_port_cntr_t ingress_vlan_membership;
+    sxd_port_cntr_t ingress_tag_frame_type;
+    sxd_port_cntr_t egress_vlan_membership;
+    sxd_port_cntr_t loopback_filter;
+    sxd_port_cntr_t egress_general;
+    sxd_port_cntr_t egress_link_down;
+    sxd_port_cntr_t egress_hoq;
+    sxd_port_cntr_t port_isolation;
+    sxd_port_cntr_t egress_policy_engine;
+    sxd_port_cntr_t ingress_tx_link_down;
+    sxd_port_cntr_t egress_stp_filter;
+    sxd_port_cntr_t egress_hoq_stall;
+    sxd_port_cntr_t egress_sll;
+    sxd_port_cntr_t ingress_discard_all;
+} __attribute__((packed)) sxd_port_cntr_discard_t;
+
+typedef struct sxd_port_traffic_cntr {
+    sxd_port_cntr_t tx_octet;
+    sxd_port_cntr_t tx_uc_frames;
+    sxd_port_cntr_t tx_mc_frames;
+    sxd_port_cntr_t tx_bc_frames;
+    sxd_port_cntr_t tx_frames;
+    sxd_port_cntr_t tx_queue;
+    sxd_port_cntr_t tx_no_buffer_discard_uc;
+    sxd_port_cntr_t tx_wred_discard;
+    sxd_port_cntr_t tx_ecn_marked_tc;
+} sxd_port_traffic_cntr_t;
+
+typedef struct sxd_port_cntr_prio {
+    sxd_port_cntr_t rx_octets;
+    sxd_port_cntr_t rx_uc_frames;
+    sxd_port_cntr_t rx_mc_frames;
+    sxd_port_cntr_t rx_bc_frames;
+    sxd_port_cntr_t rx_frames;
+    sxd_port_cntr_t tx_octets;
+    sxd_port_cntr_t tx_uc_frames;
+    sxd_port_cntr_t tx_mc_frames;
+    sxd_port_cntr_t tx_bc_frames;
+    sxd_port_cntr_t tx_frames;
+    sxd_port_cntr_t rx_pause;
+    sxd_port_cntr_t rx_pause_duration;
+    sxd_port_cntr_t tx_pause;
+    sxd_port_cntr_t tx_pause_duration;
+    sxd_port_cntr_t rx_pause_transition;
+    sxd_port_cntr_t rx_discard;
+} __attribute__((packed)) sxd_port_cntr_prio_t;
+
+typedef struct sxd_port_cntr_buff {
+    sxd_port_cntr_t rx_octet;
+    sxd_port_cntr_t rx_frames;
+    sxd_port_cntr_t rx_buffer_discard;
+    sxd_port_cntr_t rx_shared_buffer_discard;
+} __attribute__((packed)) sxd_port_cntr_buff_t;
+
+typedef struct sxd_port_cntr_perf {
+    sxd_port_cntr_t tx_wait;
+    sxd_port_cntr_t ecn_marked;
+    sxd_port_cntr_t no_buffer_discard_mc;
+    sxd_port_cntr_t rx_ebp;
+    sxd_port_cntr_t tx_ebp;
+    sxd_port_cntr_t rx_buffer_almost_full;
+    sxd_port_cntr_t rx_buffer_full;
+    sxd_port_cntr_t tx_stats_pkts64octets;
+    sxd_port_cntr_t tx_stats_pkts65to127octets;
+    sxd_port_cntr_t tx_stats_pkts128to255octets;
+    sxd_port_cntr_t tx_stats_pkts256to511octets;
+    sxd_port_cntr_t tx_stats_pkts512to1023octets;
+    sxd_port_cntr_t tx_stats_pkts1024to1518octets;
+    sxd_port_cntr_t tx_stats_pkts1519to2047octets;
+    sxd_port_cntr_t tx_stats_pkts2048to4095octets;
+    sxd_port_cntr_t tx_stats_pkts4096to8191octets;
+    sxd_port_cntr_t tx_stats_pkts8192to10239octets;
+    sxd_port_cntr_t ece_marked;
+    sxd_port_cntr_t tx_int_cksm_err;
+} __attribute__((packed)) sxd_port_cntr_perf_t;
+
+typedef enum sxd_port_prio_id {
+    SXD_PORT_PRIO_ID_0,
+    SXD_PORT_PRIO_ID_1,
+    SXD_PORT_PRIO_ID_2,
+    SXD_PORT_PRIO_ID_3,
+    SXD_PORT_PRIO_ID_4,
+    SXD_PORT_PRIO_ID_5,
+    SXD_PORT_PRIO_ID_6,
+    SXD_PORT_PRIO_ID_7,
+    SXD_PORT_PRIO_ID_MIN = SXD_PORT_PRIO_ID_0,
+    SXD_PORT_PRIO_ID_MAX = SXD_PORT_PRIO_ID_7,
+} sxd_port_prio_id_t;
+
+typedef enum sxd_port_tc_id {
+    SXD_PORT_TC_ID_0,
+    SXD_PORT_TC_ID_1,
+    SXD_PORT_TC_ID_2,
+    SXD_PORT_TC_ID_3,
+    SXD_PORT_TC_ID_4,
+    SXD_PORT_TC_ID_5,
+    SXD_PORT_TC_ID_6,
+    SXD_PORT_TC_ID_7,
+    SXD_PORT_TC_ID_8,
+    SXD_PORT_TC_ID_9,
+    SXD_PORT_TC_ID_10,
+    SXD_PORT_TC_ID_11,
+    SXD_PORT_TC_ID_12,
+    SXD_PORT_TC_ID_13,
+    SXD_PORT_TC_ID_14,
+    SXD_PORT_TC_ID_15,
+    SXD_PORT_TC_ID_16,
+    SXD_PORT_TC_ID_MIN = SXD_PORT_TC_ID_0,
+    SXD_PORT_TC_ID_MAX = SXD_PORT_TC_ID_16,
+} sxd_port_tc_id_t;
+
+#define SXD_PRIORITY_GROUP_NUM (8)
+
+typedef struct sxd_port_cntr_composition {
+    sxd_port_cntr_ieee_802_dot_3_t       ieee_802_dot_3;
+    sxd_port_cntr_rfc_2863_t             rfc_2863;
+    sxd_port_cntr_rfc_2819_t             rfc_2819;
+    sxd_port_cntr_rfc_3635_t             rfc_3635;
+    sxd_port_cntr_prio_t                 prio[SXD_PORT_PRIO_ID_MAX - SXD_PORT_PRIO_ID_MIN + 1];
+    sxd_port_traffic_cntr_t              tc[SXD_PORT_TC_ID_MAX - SXD_PORT_TC_ID_MIN + 1];
+    sxd_port_cntr_buff_t                 pg[SXD_PRIORITY_GROUP_NUM];
+    sxd_port_cntr_perf_t                 perf;
+    sxd_port_cntr_discard_t              discard;
+    sxd_port_cntr_phy_layer_t            phy_layer;
+    sxd_port_cntr_phy_layer_statistics_t phy_layer_stats;
+} __attribute__((packed)) sxd_port_cntr_composition_t;
+
+/**
+ *  Since each array entry is uint16_t, to keep alignment to 64 bit, here we use '4' in the macros.
+ *  Valid local port range: [1 - MAX_PHYPORT_NUM]
+ *  Valid LAG ID range: [0 - MAX_LAG_NUM)
+ */
+#define SXD_BULK_CNTR_PORT_TO_LAG_MAP_SIZE ((MAX_PHYPORT_NUM + 1) + ((4 - ((MAX_PHYPORT_NUM + 1) % 4)) & 0x3))
+#define SXD_BULK_CNTR_PORT_INDEX_MAP_SIZE  (SXD_BULK_CNTR_PORT_TO_LAG_MAP_SIZE)
+#define SXD_BULK_CNTR_LAG_INDEX_MAP_SIZE   (MAX_LAG_NUM + ((4 - (MAX_LAG_NUM % 4)) & 0x3))
+
+typedef struct sxd_bulk_cntr_buffer_layout_port_mappings {
+    uint16_t port_to_lag_map[SXD_BULK_CNTR_PORT_TO_LAG_MAP_SIZE]; /**< local port to LAG ID mapping
+                                                                   *  value MAX_LAG_NUM means the port is not member of any LAG,
+                                                                   *  value [0 - MAX_LAG_NUM) means the port is the member of the specific LAG.
+                                                                   */
+    uint16_t port_index_map[SXD_BULK_CNTR_PORT_INDEX_MAP_SIZE]; /**< port counter index in the counters array, value (MAX_PHYPORT_NUM + MAX_LAG_NUM) means the port is not expected */
+    uint16_t lag_index_map[SXD_BULK_CNTR_LAG_INDEX_MAP_SIZE];   /**< LAG counter index in the counters array, value (MAX_PHYPORT_NUM + MAX_LAG_NUM) means the LAG is not expected */
+    uint64_t counter_set_bitmap; /**< [0-11] bits - counter group
+                                  *  [12-19] bits - priority
+                                  *  [20-27] bits - PG
+                                  *  [28-54] bits - TC
+                                  */
+} sxd_bulk_cntr_buffer_layout_port_mappings_t;
+
+#define SXD_BULK_CNTR_PORT_BITMAP_GET(bitmap, obj, offset) ((bitmap) & ((((uint64_t)0x1) << (obj)) << (offset)))
+#define SXD_BULK_CNTR_PORT_BITMAP_SET(bitmap, obj, offset) ((bitmap) |= ((((uint64_t)0x1) << (obj)) << (offset)))
+#define SXD_BULK_CNTR_PORT_BITMAP_GET_PRIO(bitmap, obj)    SXD_BULK_CNTR_PORT_BITMAP_GET(bitmap, obj, 12)
+#define SXD_BULK_CNTR_PORT_BITMAP_SET_PRIO(bitmap, obj)    SXD_BULK_CNTR_PORT_BITMAP_SET(bitmap, obj, 12)
+#define SXD_BULK_CNTR_PORT_BITMAP_GET_PG(bitmap, obj)      SXD_BULK_CNTR_PORT_BITMAP_GET(bitmap, obj, 20)
+#define SXD_BULK_CNTR_PORT_BITMAP_SET_PG(bitmap, obj)      SXD_BULK_CNTR_PORT_BITMAP_SET(bitmap, obj, 20)
+#define SXD_BULK_CNTR_PORT_BITMAP_GET_TC(bitmap, obj)      SXD_BULK_CNTR_PORT_BITMAP_GET(bitmap, obj, 28)
+#define SXD_BULK_CNTR_PORT_BITMAP_SET_TC(bitmap, obj)      SXD_BULK_CNTR_PORT_BITMAP_SET(bitmap, obj, 28)
+
+
+typedef struct sxd_bulk_cntr_buffer_layout_port {
+    sxd_bulk_cntr_buffer_layout_common_t        common;
+    sxd_bulk_cntr_buffer_layout_port_mappings_t mappings;
+    uint32_t                                    counters_size; /**< The array size of counters */
+    uint32_t                                    reserved; /**< To keep alignment to 64bit */
+    sxd_port_cntr_composition_t                 counters[0];
+} sxd_bulk_cntr_buffer_layout_port_t;
+
+typedef struct sxd_bulk_cntr_shared_buffer_pool_occupancy {
+    uint32_t               sw_pool_id;
+    uint32_t               reserved;
+    sxd_buffer_occupancy_t occupancy;
+    uint32_t               ext_occupancy;
+} sxd_bulk_cntr_shared_buffer_pool_occupancy_t;
+
+typedef struct sxd_bulk_cntr_shared_buffer_mc_port {
+    sxd_buffer_occupancy_t occupancy;
+} sxd_bulk_cntr_shared_buffer_mc_port_t;
+
+typedef struct sxd_bulk_cntr_shared_buffer_port {
+    sxd_buffer_occupancy_t                       rx_pg[SXD_BULK_CNTR_PG_NUM];
+    sxd_buffer_occupancy_t                       tx_tc[SXD_BULK_CNTR_TC_NUM];
+    sxd_bulk_cntr_shared_buffer_pool_occupancy_t rx_per_pool[SXD_BULK_CNTR_POOL_NUM];
+    sxd_bulk_cntr_shared_buffer_pool_occupancy_t tx_per_pool[SXD_BULK_CNTR_POOL_NUM];
+    sxd_buffer_occupancy_t                       rx_pg_desc[SXD_BULK_CNTR_PG_NUM];
+    sxd_buffer_occupancy_t                       tx_tc_desc[SXD_BULK_CNTR_TC_NUM];
+    sxd_bulk_cntr_shared_buffer_pool_occupancy_t rx_per_pool_desc[SXD_BULK_CNTR_POOL_NUM];
+    sxd_bulk_cntr_shared_buffer_pool_occupancy_t tx_per_pool_desc[SXD_BULK_CNTR_POOL_NUM];
+} sxd_bulk_cntr_shared_buffer_port_t;
+
+typedef struct sxd_bulk_cntr_shared_buffer_mc_sp {
+    sxd_buffer_occupancy_t statistics[SXD_BULK_CNTR_SP_NUM];
+} sxd_bulk_cntr_shared_buffer_mc_sp_t;
+
+typedef struct sxd_bulk_cntr_shared_buffer_pool {
+    sxd_bulk_cntr_shared_buffer_pool_occupancy_t statistics[SXD_BULK_CNTR_TOTAL_POOL_MAX_NUM];
+} sxd_bulk_cntr_shared_buffer_pool_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_shared_buffer {
+    sxd_bulk_cntr_buffer_layout_common_t  common;
+    uint32_t                              port_idx;
+    uint8_t                               pg_tc_sp_idx;
+    uint8_t                               port_pool_idx;
+    uint8_t                               pool_idx;
+    uint8_t                               last_type;
+    uint32_t                              sw_pool_id[SXD_BULK_CNTR_TOTAL_POOL_MAX_NUM];
+    uint32_t                              reserved;
+    uint32_t                              port_mask[SXD_BULK_CNTR_PORT_MASK_NUM];
+    uint32_t                              mc_pool_id;
+    sxd_bulk_cntr_shared_buffer_port_t    port[SXD_BULK_CNTR_PORT_NUM];
+    sxd_bulk_cntr_shared_buffer_mc_port_t mc_port[SXD_BULK_CNTR_PORT_NUM];
+    sxd_bulk_cntr_shared_buffer_mc_sp_t   mc_switch_prio;
+    sxd_bulk_cntr_shared_buffer_pool_t    pool;
+} sxd_bulk_cntr_buffer_layout_shared_buffer_t;
+
+typedef struct sxd_bulk_cntr_occupancy_statistics_list {
+    uint64_t               cnt;
+    sxd_buffer_occupancy_t statistics[2];       /* Master and slave */
+} sxd_bulk_cntr_occupancy_statistics_list_t;
+
+typedef struct sxd_bulk_cntr_headroom_statistic {
+    sxd_buffer_occupancy_t                    statistics;
+    sxd_bulk_cntr_occupancy_statistics_list_t occupancy_statistics_lst;
+} sxd_bulk_cntr_headroom_statistic_t;
+
+typedef struct sxd_bulk_cntr_headroom_port {
+    sxd_bulk_cntr_headroom_statistic_t port_pg[SXD_BULK_CNTR_PG_NUM];
+    sxd_bulk_cntr_headroom_statistic_t shared;
+    sxd_buffer_occupancy_t             shared_headroom_usage;
+} sxd_bulk_cntr_headroom_port_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_headroom {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint32_t                             port_mask[SXD_BULK_CNTR_PORT_MASK_NUM];
+    uint8_t                              port_width[SXD_BULK_CNTR_PORT_NUM];              /* port width */
+    sxd_bulk_cntr_headroom_port_t        headroom[SXD_BULK_CNTR_PORT_NUM];
+} sxd_bulk_cntr_buffer_layout_headroom_t;
+
+typedef struct sxd_macsec_cntr_sa_stats {
+    uint64_t in_pkts_unchecked; /**< InPktsUnchecked IEEE 802.1AE, MGT4-14 and InPktsInvalid IEEE 802.1AE, MGT4-18. */
+    uint64_t in_pkts_late;      /**< InPktsLate IEEE 802.1AE, MGT4-16 and InPktsDelayed, See IEEE 802.1AE, MGT4-15. */
+    uint64_t in_pkts_ok;        /**< InPktsOK, See IEEE 802.1AE, MGT4-17. */
+    uint64_t in_pkts_not_valid; /**< InPktsNotValid, See IEEE 802.1AE, MGT4-19. */
+} sxd_macsec_cntr_sa_stats_t;
+
+typedef struct sxd_macsec_acl_counter_set {
+    uint64_t packets_counter; /**< Packet counter */
+} sxd_macsec_acl_counter_set_t;
+
+/**
+ * MACSec Port Counter Group-0 Stats.
+ */
+typedef struct sxd_macsec_cntr_port_group0_stats {
+    uint64_t in_pkts_mtu;        /**< Packets greater than MTU */
+    uint64_t in_pkts_general;    /**< Frame too short; smac==dmac; ET Invalid; Tag allow; Encrypt Err */
+    uint64_t in_pn_overflow;     /**< PN Overflow Ingress */
+    uint64_t in_pause_pfc;       /**< PFC Pause Packets Ingress */
+    uint64_t in_eapol;           /**< EAPOL Packets Ingress(if EAPOL check passes) */
+    uint64_t in_buffer_overflow; /**< Ingress Buffer Overflow. Orthogonal to switch shared buffer overflow */
+    uint64_t out_pkts_general;   /**< Tag Allow; Encrypt Err */
+    uint64_t out_pn_overflow;    /**< PN Overflow Egress */
+    uint64_t out_pause_pfc;      /**< PFC Pause Packets Egress */
+    uint64_t out_eapol;          /**< EAPOL Packets Egress */
+} sxd_macsec_cntr_port_group0_stats_t;
+
+/**
+ * MACSec Port Counter Group-1 Stats.
+ */
+typedef struct sxd_macsec_cntr_port_group1_stats {
+    uint64_t in_pkts_untagged;      /**< InPktsUntagged; Ref IEEE 802.1AE, MGT4-8; After decryption */
+    uint64_t in_pkts_notag;         /**< InPktsNoTag; Ref IEEE 802.1AE, MGT4-9; After decryption */
+    uint64_t in_pkts_bad_tag;       /**< InPktsBadTag; Ref IEEE 802.1AE, MGT4-10; After decryption */
+    uint64_t in_pkts_no_sa_rcv;     /**< InPktsNoSARcv; Ref IEEE 802.1AE, MGT4-11; After decryption */
+    uint64_t in_pkts_no_sa_discard; /**< InPktsNoSADiscard; Ref IEEE 802.1AE, MGT4-12; After decryption */
+    uint64_t in_octets_validated;   /**< InOctetsValidated; Ref IEEE 802.1AE, MGT4-22; After decryption */
+    uint64_t in_octets_decrypted;   /**< InOctestDecrypted; Ref IEEE 802.1AE, MGT4-23 */
+    uint64_t in_pkts_too_long;      /**< MTU failure prior to decryption */
+    uint64_t out_pkts_untagged;     /**< OutPktsUntagged; Ref IEEE 802.1AE, MGT4-24; Also counts bypassed packets */
+    uint64_t out_pkts_too_long;     /**< OutPktsTooLong; Ref IEEE 802.1AE, MGT4-25 */
+    uint64_t out_octets_protected;  /**< OutPktsProtected; Ref IEEE 802.1AE, MGT4-28 */
+    uint64_t out_octets_encrypted;  /**< OutPktsEncrypted; Ref IEEE 802.1AE, MGT4-29 */
+} sxd_macsec_cntr_port_group1_stats_t;
+
+typedef enum sxd_macsec_dir {
+    SXD_MACSEC_DIR_INGRESS_E = 0x1,
+    SXD_MACSEC_DIR_EGRESS_E  = 0x2,
+    SXD_MACSEC_DIR_MIN_E     = SXD_MACSEC_DIR_INGRESS_E,
+    SXD_MACSEC_DIR_MAX_E     = SXD_MACSEC_DIR_EGRESS_E
+} sxd_macsec_dir_e;
+
+typedef struct sxd_bulk_cntr_buffer_layout_macsec_acl_flow {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint16_t                             port_index_map[SXD_BULK_CNTR_PORT_INDEX_MAP_SIZE]; /**< port counter index in the counters array,
+                                                                                             * value (MAX_PHYPORT_NUM + MAX_LAG_NUM) means the
+                                                                                             *  port is not expected. */
+    uint64_t                     number_of_counters;         /**< number of expected counters from the operation */
+    uint16_t                     base_entity_id;         /**< base counter ID of the range of ACL counters */
+    uint16_t                     reserved1;
+    sxd_macsec_dir_e             direction;
+    sxd_macsec_acl_counter_set_t counter_sets[0];            /**< set of acl counters */
+} sxd_bulk_cntr_buffer_layout_macsec_acl_flow_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_macsec_sa {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint64_t                             number_of_counters; /**< number of expected counters from the operation */
+    uint16_t                             base_entity_id; /**< base SA ID of the range of SA counters */
+    uint16_t                             uengine_id;
+    sxd_macsec_dir_e                     direction;
+    uint16_t                             local_port;
+    uint16_t                             reserved1;
+    uint32_t                             reserved2;
+    sxd_macsec_cntr_sa_stats_t           counter_sets[0];    /**< set of SA counters */
+} sxd_bulk_cntr_buffer_layout_macsec_sa_t;
+
+typedef enum sxd_bulk_cntr_macsec_port_grp {
+    SXD_BULK_CNTR_MACSEC_PORT_GRP_0_E   = 0x1,
+    SXD_BULK_CNTR_MACSEC_PORT_GRP_1_E   = 0x2,
+    SXD_BULK_CNTR_MACSEC_PORT_GRP_MIN_E = SXD_BULK_CNTR_MACSEC_PORT_GRP_0_E,
+    SXD_BULK_CNTR_MACSEC_PORT_GRP_MAX_E = SXD_BULK_CNTR_MACSEC_PORT_GRP_1_E
+} sxd_bulk_cntr_port_macsec_grp_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_macsec_port_mappings {
+    uint16_t port_index_map[SXD_BULK_CNTR_PORT_INDEX_MAP_SIZE]; /**< port counter index in the counters array, value (MAX_PHYPORT_NUM + MAX_LAG_NUM) means the port is not expected */
+    uint64_t counter_set_bitmap;                                /**< [0-1] bits - counter group */
+} sxd_bulk_cntr_buffer_layout_macsec_port_mappings_t;
+
+typedef struct sxd_macsec_port_cntr_composition {
+    sxd_macsec_cntr_port_group0_stats_t port_group0_stats;
+    sxd_macsec_cntr_port_group1_stats_t port_group1_stats;
+} sxd_macsec_port_cntr_composition_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_macsec_port {
+    sxd_bulk_cntr_buffer_layout_common_t               common;
+    sxd_bulk_cntr_buffer_layout_macsec_port_mappings_t mappings;
+    uint32_t                                           counters_size;  /**< The array size of counters */
+    uint32_t                                           reserved;  /**< To keep alignment to 64bit */
+    sxd_macsec_port_cntr_composition_t                 counters[0];
+} sxd_bulk_cntr_buffer_layout_macsec_port_t;
+
+/*
+ *   ATTENTION:
+ *   SWIG does not let API types to be a typedef of kernel user types.
+ *   Therefore, any changes to those struct MUST be applied to API as well!
+ */
+
+/**
+ * sxd_layout_elephant_flow_list is redefine of sx_cos_elephant_flow_ids_list_t.
+ */
+typedef struct sxd_layout_elephant_flow_list {
+    uint32_t flow_cnt;
+    uint8_t  flow_id_list[SXD_COS_ELEPHANT_FLOW_ID_NUM_MAX];
+} sxd_layout_elephant_flow_list_t;
+
+/**
+ * ku_elephant_flow_hash_data_t is redefine of sx_cos_elephant_flow_hash_data_t.
+ */
+typedef struct ku_elephant_flow_hash_data {
+    uint32_t hash_valid;
+    uint16_t lag_hash;
+    uint16_t router_hash;
+} ku_elephant_flow_hash_data_t;
+
+/**
+ * ku_pcp_dei_t is redefine of sx_cos_pcp_dei_t.
+ */
+typedef struct ku_pcp_dei {
+    uint8_t pcp;
+    uint8_t dei;
+} ku_pcp_dei_t;
+
+/**
+ * ku_elephant_flow_l2_data_t is redefine of sx_cos_elephant_flow_l2_data_t.
+ */
+typedef struct ku_elephant_flow_l2_data {
+    uint32_t             l2_type;
+    uint32_t             vlan_type;
+    struct sx_ether_addr smac;
+    struct sx_ether_addr dmac;
+    uint16_t             vid;
+    ku_pcp_dei_t         pcp_dei;
+    uint16_t             inner_vid;
+    ku_pcp_dei_t         inner_pcp_dei;
+} ku_elephant_flow_l2_data_t;
+
+
+/**
+ * struct sx_ip is redefine of sx_ip_addr_t.
+ */
+struct sx_ip {
+    uint8_t family;
+    union {
+        uint32_t ipv4;
+        uint32_t ipv6[4];
+    };
+};
+
+/**
+ * ku_elephant_flow_l3_data_t is redefine of sx_cos_elephant_flow_l3_data_t.
+ */
+typedef struct ku_elephant_flow_l3_data {
+    uint32_t     l3_type;
+    uint8_t      dscp;
+    uint8_t      ecn;
+    uint8_t      ttl;
+    uint32_t     dont_frag;
+    struct sx_ip dip;
+    struct sx_ip sip;
+} ku_elephant_flow_l3_data_t;
+
+/**
+ * ku_elephant_flow_l4_data_t is redefine of sx_cos_elephant_flow_l4_data_t.
+ */
+typedef struct ku_elephant_flow_l4_data {
+    uint32_t l4_type;
+    uint16_t l4_destination_port;
+    uint16_t l4_source_port;
+} ku_elephant_flow_l4_data_t;
+
+/**
+ * ku_elephant_flow_tunnel_extra_data_t is redefine of sx_cos_elephant_flow_tunnel_extra_data_t.
+ */
+typedef struct ku_elephant_flow_tunnel_extra_data {
+    uint32_t                   vni;
+    struct sx_ether_addr       smac;
+    struct sx_ether_addr       dmac;
+    ku_elephant_flow_l3_data_t inner_l3;
+} ku_elephant_flow_tunnel_extra_data_t;
+
+/**
+ * ku_mpls_label is redefine of sx_cos_mpls_label_t.
+ */
+typedef struct ku_mpls_label {
+    uint32_t label_valid;
+    uint32_t label_id;
+    uint8_t  ttl;
+} ku_mpls_label;
+
+/**
+ * ku_elephant_flow_mpls_extra_data_t is redefine of sx_cos_elephant_flow_mpls_extra_data_t.
+ */
+typedef struct ku_elephant_flow_mpls_extra_data {
+    ku_mpls_label mpls_labels[SXD_COS_ELEPHANT_MPLS_LABELS_MAX_CNT];
+    uint8_t       exp;
+    uint32_t      bos;
+} ku_elephant_flow_mpls_extra_data_t;
+
+/**
+ * ku_elephant_flow_extra_data_t is redefine of sx_cos_elephant_flow_extra_data_t.
+ */
+typedef struct ku_elephant_flow_extra_data {
+    uint32_t extra_data_key;
+    union {
+        ku_elephant_flow_tunnel_extra_data_t tunnel_extra_data;
+        ku_elephant_flow_mpls_extra_data_t   mpls_extra_data;
+    };
+} ku_elephant_flow_extra_data_t;
+
+/**
+ * ku_elephant_flow_data_value_t is redefine of sx_cos_elephant_flow_data_value_t.
+ */
+typedef struct ku_elephant_flow_data_value {
+    ku_elephant_flow_hash_data_t  hash;
+    ku_elephant_flow_l2_data_t    l2;
+    ku_elephant_flow_l3_data_t    l3;
+    ku_elephant_flow_l4_data_t    l4;
+    ku_elephant_flow_extra_data_t extra_data;
+} ku_elephant_flow_data_value_t;
+
+/**
+ * ku_elephant_flow_data_key_t is redefine of sx_cos_elephant_flow_data_key_t.
+ */
+typedef struct ku_elephant_flow_data_key {
+    uint8_t  flow_id;
+    uint32_t valid;
+} ku_elephant_flow_data_key_t;
+
+/**
+ * ku_elephant_flow_data_t is redefine of sx_cos_elephant_flow_data_t.
+ */
+typedef struct ku_elephant_flow_data {
+    ku_elephant_flow_data_key_t   data_key;
+    ku_elephant_flow_data_value_t data_value;
+} ku_elephant_flow_data_t;
+
+typedef struct sxd_bulk_cntr_buffer_layout_elephant {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    uint32_t                             port_mask[SXD_COS_ELEPHANT_PORT_MASK_NUM];
+    sxd_layout_elephant_flow_list_t      port_flows[SXD_COS_ELEPHANT_PORT_NUM_MAX];
+    ku_elephant_flow_data_t              data[0];
+} sxd_bulk_cntr_buffer_layout_elephant_t;
+
+/**
+ *  ku_stateful_db_acl_key_data_t is a redefine of sx_stateful_db_acl_key_data_t
+ */
+
+typedef struct ku_stateful_db_acl_key_data {
+    uint32_t key_id;
+    uint8_t  key_value[48];       /**< Max key value  */
+    uint32_t reserved;            /** for alignment */
+} ku_stateful_db_acl_key_data_t;
+
+/**
+ *  ku_stateful_db_key_data_t is a redefine of sx_stateful_db_key_data_t
+ */
+
+typedef struct ku_stateful_db_key_data {
+    ku_stateful_db_acl_key_data_t key_data_list_p[SXD_ACL_MAX_FIELDS_IN_KEY];
+    uint32_t                      reserved;
+    uint32_t                      key_data_list_cnt;
+} ku_stateful_db_key_data_t;
+
+/**
+ *  ku_stateful_db_entry_meta_t is a redefine of sx_stateful_db_entry_meta_t
+ */
+
+typedef struct ku_stateful_db_entry_meta {
+    uint32_t entry_activity;
+    uint32_t entry_sem_status;
+    uint16_t entry_sem_cnt;
+} ku_stateful_db_entry_meta_t;
+
+
+/**
+ * ku_stateful_db_key_data_t is a redefine of sx_stateful_db_entry_data_t
+ */
+typedef struct ku_stateful_db_entry_data {
+    uint64_t db_entry_value;
+} ku_stateful_db_entry_data_t;
+
+/**
+ * ku_stateful_db_key_id_t is a redefine of sx_stateful_db_key_id_t
+ */
+
+typedef uint32_t ku_stateful_db_key_id_t;
+
+typedef struct ku_stateful_db_entry {
+    uint32_t                    partition_id;
+    ku_stateful_db_entry_meta_t db_entry_meta;
+    ku_stateful_db_key_data_t   key_data;
+    ku_stateful_db_key_id_t     key_id;
+    ku_stateful_db_entry_data_t db_entry_data;
+} ku_stateful_db_entry_t;
+
+typedef struct ku_stateful_db_meta_layout {
+    uint32_t number_of_entries;            /* Number of entries received */
+    uint32_t number_of_entries_translated; /* Number of entries after translation */
+} ku_stateful_db_meta_layout_t;
+
+
+/**
+ *  ku_stateful_db_translated_entry_t is a redefine of sx_stateful_db_translated_entry_t
+ */
+typedef struct ku_stateful_db_translated_entry {
+    uint32_t                  entry_num;
+    ku_stateful_db_key_id_t   key_id;
+    ku_stateful_db_key_data_t key_data;
+} ku_stateful_db_translated_entry_t;
+
+
+typedef struct sxd_bulk_cntr_buffer_layout_stateful_db {
+    sxd_bulk_cntr_buffer_layout_common_t common;
+    ku_stateful_db_meta_layout_t         meta_layout;
+    ku_stateful_db_entry_t               data[0];
+} sxd_bulk_cntr_buffer_layout_stateful_db_t;
+
+struct sxd_bulk_cntr_params_port {
+    uint32_t                                    number_of_counters; /**< number of expected counters from the operation */
+    sxd_bulk_cntr_buffer_layout_port_mappings_t mappings;
+};
+struct sxd_bulk_cntr_params_flow {
+    uint32_t base_counter_id; /**< base counter ID of the range of flow counters */
+};
+struct sxd_bulk_cntr_params_shared_buffer {
+    uint32_t num_of_counters;
+    uint32_t sw_pool_id[SXD_BULK_CNTR_TOTAL_POOL_MAX_NUM];
+    uint32_t mc_pool_id;
+    uint32_t port_mask[SXD_BULK_CNTR_PORT_MASK_NUM];
+};
+struct sxd_bulk_cntr_params_headroom {
+    uint32_t num_of_counters;
+    uint32_t port_mask[SXD_BULK_CNTR_PORT_MASK_NUM];
+    uint8_t  port_width[SXD_BULK_CNTR_PORT_NUM];              /* port width */
+};
+struct sxd_bulk_cntr_params_elephant {
+    uint32_t port_mask[SXD_COS_ELEPHANT_PORT_MASK_NUM];
+};
+
+struct sxd_bulk_cntr_params_stateful_db {
+    uint32_t entries_num_max;
+};
+struct sxd_bulk_cntr_params_macsec_port {
+    uint32_t                                           number_of_counters;  /**< number of expected counters from the operation */
+    sxd_bulk_cntr_buffer_layout_macsec_port_mappings_t mappings;
+};
+struct sxd_bulk_cntr_params_macsec_acl_flow {
+    uint64_t base_entity_id;                             /**< base counter ID of the range of ACL counters */
+    uint16_t port_index_map[SXD_BULK_CNTR_PORT_INDEX_MAP_SIZE];                             /**< port counter index in the counters array,
+                                                                                             * value (MAX_PHYPORT_NUM + MAX_LAG_NUM) means the
+                                                                                             *  port is not expected */
+    sxd_macsec_dir_e direction;
+    uint32_t         number_of_counters;                     /**< number of expected counters from the operation */
+};
+
+struct sxd_bulk_cntr_params_macsec_sa {
+    uint16_t         uengine_id;
+    uint16_t         local_port;
+    uint32_t         reserved;
+    uint64_t         base_entity_id;                            /**< base SA ID of the range of SA counters */
+    sxd_macsec_dir_e direction;
+    uint32_t         number_of_counters;                        /**< number of expected counters from the operation */
+};
+
+union sxd_bulk_cntr_transaction_params {
+    struct sxd_bulk_cntr_params_port            port_params;
+    struct sxd_bulk_cntr_params_flow            flow_params;
+    struct sxd_bulk_cntr_params_shared_buffer   shared_buffer_params;
+    struct sxd_bulk_cntr_params_headroom        headroom_params;
+    struct sxd_bulk_cntr_params_elephant        elephant_params;
+    struct sxd_bulk_cntr_params_stateful_db     stateful_db_params;
+    struct sxd_bulk_cntr_params_flow            flow_estimator_params;
+    struct sxd_bulk_cntr_params_macsec_port     macsec_port_params;
+    struct sxd_bulk_cntr_params_macsec_acl_flow macsec_acl_flow_params;
+    struct sxd_bulk_cntr_params_macsec_sa       macsec_sa_params;
+};
+
+typedef union sxd_bulk_cntr_event_id {
+    struct {
+        uint64_t id : 24,        /* running counter                        */
+                 type      : 8,  /* type of transaction: PPCNT, MGPCB, ... */
+                 client_id : 32; /* client process-ID                      */
+    } event_id_fields;
+    uint64_t event_id_value;
+} sxd_bulk_cntr_event_id_t;
+
+enum sxd_bulk_cntr_done_status_e {
+    SXD_BULK_CNTR_DONE_STATUS_OK,
+    SXD_BULK_CNTR_DONE_STATUS_CANCELED,
+    SXD_BULK_CNTR_DONE_STATUS_ERROR,
+    SXD_BULK_CNTR_DONE_STATUS_PARTIALLY_COMPLETE,
+};
+
+/**
+ * ku_bulk_cntr_transaction_add is used to store the data of the CTRL_CMD_BULK_CNTR_TR_ADD ioctl
+ */
+struct ku_bulk_cntr_transaction_add {
+    unsigned long                          buffer_id; /**< buffer ID */
+    sxd_bulk_cntr_event_id_t               event_id; /**< event-ID of the transaction */
+    union sxd_bulk_cntr_transaction_params params; /**< per-type transaction parameters */
+};
+
+/**
+ * ku_bulk_cntr_transaction_poll is used to store the data of the CTRL_CMD_BULK_CNTR_TR_POLL ioctl
+ */
+struct ku_bulk_cntr_transaction_ack {
+    unsigned long            buffer_id;         /**< buffer ID */
+    sxd_bulk_cntr_event_id_t event_id;          /**< event-ID of the transaction */
+};
+
+/**
+ * ku_bulk_cntr_transaction is used to call DEL/CANCEL/IN_PROGRESS ioctl
+ */
+struct ku_bulk_cntr_transaction {
+    pid_t         client_pid; /**< process ID that keeps the buffer */
+    unsigned long buffer_id; /**< buffer ID */
+    uint32_t      type; /**< In parameter, pass session type between user and kernel space, needed for IN_PROGRESS ioctl */
+    uint8_t       in_progress; /**< Out parameter, needed for IN_PROGRESS ioctl */
+};
+
+/**
+ * This event is generated by the SDK driver to notify the user that an asynchronous bulk-counter
+ * transaction has finished/canceled.
+ */
+typedef struct sxd_bulk_counter_done_notification {
+    /*
+     *   ATTENTION:
+     *   SWIG does not let sx_bulk_counter_done_notification_t to be a typedef of sxd_bulk_counter_done_notification_t.
+     *   Therefore, any changes to this struct MUST be applied to sx_bulk_counter_done_notification_t as well!
+     */
+
+    enum sxd_bulk_cntr_done_status_e status; /**< canceled, done_ok, done_error */
+    unsigned long                    buffer_id; /**< buffer ID */
+    uint32_t                         cookie; /**< User cookie */
+} sxd_bulk_counter_done_notification_t;
+
+typedef struct sxd_port_per_prio_counter_cache {
+    sxd_port_cntr_prio_t counters[MAX_PHYPORT_NUM + 1][SXD_PORT_PRIO_ID_MAX - SXD_PORT_PRIO_ID_MIN + 1];
+} sxd_port_per_prio_counter_cache_t;
+
+struct ku_bulk_cntr_per_prio_cache {
+    pid_t         pid;
+    unsigned long user_ptr;
+    uint8_t       is_set;
+};
+struct ku_client_pid_get {
+    pid_t pid;
+};
+
+typedef enum sxd_span_mirror_reason {
+    SXD_SPAN_MIRROR_REASON_INVALID_E                = 0,
+    SXD_SPAN_MIRROR_REASON_ING_PORT_E               = 1,
+    SXD_SPAN_MIRROR_REASON_ACL_E                    = 2,
+    SXD_SPAN_MIRROR_REASON_ING_SHARED_BUFFER_DROP_E = 8,
+    SXD_SPAN_MIRROR_REASON_ING_WRED_E               = 9,
+    SXD_SPAN_MIRROR_REASON_ING_PG_CONGESTION_E      = 10,
+    SXD_SPAN_MIRROR_REASON_ING_TC_CONGESTION_E      = 11,
+    SXD_SPAN_MIRROR_REASON_EGR_TC_LATENCY_E         = 12,
+    SXD_SPAN_MIRROR_REASON_EGR_ECN_E                = 13,
+    SXD_SPAN_MIRROR_REASON_EGR_PORT_E               = 14,
+    SXD_SPAN_MIRROR_REASON_TRAP_GROUP_E             = 15,
+    SXD_SPAN_MIRROR_REASON_MIN_E                    = SXD_SPAN_MIRROR_REASON_INVALID_E,
+    SXD_SPAN_MIRROR_REASON_MAX_E                    = SXD_SPAN_MIRROR_REASON_TRAP_GROUP_E,
+} sxd_span_mirror_reason_e;
+
+/**
+ * ku_buffer_drop_params is used to call CTRL_CMD_BUFFER_DROP_PARAMS ioctl
+ */
+struct ku_buffer_drop_params {
+    uint8_t  is_set; /**< Set/unset the buffer drop parameters .*/
+    uint16_t trap_id; /**< The trap ID configured by user for buffer drop, ignored when is_set is 0. */
+};
+
+typedef enum sxd_map_memory_type {
+    SXD_MAP_MEMORY_TYPE_FW_LOAD_E          = 0,
+    SXD_MAP_MEMORY_TYPE_PORT_PROFILE_MEM_E = 1,
+    SXD_MAP_MEMORY_TYPE_MIN_E              = SXD_MAP_MEMORY_TYPE_FW_LOAD_E,
+    SXD_MAP_MEMORY_TYPE_MAX_E              = SXD_MAP_MEMORY_TYPE_PORT_PROFILE_MEM_E
+} sxd_map_memory_type_e;
+
+
+/**
+ * ku_map_mem is used to call CTRL_CMD_MAP_FW_MEMORY_TO_CPU ioctl
+ */
+struct ku_map_memory {
+    uint8_t               dev_id; /**< dev_id - device id */
+    uint16_t              mem_size; /**< Size of memory to map: total = (mem_size * 4K) */
+    sxd_map_memory_type_e mem_type; /**< Type of memory */
+};
+
+typedef struct sxd_bulk_cntr_refresh_attr {
+    uint32_t cookie; /**< User cookie */
+} sxd_bulk_cntr_refresh_attr_t;
+
+/**
+ * This event is generated by the SDK driver to notify the user that an asynchronous bulk-counter
+ * refresh has finished/canceled.
+ */
+typedef struct sxd_bulk_cntr_refresh_done_notification {
+    /*
+     *   ATTENTION:
+     *   SWIG does not let sx_bulk_cntr_refresh_done_notification_t to be a typedef of sxd_bulk_counter_done_notification_t.
+     *   Therefore, any changes to this struct MUST be applied to sx_bulk_cntr_refresh_done_notification_t as well!
+     */
+    sxd_bulk_cntr_refresh_attr_t counter_refresh_attr;
+} sxd_bulk_cntr_refresh_done_notification_t;
+
+
+typedef enum ku_accuflow_counters_params_op {
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_INVALID_E = 0,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_INIT_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_DEINIT_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_CLEAR_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_READ_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_TRASACTION_START_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_TRASACTION_RESERVATION_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_ALLOC_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_MOVE_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_MIN_E = KU_ACCUFLOW_COUNTERS_PARAMS_OP_INIT_E,
+    KU_ACCUFLOW_COUNTERS_PARAMS_OP_MAX_E = KU_ACCUFLOW_COUNTERS_PARAMS_OP_MOVE_E,
+} ku_accuflow_counters_params_op_e;
+
+typedef struct ku_accuflow_counters_params_data_init {
+    uint32_t prm_counters_num;
+    uint16_t packets_inc_unit;
+    uint16_t bytes_inc_unit;
+    uint32_t prm_cntr_lines_per_bank;
+    uint8_t  prm_cntr_banks;
+    uint8_t  prm_cntr_lines_flow_both;
+    uint8_t  prm_cntr_type_flow_both;
+    uint32_t prm_cntr_start_idx_offset;
+} ku_accuflow_counters_params_data_init_t;
+
+typedef struct ku_accuflow_counters_params_data_deinit {
+    uint32_t reserved;
+} ku_accuflow_counters_params_data_deinit_t;
+
+typedef struct ku_accuflow_counters_params_data_clear {
+    uint32_t prm_counter_idx;
+    uint32_t num_of_counters;
+} ku_accuflow_counters_params_data_clear_t;
+
+typedef struct ku_accuflow_counters_params_data_read {
+    uint32_t               prm_counter_idx;
+    uint32_t               num_of_counters;
+    sxd_flow_counter_set_t counters_values[0];
+} ku_accuflow_counters_params_data_read_t;
+
+typedef struct ku_accuflow_counters_params_data_transaction {
+    sxd_boolean_t            cancel; /**< Disable transaction that is currently in progress */
+    uint32_t                 base_counter_id; /**< base counter ID of the range of flow counters */
+    uint32_t                 prm_counter_id;
+    uint32_t                 num_of_counters;
+    sxd_bulk_cntr_event_id_t ev_id;
+    unsigned long            buffer_id;
+    sxd_boolean_t            clear;
+    sxd_boolean_t            flush;
+} ku_accuflow_counters_params_data_transaction_t;
+
+enum ku_accuflow_counters_params_data_tr_reservation_action_e {
+    KU_ACCUFLOW_COUNTERS_PARAMS_DATA_TR_RESERVATION_ACTION_ACQUIRE_E = 0,
+    KU_ACCUFLOW_COUNTERS_PARAMS_DATA_TR_RESERVATION_ACTION_RELEASE_E
+};
+
+typedef struct ku_accuflow_counters_params_data_tr_reservation {
+    enum ku_accuflow_counters_params_data_tr_reservation_action_e action;
+    sxd_bulk_cntr_refresh_attr_t                                  refresh_attr;
+} ku_accuflow_counters_params_data_tr_reservation_t;
+
+typedef struct ku_accuflow_counters_params_data_alloc {
+    uint32_t prm_counter_idx;
+    uint32_t num_of_counters;
+} ku_accuflow_counters_params_data_alloc_t;
+
+typedef struct ku_accuflow_counters_params_data_move {
+    uint32_t old_prm_counter_idx;
+    uint32_t new_prm_counter_idx;
+    uint32_t num_of_counters;
+} ku_accuflow_counters_params_data_move_t;
+
+typedef union ku_accuflow_counters_params_data {
+    ku_accuflow_counters_params_data_init_t           init_data;
+    ku_accuflow_counters_params_data_deinit_t         deinit_data;
+    ku_accuflow_counters_params_data_clear_t          clear_data;
+    ku_accuflow_counters_params_data_read_t           read_data;
+    ku_accuflow_counters_params_data_transaction_t    transaction_data;
+    ku_accuflow_counters_params_data_tr_reservation_t tr_reservation;
+    ku_accuflow_counters_params_data_alloc_t          alloc_data;
+    ku_accuflow_counters_params_data_move_t           move_data;
+} ku_accuflow_counters_params_data_t;
+
+/**
+ * ku_accuflow_cmd_params is used to call CTRL_CMD_ACCUFLOW_COUNTERS ioctl
+ */
+typedef struct ku_accuflow_counters_params {
+    ku_accuflow_counters_params_op_e   op;
+    ku_accuflow_counters_params_data_t op_data;
+} ku_accuflow_counters_params_t;
+
+typedef struct ku_port_module_map_set_params {
+    uint8_t       dev_id;
+    sxd_boolean_t is_set;
+    uint16_t      local_port;
+    uint8_t       slot_id;
+    uint8_t       module_id;
+} ku_port_module_map_set_params_t;
+
+typedef struct ku_port_module_update_params {
+    uint16_t local_port;
+    uint8_t  admin_status;
+    uint8_t  slot_id;
+    uint8_t  module_id;
+} ku_port_module_update_params_t;
+
+typedef enum sxd_macsec_ucheck_id {
+    SXD_UCHECK_ID_INGRESS_MTU_EVENT_E = 0x30,
+    SXD_UCHECK_ID_TAG_ALLOW_E         = 0x50,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_0_E  = 0x60,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_1_E  = 0x61,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_2_E  = 0x62,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_3_E  = 0x63,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_4_E  = 0x64,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_5_E  = 0x65,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_6_E  = 0x66,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_7_E  = 0x67,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_8_E  = 0x68,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_9_E  = 0x69,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_10_E = 0x6A,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_11_E = 0x6B,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_12_E = 0x6C,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_13_E = 0x6D,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_14_E = 0x6E,
+    SXD_UCHECK_ID_UTCAM_EVENT_ID_15_E = 0x6F,
+    SXD_UCHECK_ID_NO_SECTAG_E         = 0x80,
+    SXD_UCHECK_ID_SECTAG_ERROR_E      = 0x81,
+    SXD_UCHECK_ID_ENCRYPT_ERROR_E     = 0x84,
+} sxd_macsec_ucheck_id_e;
+
+#define SXD_IBSNI_IPV4_RECORD_NUM 4
+
+#define SXD_IBSNI_IPV6_NUM 4
+
+#define SXD_IBSNI_NETMASK_NUM 4
+
+#define SXD_IBSNI_IPV6_RECORD_NUM 4
+
+typedef struct sxd_ibsni_ipv4_record {
+    uint32_t ipv4;
+    uint32_t netmask;
+} sxd_ibsni_ipv4_record_t;
+
+typedef struct sxd_ibsni_ipv6_record {
+    uint32_t ipv6[SXD_IBSNI_IPV6_NUM];
+    uint32_t netmask[SXD_IBSNI_NETMASK_NUM];
+} sxd_ibsni_ipv6_record_t;
+
+/**
+ * ku_ibsni_reg structure is used to store the IBSNI register parameters
+ */
+struct ku_ibsni_reg {
+    sxd_ibsni_ipv4_record_t ipv4_record[SXD_IBSNI_IPV4_RECORD_NUM];
+    sxd_ibsni_ipv6_record_t ipv6_record[SXD_IBSNI_IPV6_RECORD_NUM];
+};
+
+/**
+ * ku_access_ibsni_reg structure is used to store the access register IBSNI command parameters
+ */
+struct ku_access_ibsni_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_ibsni_reg     ibsni_reg; /**< ibsni_reg - ibsni register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+/**
+ * ku_access_slcr_reg structure is used to store the access register SLCR command parameters
+ */
+struct ku_access_slcr_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_slcr_reg      slcr_reg; /**< slcr_reg - slcr register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+struct ku_mopir_v2_reg {
+    uint16_t       dst_port; /* The local port the packet is forwarded to; Reserved when dr=0; */
+    uint8_t        is_control; /* 0: data packet; 1: control packet */
+    uint16_t       packet_length; /* packet length in bytes */
+    const uint8_t *packet;   /* Packet data; Max packet size is 1712Bytes. */
+};
+
+/**
+ * ku_access_mopir_v2_reg structure is used to store the access register MOPIR_V2 command parameters
+ */
+struct ku_access_mopir_v2_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_mopir_v2_reg  mopir_v2_reg; /**< mopir_v2_reg - mopir_v2 register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+struct ku_mopr_reg {
+    uint8_t  op;            /* 0: read packet; 1: read packet and clear buffer */
+    uint16_t packet_length; /* received packet length */
+    uint8_t  cqe_v2[32];    /* Packet's CQE_v2 */
+    uint8_t *packet;        /* Packet data; Max packet size is 1712Bytes. */
+};
+
+/**
+ * ku_access_mopr_reg structure is used to store the access register MOPR command parameters
+ */
+struct ku_access_mopr_reg {
+    struct ku_operation_tlv op_tlv; /**< op_tlv - operation tlv struct */
+    struct ku_mopr_reg      mopr_reg; /**< mopr_reg - mopr register tlv */
+    uint8_t                 dev_id; /**< dev_id - device id */
+};
+
+# define SXD_MNVDA_TYPE_INDEX_NV_SWITCH_CONF 0x100
+# define SXD_MNVDA_TYPE_CLASS_NV_SWITCH_CONF 0x8
+# define SXD_MNVDA_LENGTH_NV_SWITCH_CONF     0x8
+
+typedef struct ku_nv_switch_conf {
+    sxd_boolean_t das;          /* Disable Auto-Split */
+    sxd_boolean_t is_nvlink;    /* 0: IB; 1: NVlink */
+    uint8_t       split_mode;   /* 0: NO_SPLIT_SUPPORT; 1: SPLIT_2X */
+} ku_nv_switch_conf_t;
+
+struct ku_mnvda_nv_switch_conf_reg {
+    uint8_t             valid;             /* 0: invalid_data; 1: illegal; 2: valid_data; 3:free */
+    uint8_t             length;            /* Length of configuration item data */
+    uint32_t            type_class_index;
+    uint16_t            crc16;
+    ku_nv_switch_conf_t nv_switch_conf;
+};
+
+/**
+ * ku_access_mnvda_nv_switch_conf_reg structure is used to store the access register MNVDA NV_SWITCH_CONF command parameters
+ */
+struct ku_access_mnvda_nv_switch_conf_reg {
+    struct ku_operation_tlv            op_tlv;                      /**< op_tlv - operation tlv struct */
+    struct ku_mnvda_nv_switch_conf_reg mnvda_nv_switch_conf_reg;    /**< mnvda_nv_switch_conf_reg - mnvda_nv_switch_conf register tlv */
+    uint8_t                            dev_id;                      /**< dev_id - device id */
+};
+
+/* make sure that PAGE_SIZE is defined the same in user/kernel spaces */
+#if !defined(__KERNEL__)
+#define PAGE_SIZE 4096
+#else
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+static_assert(PAGE_SIZE == 4096, "Page size is not 4096B");
+#endif
+#endif
+
+#define EVENT_SIZE_IN_BYTES (sizeof(uint64_t))
+/**
+ * ku_host_mem_read_page structure is used to store the hot memory read parameters
+ */
+struct ku_host_mem_read_page {
+    uint8_t      dev_id;                          /**< dev_id - Device ID */
+    unsigned int page_index;                          /**< address - Address to read from */
+    uint64_t     pg_data_arr[PAGE_SIZE / EVENT_SIZE_IN_BYTES];                          /**< data - Buffer to read into */
+};
 
 /* Please, do not move this include.
  *  It includes auto generated code which uses data defined in this file. */
@@ -9981,6 +11375,35 @@ typedef enum sxd_trap_id {
 #else
 #include "auto_registers/kernel_user_auto.h"
 #endif
+
+#define SX_DEV_INFO_F_DEV_PROFILE_SET   (1ULL << 0)
+#define SX_DEV_INFO_F_PCI_PROFILE_SET   (1ULL << 1)
+#define SX_DEV_INFO_F_PCI_PROBE_FAILURE (1ULL << 2)
+struct sx_device_info_read_only {
+    sxd_chip_types_t          chip_type;
+    enum sxd_fw_boot_status_e fw_boot_status;
+    uint64_t                  flags;
+    struct ku_mgir_reg        mgir;
+    struct ku_query_fw        q_fw;
+};
+
+struct sx_device_info_set {
+    uint8_t sdk_folder_path[SXD_DIR_NAME_MAX_LEN + 1];
+};
+
+struct sx_device_info {
+    struct sx_device_info_read_only dev_info_ro;
+    struct sx_device_info_set       dev_info_set;
+};
+
+
+/**
+ *  ku_dev_info structure is used to store the device id and the device info parameters
+ */
+struct ku_dev_info {
+    uint8_t               dev_id;     /**< dev_id - device id */
+    struct sx_device_info dev_info;     /**< dev_info - read-only information */
+};
 
 #endif /* KERNEL_USER_H_ */
 

@@ -1,0 +1,38 @@
+Copy the whole directory which contains this README to some folder on the machine where you plan to build the linux kernel,
+then execute "./apply_patches_example.sh -d <your_linux_kernel_source_folder>".
+
+Patch                                                                      Upstream-Commit                             From-Kernel-Version
+==========================================================================================================================================
+0001-drop_monitor-work-around-gcc-10-stringop-overflow-wa.patch            dc30b4059f6e2abf3712ab537c8718562b21c45d    5.7
+0001-psample-new-attr-tc-tc-occ-latency.patch                              07e1a5809b595df6e125504dff6245cb2c8ed3de    5.13
+0002-drop_monitor-Use-correct-error-code.patch                             2230a7ef5198632bdbf844fcf0abdd7958a6ac7d    5.4
+0003-drop_monitor-Rename-and-document-scope-of-mutex.patch                 dbf896b70d4a4bdbd10aec060af42d7c70e6a88d    5.4
+0004-drop_monitor-Document-scope-of-spinlock.patch                         01921d53f870653f04ebf8d3c375029ee3ca4a31    5.4
+0005-drop_monitor-Avoid-multiple-blank-lines.patch                         ff3818ca39c9f9ce07c4d50db594b9673dfa422c    5.4
+0006-drop_monitor-Add-extack-support.patch                                 965100966efe85e636178166fbf006e9b74f78d4    5.4
+0007-drop_monitor-Use-pre_doit-post_doit-hooks.patch                       b19d955055480ac4e03f5afec0ca80f0de7b7013    5.4
+0008-drop_monitor-Split-tracing-enable-disable-to-differe.patch            7c747838a55818fd0cdbe48afd98fba726aa898d    5.4
+0009-drop_monitor-Initialize-timer-and-work-item-upon-tra.patch            70c69274f354ecb905cd46449111e73b17dedaad    5.4
+0010-drop_monitor-Reset-per-CPU-data-before-starting-to-t.patch            44075f563793880d17d1a2f3a17e06835b157d07    5.4
+0011-drop_monitor-Require-CAP_NET_ADMIN-for-drop-monitor-.patch            c5ab9b1c41f6d89d84fe147e51fe623f90bd026c    5.4
+0012-drop_monitor-Add-alert-mode-operations.patch                          28315f7999870bb56da236f6b4ffce63efcc7897    5.4
+0013-drop_monitor-Add-packet-alert-mode.patch                              ca30707dee2bc8bc81cfd8b4277fe90f7ca6df1f    5.4
+0014-drop_monitor-Allow-truncation-of-dropped-packets.patch                57986617a736aec2980c1c78a9dd8dcdf477ee6e    5.4
+0015-drop_monitor-Add-a-command-to-query-current-configur.patch            444be061d012f1a8ebf95292a648a4e0e2afa83f    5.4
+0016-drop_monitor-Make-drop-queue-length-configurable.patch                30328d46af593dcf24582f2a431d84ea0cf4bdef    5.4
+0017-drop_monitor-Expose-tail-drop-counter.patch                           e9feb58020f952f7d9de785ede9a7d54ab1eda5c    5.4
+0018-drop_monitor-Move-per-CPU-data-init-fini-to-separate.patch            9b63f57d4ab981e18e35def3349040527ead93c3    5.4
+0019-drop_monitor-Initialize-hardware-per-CPU-data.patch                   cac1174fa17f2cf5d504cbe00c0053f0b9e3b58d    5.4
+0020-drop_monitor-Add-basic-infrastructure-for-hardware-d.patch            edd3d0074c256848bbf5805350b39d40b1e2bf2b    5.4
+0021-drop_monitor-Consider-all-monitoring-states-before-p.patch            80cebed85c88e71fb435b9eb5948548f10f15cba    5.4
+0022-drop_monitor-Add-support-for-packet-alert-mode-for-h.patch            5e58109b1ea454b93e455e0e8fc0bc4c226b8c0a    5.4
+0023-drop_monitor-Add-support-for-summary-alert-mode-for-.patch            d40e1deb930f4bd51a5214983e50aafc26db686e    5.4
+0024-drop_monitor-Allow-user-to-start-monitoring-hardware.patch            8e94c3bc922e70225bd35891c8e6002bddd984eb    5.4
+0025-drop_monitor-Make-timestamps-y2038-safe.patch                         bd1200b79510a68554890af2f48d92be6eb1daf8    5.4
+0026-drop_monitor-Better-sanitize-notified-packets.patch                   bef17466811b9f559d1dba3ebbfbd01a880c89a2    5.4
+0027-net-drop_monitor-Use-kstrdup.patch                                    72d62c4e422ed2380a2acd51747789b48146e4ee    5.6
+0028-drop_monitor-Do-not-cancel-uninitialized-work-item.patch              dfa7f709596be5ca46c070d4f8acbb344322056a    5.6
+0029-flow_offload-pass-action-cookie-through-offload-structures.patch      2008495d81159a66de4dc3ee4252a5fc60294a82    5.7
+0030-drop_monitor-extend-by-passing-cookie-from-driver.patch               742b8cceaabc3ed09d4c4d527d9c6311c4925545    5.7
+0031-net-drop_monitor-use-IS_REACHABLE-to-guard-net_dm_hw.patch            1cd9b3abf5332102d4d967555e7ed861a75094bf    5.7
+0032-drop_monitor-Extend-WJH-buffer-linux-channel.patch                    N/A                                         N/A
